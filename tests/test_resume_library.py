@@ -24,7 +24,7 @@ from applypilot.scoring import tailor
 
 
 def test_resume_taxonomy_version_tracks_routing_term_changes() -> None:
-    assert TAXONOMY_VERSION == "resume-library-v8"
+    assert TAXONOMY_VERSION == "resume-library-v9"
 
 
 def test_resume_route_cli_exposes_explicit_candidate_selection() -> None:
@@ -466,7 +466,7 @@ def test_taxonomy_v5_ignores_v4_coverage_until_sync_rebuilds_it(tmp_path: Path) 
             "SELECT taxonomy_version FROM resume_coverage_cells"
         ).fetchall()
     }
-    assert versions == {"resume-library-v4", "resume-library-v8"}
+    assert versions == {"resume-library-v4", "resume-library-v9"}
     artifact = conn.execute(
         "SELECT track FROM resume_artifacts WHERE kind='tailored'"
     ).fetchone()

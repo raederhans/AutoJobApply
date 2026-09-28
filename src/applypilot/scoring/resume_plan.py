@@ -222,7 +222,7 @@ def _entry_budgets(
                 "priority": "primary" if is_primary else "supporting",
                 "bullet_budget": initial,
                 "recency_cap": max_bullets,
-                "retirement_allowed": index != 0,
+                "retirement_allowed": True,
             }
         )
 
@@ -375,6 +375,8 @@ def format_content_plan(plan: Mapping[str, object]) -> str:
     lines.append(
         "EXPERIENCE entries must remain in reverse chronological order (newest/current first) using preserved dates. "
         "PROJECTS entries may freely reorder by relevance to the target role. "
+        "Omit weakly relevant entries without a fixed deletion quota; retain at least one substantive experience. "
+        "Make supported project purpose and intended users clear before technical detail, especially for product roles. "
         "Relevance controls detail and bullet allocation; more relevant entries may receive more bullets "
         "without hard recency hierarchy constraints. Treat budgets as directional: never invent or pad "
         "content to hit a number. Actual PDF fit and factual evidence override the preset."

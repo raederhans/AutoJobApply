@@ -65,7 +65,7 @@ def test_content_plan_selects_role_preset_and_prioritizes_jd_evidence() -> None:
 
     assert plan["preset"] == "technical_project"
     assert plan["page_intent"] == "one_page_preferred"
-    assert plan["experience"][0]["retirement_allowed"] is False
+    assert plan["experience"][0]["retirement_allowed"] is True
     assert plan["projects"][0]["priority"] == "primary"
     assert plan["projects"][0]["bullet_budget"] >= 2
 

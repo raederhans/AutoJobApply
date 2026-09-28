@@ -161,19 +161,12 @@ def _build_tailor_prompt(profile: dict, source_has_projects: bool = True) -> str
     # what will be rejected — the validator checks for these automatically.
     banned_str = ", ".join(BANNED_WORDS)
 
-    multi_page_min_fill = float(
-        profile.get("tailoring", {})
-        .get("resume_layout", {})
-        .get("multi_page_last_page_min_fill_ratio", 0.4)
-        or 0.4
-    )
     length_guidance = (
         "This selected source includes projects. Preserve only the projects that materially improve "
         "the match. For an internship or current-student application, prefer one readable page when "
         "the strongest evidence fits. Use two pages when multiple "
-        "distinct evidence areas are needed, but the final page must contain enough role-relevant content "
-        f"to occupy at least {multi_page_min_fill:.0%} of a normally filled page. Otherwise select more "
-        "aggressively and use one page. Word counts are guidance, never a reason to pad, shrink fonts, "
+        "distinct evidence areas are needed. Review sparse pages for avoidable breaks or weak allocation; "
+        "page fill is advisory. Word counts are guidance, never a reason to pad, shrink fonts, "
         "or delete decisive evidence."
         if source_has_projects else
         "This selected source has no project section. Do not invent one. Prefer one readable page, "
@@ -185,10 +178,10 @@ def _build_tailor_prompt(profile: dict, source_has_projects: bool = True) -> str
 Take the base resume and job description. Return a tailored resume as a JSON object.
 
 ## RECRUITER SCAN (6 seconds):
-1. Summary -- concise, role-specific, and source-proven
+1. Opening evidence -- role-specific and source-proven; summary only if useful
 2. Education -- early for internships and current students
 3. First 3 bullets of most recent role -- verbs and outcomes match?
-4. Skills -- must-haves visible immediately?
+4. Skills and projects -- are the strongest relevant proof points visible early?
 
 ## SKILLS BOUNDARY (real skills only):
 {skills_block}
@@ -201,9 +194,9 @@ TARGET FUNCTION: Return the target function in `title` for routing and internshi
 
 EXPERIENCE IDENTITY: Never rename an employer or employment title. In every experience object, copy the exact company into `header` and preserve the exact source role in `subtitle`. Preserve dates and seniority. Target-job language belongs in the summary and bullets, not in past titles.
 
-SUMMARY: Optional; use an empty string when it adds no distinct value. Source resumes may intentionally omit it; do not add generic filler. When present, tailor it to the role. Lead with the 1-2 source-proven skills that matter most for THIS role. Prefer one or two compact sentences, normally about 26-45 words total. Use the full line width efficiently: do not add a very short closing sentence, and ensure the final sentence contains at least 8 words. Every statement about work performed, data analyzed, experiments run, users served, domains covered, or outcomes achieved must be supported by the selected source. Do not turn a JD responsibility into candidate history. Target-role framing is allowed; invented experience is not. In particular, do not copy a JD-only action or domain term into the summary unless that term, or the same factual work, appears in the selected source. Never join two sector domains (for example, legal and planning) into one work claim unless a single source bullet explicitly contains both domains; split the facts into separate sentences or omit the weaker domain.
+SUMMARY: Optional; use an empty string when it adds no distinct value. Source resumes may intentionally omit it; do not add generic filler. When present, tailor it to the role. Lead with the 1-2 source-proven skills that matter most for THIS role. Prefer one or two compact sentences, normally about 26-45 words total. Prefer concise complete sentences; short closing sentences are an editorial consideration, never a minimum-word requirement. Every statement about work performed, data analyzed, experiments run, users served, domains covered, or outcomes achieved must be supported by the supplied candidate evidence. Do not turn a JD responsibility into candidate history. Target-role framing is allowed; invented experience is not. In particular, do not copy a JD-only action or domain term into the summary unless that term, or the same factual work, appears in the selected source. Never join two sector domains (for example, legal and planning) into one work claim unless a single source bullet explicitly contains both domains; split the facts into separate sentences or omit the weaker domain.
 
-SECTION ORDER: For an internship, trainee, co-op, or current-student target, use Summary, Education, Technical Skills, Experience, Projects. For other roles, use Summary, Technical Skills, Experience, Projects, Education. The renderer applies this rule automatically; keep all education facts in `education`.
+SECTION ORDER: Keep education early for internships. You may return `section_order` containing each of SUMMARY, EDUCATION, TECHNICAL SKILLS, EXPERIENCE, PROJECTS exactly once. Choose the order that exposes the strongest role-relevant evidence early, including projects before experience when justified. A skills inventory must not crowd out concrete proof. The renderer falls back to the configured order if the proposed order is incomplete. Keep all education facts in `education`.
 
 EDUCATION: Return a JSON array with exactly one complete institution/degree/date record per item, in source order. Never combine multiple schools into one string or paragraph. Preserve only source-supported GPA/status details.
 
@@ -213,21 +206,29 @@ SKILLS: Reorder each category so the job's must-haves appear first.
 
 Order EXPERIENCE entries from current/most recent to oldest using their preserved dates. PROJECT entries may be freely reordered by JD relevance; project dates must remain accurate. Reorder bullets inside each entry by relevance. Rephrase only where the new wording is more useful and preserves exactly the same action, ownership, scope, tools, metric, and outcome. Verbatim source wording is allowed and preferred when rewriting would weaken factual precision.
 
-PAGE LENGTH: One or two readable pages are both acceptable. Never sacrifice a relevant, supported project just to force one page. The source resume may omit projects; add a clearly sourced project from supplemental evidence when it materially helps this role.
+PAGE LENGTH: One or two readable pages are both acceptable. Aim for a professionally filled first page with normal margins and readable typography. If selection leaves substantial empty space, restore relevant omitted experience, project context, product decisions or delivery/validation detail before accepting the sparse layout. Prioritize useful evidence over aggressive shortening; never add filler. Never sacrifice a relevant, supported project just to force one page. The source resume may omit projects; add a clearly sourced project from supplemental evidence when it materially helps this role.
 
-EXPERIENCE AND PROJECT SELECTION: In EXPERIENCE, retire at most one low-relevance source entry and preserve the most recent experience. Choose PROJECTS by relevance; a newer project is not automatically more valuable. Keep at least one entry in each source-present section, and give every retained entry at least one substantive bullet. Allocate detail by JD relevance and the strength of sourced evidence. A relevant older experience may receive more bullets than a newer entry. Bullet counts and word targets are guidance, not reasons to invent, pad, or delete decisive evidence.
+EXPERIENCE AND PROJECT SELECTION: Select experiences by relevance and evidence strength, without a fixed deletion quota. Review omission of the most recent experience carefully, but do not retain an irrelevant entry solely for recency. Keep at least one substantive experience when the source has experience; every retained entry needs a substantive bullet. Choose PROJECTS by relevance; a newer project is not automatically more valuable. A relevant older experience may receive more bullets than a newer entry. Bullet counts and word targets are guidance, not reasons to invent, pad, or delete decisive evidence.
 
 PROJECTS: {"Keep the most relevant source projects and preserve each project identity." if source_has_projects else "Return an empty projects list unless supplemental candidate evidence contains a clearly identified real project."}
 
-BULLETS: Most relevant first. Write complete recruiter-readable statements, not keyword inventories. Each bullet should normally connect at least two and preferably three of: context/problem, owned action, concrete artifact/method, and result/user/decision impact. Preserve useful source detail about scope and constraints instead of over-compressing it into a tool list. Use only source-supported verbs and outcomes. Do not force every bullet into an impact formula, do not manufacture causal results, and do not add a number copied from the JD. Usually use 2-4 bullets per experience or project; preserve additional decisive evidence when useful.
+BULLETS: Most relevant first; one main message per bullet. Connect an owned action to a concrete artifact or supported purpose/result, using the few technical details needed to understand the contribution. Split unrelated claims; remove long feature inventories. Usually aim for one or two rendered lines, with longer bullets allowed when necessary. Never force every bullet into an impact formula or manufacture causal results or numbers. Use qualitative outputs when impact was not measured.
 
-JD EVIDENCE MAP: Before drafting, identify exactly 3 high-priority JD requirements. Classify each as `direct`, `transferable`, or `gap`. `direct` means the selected source proves substantially the same task, skill, or outcome. `transferable` means the source proves adjacent capability but you must not write the unsatisfied JD task as candidate history. `gap` means there is no honest support. For direct or transferable items, copy a source_quote of at least 6 words verbatim from the selected resume. For gaps, use an empty source_quote. At least 2 mappings must be direct or transferable. Do not place citations or gap labels in the visible resume.
+PROJECT CONTEXT: When supplied evidence supports it, make each important project's purpose, intended user and use case clear in its first bullet. Integrate context with the candidate's actual contribution; do not add a mandatory background paragraph. Distinguish intended users from actual users, and product capabilities from features personally implemented. An audience, pain point, adoption result or business outcome must never be inferred from the JD or invented to complete a story. If evidence is absent, describe the verified function plainly.
+
+PROJECT EVIDENCE: A supplied repository description or pitch deck can establish product positioning and use cases; it does not establish the candidate's personal ownership, measured impact or customer adoption. Use separately confirmed contribution and outcome evidence for those claims. Explain how a relevant feature addresses the supported user problem instead of listing every implementation component.
+
+ROLE EMPHASIS: For product roles, prioritize the user problem, intended audience, requirements or scope decisions, evaluation/iteration and delivery; include commercial adoption only when verified. For engineering roles, prioritize the implemented workflow, constraints, reliability and technical decisions while retaining enough context to understand its purpose. For general consulting roles, prioritize the client question, analysis, deliverable and supported decision. Do not turn participation into product ownership or engineering into unverified strategy, discovery interviews or revenue responsibility.
+
+FINAL EDITORIAL PASS: Compare the draft with the omitted evidence. If the first page would be conspicuously sparse, restore the strongest relevant evidence before accepting an aggressively shortened draft. Do not restore every old role indiscriminately or repeat the same achievement under both its employer and project merely to fill space. First-page usefulness and readable presentation take priority over a minimum bullet length or a fixed template.
+
+JD EVIDENCE MAP: Before drafting, identify exactly 3 high-priority JD requirements. Classify each as `direct`, `transferable`, or `gap`. `direct` means the selected source proves substantially the same task, skill, or outcome. `transferable` means the source proves adjacent capability but you must not write the unsatisfied JD task as candidate history. `gap` means there is no honest support. For direct or transferable items, copy a source_quote of at least 6 words verbatim from the supplied candidate evidence. For gaps, use an empty source_quote. At least 2 mappings must be direct or transferable. Do not place citations or gap labels in the visible resume.
 
 ## VOICE:
-- Write like a real engineer. Short, direct.
+- Write for the target function. Use plain, specific language and accurate personal ownership.
 - GOOD: "Automated financial reporting with Python + API integrations, cut processing time from 10 hours to 2"
 - BAD: "Leveraged cutting-edge AI technologies to drive transformative operational efficiencies"
-- BANNED WORDS (using ANY of these = validation failure — do not use them even once):
+- Avoid these generic words; preserve factual meaning instead of mechanically swapping synonyms:
   {banned_str}
 - No em dashes. Use commas, periods, or hyphens.
 
@@ -452,7 +453,7 @@ def extract_json(raw: str) -> dict:
 
 # ── Resume Assembly (profile-driven header) ──────────────────────────────
 
-def assemble_resume_text(data: dict, profile: dict) -> str:
+def assemble_resume_text(data: dict, profile: dict, *, job_profile: dict | None = None) -> str:
     """Convert JSON resume data to formatted plain text.
 
     Header (name, location, contact) is ALWAYS code-injected from the profile,
@@ -545,7 +546,7 @@ def assemble_resume_text(data: dict, profile: dict) -> str:
         lines.extend(["EDUCATION", *education_lines, ""])
 
     title = str(data.get("title") or "")
-    is_internship = bool(
+    is_internship = (job_profile or {}).get("employment_type") == "internship" or bool(
         re.search(r"\b(?:intern|internship|trainee|co-op)\b", title, re.IGNORECASE)
     )
     layout = profile.get("tailoring", {}).get("resume_layout", {})
@@ -566,6 +567,14 @@ def assemble_resume_text(data: dict, profile: dict) -> str:
         "PROJECTS": lambda: append_entries("PROJECTS", data.get("projects", [])),
         "EDUCATION": append_education,
     }
+    proposed_order = data.get("section_order")
+    if (isinstance(proposed_order, list) and len(proposed_order) == len(appenders)
+            and all(isinstance(section, str) for section in proposed_order)
+            and set(proposed_order) == set(appenders)
+            and (not is_internship or proposed_order.index("EDUCATION") <= 1)):
+        order = proposed_order
+    # A partial configuration must not silently discard a visible section.
+    order = list(dict.fromkeys([*order, *appenders]))
     for section in order:
         if section in appenders:
             appenders[section]()
@@ -629,12 +638,17 @@ Return only JSON:
 
 Use integer scores from 0 to 100. Judge section allocation as a whole: retained experience entries must stay current/most-recent first with preserved dates; project entries may follow relevance.
 Detail allocation follows source strength and JD relevance, not recency. Summary is optional.
-Relevance should select and order facts within that hierarchy, not make a distant entry dominate.
+A strongly relevant older entry may receive more detail; judge relevance independently of recency.
 Judge narrative completeness by whether bullets connect an owned action to a concrete artifact or
 method and a supported context/result/user impact. A long list of tools or noun phrases is not a
 complete bullet. Education must show one institution per separate item/line. A blocking issue must
 identify a visible section and a concrete problem that materially reduces interview usefulness.
-Style preferences, optional additions, and minor wording improvements are advisory. FAIL only for
+For important projects, look for a supported purpose, intended audience or concrete use case before
+feature details; do not demand an audience absent from the evidence. Distinguish intended users from
+adoption and personal contribution from team capabilities. For product roles, prioritize the user
+problem, scope decisions, iteration and delivery; engineering roles may emphasize implementation and
+reliability. Prefer one main message per bullet and strong evidence early in the resume.
+Style preferences, page fill, short line tails, optional additions, and minor wording improvements are advisory. FAIL only for
 materially poor allocation, thin evidence, incomplete/fragmentary bullets, heavy repetition,
 generic writing, or weak JD focus despite stronger supplied evidence."""
     messages = [
@@ -1327,12 +1341,12 @@ def tailor_resume(
                 avoid_notes.extend(validation["errors"])
                 if attempt < max_retries and not repair_sections:
                     continue
-                tailored = assemble_resume_text(data, profile)
+                tailored = assemble_resume_text(data, profile, job_profile=job_profile)
                 report["status"] = "failed_validation"
                 return tailored, report
 
         # Assemble text (header injected by code, em dashes auto-fixed)
-        tailored = assemble_resume_text(data, profile)
+        tailored = assemble_resume_text(data, profile, job_profile=job_profile)
 
         full_validation = validate_tailored_resume(
             tailored,
@@ -1348,26 +1362,25 @@ def tailor_resume(
             report["status"] = "failed_validation"
             return tailored, report
 
-        # Production generation must close the loop on actual pagination, not
-        # merely word counts. Render to an isolated temporary directory so a
-        # sparse one-page draft or a barely-started second page becomes retry
-        # feedback before the semantic judge and before any live artifact is
-        # registered.
+        # Render before registration. Structural failures block; editorial layout
+        # warnings are recorded without triggering retries or padding.
         if validate_layout:
             try:
                 from applypilot.scoring.pdf import convert_to_pdf
 
+                layout_warnings: list[str] = []
                 with tempfile.TemporaryDirectory(prefix="applypilot-resume-layout-") as temp_dir:
                     text_path = Path(temp_dir) / "resume.txt"
                     text_path.write_text(tailored, encoding="utf-8")
                     convert_to_pdf(
                         text_path,
                         output_path=text_path.with_suffix(".pdf"),
+                        layout_warnings=layout_warnings,
                         layout_override=(
                             profile.get("tailoring", {}).get("resume_layout", {})
                         ),
                     )
-                report["layout_validation"] = {"passed": True, "error": None}
+                report["layout_validation"] = {"passed": True, "error": None, "warnings": layout_warnings}
             except Exception as exc:
                 layout_error = str(exc)
                 report["layout_validation"] = {
@@ -1432,14 +1445,15 @@ def tailor_resume(
                         job_title=job.get("title") or "",
                         target_company=job.get("company_name") or "",
                     )
-                    repaired_text = assemble_resume_text(repaired_data, profile)
+                    repaired_text = assemble_resume_text(repaired_data, profile, job_profile=job_profile)
                     repaired_full_validation = validate_tailored_resume(
                         repaired_text,
                         profile,
                         original_text=combined_evidence,
                         selection_source_text=resume_text,
                     )
-                    repaired_layout = {"passed": True, "error": None}
+                    repair_layout_warnings: list[str] = []
+                    repaired_layout = {"passed": True, "error": None, "warnings": repair_layout_warnings}
                     if repaired_validation["passed"] and repaired_full_validation["passed"] and validate_layout:
                         try:
                             from applypilot.scoring.pdf import convert_to_pdf
@@ -1452,6 +1466,7 @@ def tailor_resume(
                                 convert_to_pdf(
                                     text_path,
                                     output_path=text_path.with_suffix(".pdf"),
+                                    layout_warnings=repair_layout_warnings,
                                     layout_override=(
                                         profile.get("tailoring", {}).get("resume_layout", {})
                                     ),
@@ -1708,6 +1723,15 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
             resume_text = read_resume_source(source_path)
             run_dir = start_resume_run(TAILORED_DIR.parent, job, kind="tailoring")
             supplemental_parts: list[str] = []
+            from applypilot.scoring.cover_letter import load_evidence_sources
+
+            fact_sources = [source for source in load_evidence_sources(
+                profile, source_path, resume_text
+            ) if source.get("kind") == "candidate_facts"]
+            supplemental_parts.extend(
+                f"CANDIDATE FACT SOURCE {Path(source['path']).name}\n{source['text']}"
+                for source in fact_sources
+            )
             # A short selected source may omit projects. Supply the configured
             # factual sources so page length does not silently erase that evidence.
             for variant in profile.get("tailoring", {}).get("resume_variants", []):
@@ -1817,6 +1841,7 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
             report_path = finish_resume_run(
                 run_dir, report, source_text=resume_text,
                 supplemental_evidence=supplemental_evidence,
+                evidence_sources=fact_sources,
             )
 
             result = {

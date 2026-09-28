@@ -563,14 +563,16 @@ def revalidate_tailored_resume_for_url(url: str) -> dict:
             except (OSError, json.JSONDecodeError):
                 previous_report = {}
         supplemental_evidence = ""
+        previous_fact_bindings = []
         generation_path = Path(str(previous_report.get("generation_record") or ""))
         if generation_path.is_file():
             previous_generation = json.loads(generation_path.read_text(encoding="utf-8"))
+            previous_fact_bindings = previous_generation.get("evidence_source_bindings", [])
             previous_report = {**previous_generation, **previous_report}
             supplemental_path = generation_path.with_name("supplemental.txt")
             if supplemental_path.is_file():
                 supplemental_evidence = supplemental_path.read_text(encoding="utf-8")
-        from applypilot.resume_versions import finish_resume_run, start_resume_run
+        from applypilot.resume_versions import finish_resume_run, start_resume_run, text_digest
 
         run_dir = start_resume_run(config.APP_DIR, job, kind="revalidation")
         original_tailored_path = tailored_path
@@ -602,10 +604,23 @@ def revalidate_tailored_resume_for_url(url: str) -> dict:
 
         profile = load_profile()
         source_text = read_resume_source(source_path)
+        fact_sources = []
+        for binding in previous_fact_bindings:
+            fact_path = Path(str(binding.get("path") or ""))
+            if not fact_path.is_file():
+                raise FileNotFoundError(f"Bound candidate fact source is missing: {fact_path}")
+            fact_text = fact_path.read_text(encoding="utf-8")
+            if text_digest(fact_text) != binding.get("text_digest"):
+                raise ValueError(f"Bound candidate fact source changed; review before revalidation: {fact_path}")
+            fact_sources.append({"path": str(fact_path), "text": fact_text})
         combined_evidence = source_text + (
             "\n\nSUPPLEMENTAL CANDIDATE EVIDENCE\n" + supplemental_evidence
             if supplemental_evidence else ""
         )
+        if fact_sources:
+            combined_evidence += "\n\nBOUND CANDIDATE FACT SOURCES\n" + "\n\n".join(
+                source["text"] for source in fact_sources
+            )
         parsed = parse_resume(tailored_text)
         sections = parsed.get("sections", {})
         structured_data = {
@@ -717,7 +732,8 @@ def revalidate_tailored_resume_for_url(url: str) -> dict:
             "tailored_resume_path": str(tailored_path),
         }
         report_path = finish_resume_run(run_dir, report, source_text=source_text,
-                                        supplemental_evidence=supplemental_evidence)
+                                        supplemental_evidence=supplemental_evidence,
+                                        evidence_sources=fact_sources)
         if status == "machine_validated":
             from applypilot.resume_library import register_tailored_artifact
             register_tailored_artifact(

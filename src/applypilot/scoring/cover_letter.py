@@ -224,7 +224,7 @@ def read_resume_source(path: Path) -> str:
 
 
 def load_evidence_sources(profile: dict, primary_path: Path, primary_text: str) -> list[dict]:
-    """Load the selected resume plus explicitly registered supplemental resumes.
+    """Load the selected resume plus explicitly registered candidate evidence.
 
     Supplemental files are evidence-only. They may add a verified fact omitted
     from the selected variant, but they do not replace the selected resume as
@@ -232,8 +232,22 @@ def load_evidence_sources(profile: dict, primary_path: Path, primary_text: str) 
     """
     primary_path = primary_path.resolve()
     sources = [{"label": "primary_selected_resume", "path": str(primary_path), "text": primary_text}]
-    configured = profile.get("cover_letter", {}).get("evidence_sources", [])
     seen = {str(primary_path).lower()}
+    fact_paths = profile.get("tailoring", {}).get("evidence_sources", [])
+    for index, raw_path in enumerate(fact_paths, start=1):
+        path = Path(raw_path).expanduser().resolve()
+        key = str(path).lower()
+        if key in seen:
+            continue
+        if not path.is_file():
+            raise FileNotFoundError(f"Configured candidate fact source is missing: {path}")
+        text = path.read_text(encoding="utf-8")
+        if not text.strip():
+            raise ValueError(f"Configured candidate fact source is empty: {path}")
+        sources.append({"kind": "candidate_facts", "label": f"candidate_facts_{index}",
+                        "path": str(path), "text": text})
+        seen.add(key)
+    configured = profile.get("cover_letter", {}).get("evidence_sources", [])
     for index, raw_path in enumerate(configured, start=1):
         path = Path(raw_path).resolve()
         key = str(path).lower()

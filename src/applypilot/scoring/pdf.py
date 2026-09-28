@@ -474,7 +474,7 @@ body {{
 }}
 .entry {{
     margin-bottom: 3px;
-    break-inside: avoid;
+    break-inside: auto;
 }}
 .entry-title {{
     break-after: avoid;
@@ -550,6 +550,8 @@ def render_pdf(
     last_page_min_fill_ratio: float = 0.4,
     one_page_min_fill_ratio: float = 0.78,
     _allow_compact_retry: bool = True,
+    layout_warnings: list[str] | None = None,
+    first_page_min_fill_ratio: float = 0.9,
 ) -> None:
     """Render HTML to PDF using Playwright's headless Chromium.
 
@@ -558,6 +560,11 @@ def render_pdf(
         output_path: Path to write the PDF file.
     """
     from playwright.sync_api import sync_playwright
+
+    def advise(message: str) -> None:
+        if layout_warnings is not None:
+            layout_warnings.append(message)
+        log.warning("Resume layout review: %s", message)
 
     with sync_playwright() as p:
         browser = p.chromium.launch()
@@ -581,10 +588,9 @@ def render_pdf(
             }""",
         ) if 'class="summary"' in html else []
         if not _summary_tail_is_dense(summary_line_word_counts, summary_tail_min_words):
-            browser.close()
-            raise ValueError(
+            advise(
                 "Summary has an underfilled rendered tail line: "
-                f"{summary_line_word_counts[-1]} words; minimum {summary_tail_min_words}."
+                f"{summary_line_word_counts[-1]} words; review readability without padding."
             )
         skill_rows = page.eval_on_selector_all(
             ".skill-row",
@@ -615,23 +621,11 @@ def render_pdf(
                 for row in skill_rows
                 if not _tail_is_dense(row["lineWordCounts"], skill_tail_min_words)
             )
-            browser.close()
-            raise ValueError(
+            advise(
                 "Technical Skills row "
                 f"{failed_row['index'] + 1} has an underfilled rendered tail line: "
-                f"{failed_row['lineWordCounts'][-1]} words; minimum "
-                f"{skill_tail_min_words}."
+                f"{failed_row['lineWordCounts'][-1]} words; review spacing without adding skills."
             )
-        content_fill_ratio = float(page.evaluate(
-            """() => {
-                const nodes = Array.from(document.body.querySelectorAll('.header, .section'));
-                if (!nodes.length) return 0;
-                const top = Math.min(...nodes.map(node => node.getBoundingClientRect().top));
-                const bottom = Math.max(...nodes.map(node => node.getBoundingClientRect().bottom));
-                const printableHeight = 11 * 96 - 2 * 0.45 * 96;
-                return Math.max(0, (bottom - top) / printableHeight);
-            }"""
-        ))
         page.pdf(
             path=output_path,
             format="Letter",
@@ -640,74 +634,30 @@ def render_pdf(
         )
         browser.close()
         page_spans = _pdf_page_text_spans(output_path)
+        # Measure printed text, not the browser viewport: print wrapping differs.
+        content_fill_ratio = page_spans[0] / 720 if page_spans else 0.0
+        # The Letter template has half-inch top/bottom margins (720pt usable).
+        if len(page_spans) > 1 and page_spans[0] / 720 < first_page_min_fill_ratio:
+            advise(
+                "Sparse first PDF page: review avoidable page breaks and restore relevant "
+                "omitted evidence before accepting unused space."
+            )
         if len(page_spans) == 1 and content_fill_ratio < one_page_min_fill_ratio:
-            Path(output_path).unlink(missing_ok=True)
-            raise ValueError(
+            advise(
                 "Sparse one-page PDF: rendered content fill ratio "
-                f"{content_fill_ratio:.0%} is below the configured "
-                f"{one_page_min_fill_ratio:.0%}. Retain or strengthen more role-relevant evidence."
+                f"{content_fill_ratio:.1%} is below the configured "
+                f"{one_page_min_fill_ratio:.1%} review threshold; restore relevant omitted evidence "
+                "and assess visual balance."
             )
         if not _last_page_is_usefully_filled(
             page_spans, min_ratio=last_page_min_fill_ratio
         ):
-            Path(output_path).unlink(missing_ok=True)
             fill_ratio = page_spans[-1] / max(page_spans[:-1])
-            if _allow_compact_retry:
-                compact_override = """
-<style>
-@page { margin: 0.5in; }
-body { font-size: 10pt; line-height: 1.25; }
-.header { margin-bottom: 2px; padding-bottom: 2px; }
-.name { font-size: 17pt; }
-.section { margin-top: 3px; }
-.section-title { font-size: 10pt; margin-bottom: 2px; }
-.summary { font-size: 10pt; line-height: 1.25; }
-.skill-row { font-size: 10pt; line-height: 1.25; }
-.entry { margin-bottom: 2px; }
-.entry-title { font-size: 10pt; }
-.entry-subtitle { font-size: 10pt; margin-bottom: 0; }
-li { font-size: 10pt; line-height: 1.25; margin-bottom: 0.5px; }
-.edu { font-size: 10pt; }
-</style>
-"""
-                compact_html = html.replace("</head>", compact_override + "</head>")
-                compact_browser = p.chromium.launch()
-                compact_page = compact_browser.new_page(
-                    viewport={"width": 816, "height": 1056}
-                )
-                compact_page.emulate_media(media="print")
-                compact_page.set_content(compact_html, wait_until="networkidle")
-                compact_fill_ratio = float(compact_page.evaluate(
-                    """() => {
-                        const nodes = Array.from(document.body.querySelectorAll('.header, .section'));
-                        if (!nodes.length) return 0;
-                        const top = Math.min(...nodes.map(node => node.getBoundingClientRect().top));
-                        const bottom = Math.max(...nodes.map(node => node.getBoundingClientRect().bottom));
-                        const printableHeight = 11 * 96 - 2 * 0.5 * 96;
-                        return Math.max(0, (bottom - top) / printableHeight);
-                    }"""
-                ))
-                compact_page.pdf(
-                    path=output_path,
-                    format="Letter",
-                    margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
-                    print_background=True,
-                )
-                compact_browser.close()
-                compact_spans = _pdf_page_text_spans(output_path)
-                if len(compact_spans) == 1:
-                    if compact_fill_ratio >= one_page_min_fill_ratio:
-                        return
-                elif _last_page_is_usefully_filled(
-                    compact_spans, min_ratio=last_page_min_fill_ratio
-                ):
-                    return
-                Path(output_path).unlink(missing_ok=True)
-            raise ValueError(
+            advise(
                 "Sparse final PDF page: rendered fill ratio "
                 f"{fill_ratio:.0%} is below the configured "
-                f"{last_page_min_fill_ratio:.0%}. Use one page or retain enough "
-                "distinct role-relevant evidence to justify another page."
+                f"{last_page_min_fill_ratio:.0%} review threshold; accept natural pagination "
+                "when the remaining evidence is useful."
             )
 
 
@@ -718,6 +668,7 @@ def convert_to_pdf(
     output_path: Path | None = None,
     html_only: bool = False,
     layout_override: dict | None = None,
+    layout_warnings: list[str] | None = None,
 ) -> Path:
     """Convert a text resume/cover letter to PDF.
 
@@ -770,6 +721,8 @@ def convert_to_pdf(
         skill_tail_min_words=skill_tail_min_words,
         last_page_min_fill_ratio=last_page_min_fill_ratio,
         one_page_min_fill_ratio=one_page_min_fill_ratio,
+        layout_warnings=layout_warnings,
+        first_page_min_fill_ratio=float(layout.get("first_page_min_fill_ratio", 0.9) or 0.9),
     )
     log.info("PDF generated: %s", out)
     return out

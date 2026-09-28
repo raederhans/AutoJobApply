@@ -25,8 +25,14 @@ from applypilot.resume_library import (
     ensure_resume_library_schema,
     extract_job_profile,
 )
-from applypilot.resume_versions import finish_resume_run, profile_fact_snapshot, start_resume_run, write_record
-from applypilot.scoring.cover_letter import read_resume_source
+from applypilot.resume_versions import (
+    finish_resume_run,
+    profile_fact_snapshot,
+    start_resume_run,
+    text_digest,
+    write_record,
+)
+from applypilot.scoring.cover_letter import load_evidence_sources, read_resume_source
 from applypilot.scoring.pdf import convert_to_pdf
 from applypilot.scoring.validator import validate_tailored_resume
 
@@ -38,8 +44,25 @@ def fingerprint(path):
 def parent_binding(artifact):
     return {key: artifact[key] for key in (
         "artifact_id", "active", "validation_status", "updated_at", "content_sha256",
-        "text_path", "pdf_path", "pdf_sha256", "pdf_size",
+        "text_path", "pdf_path", "pdf_sha256", "pdf_size", "metadata_json",
     )}
+
+
+def staged_fact_bindings(record):
+    path = Path(record["run_dir"]) / "generation.json"
+    if not path.is_file():
+        raise ValueError("Staged generation evidence is missing; stage this edition again")
+    generation = json.loads(path.read_text(encoding="utf-8"))
+    bindings = generation.get("evidence_source_bindings")
+    if not isinstance(bindings, list):
+        raise TypeError("Staged fact source bindings are missing or invalid; stage this edition again")
+    for binding in bindings:
+        source_path = Path(str(binding.get("path") or ""))
+        if not source_path.is_file():
+            raise ValueError(f"Staged fact source is missing: {source_path}")
+        if text_digest(source_path.read_text(encoding="utf-8")) != binding.get("text_digest"):
+            raise ValueError(f"Staged fact source changed after review: {source_path}")
+    return bindings
 
 
 def stage(report_dir: Path, only: str | None = None):
@@ -54,8 +77,13 @@ def stage(report_dir: Path, only: str | None = None):
         "SELECT * FROM resume_artifacts WHERE active=1 AND kind='tailored' AND validation_status='machine_validated'"
     )]
     records = []
+    source_hashes = {str(p): fingerprint(p) for p in sources}
     if only:
         previous = json.loads((report_dir / "staged-editions.json").read_text(encoding="utf-8"))
+        for path, digest in previous["source_hashes"].items():
+            if fingerprint(path) != digest:
+                raise ValueError(f"Source changed since the other editions were staged: {path}")
+        source_hashes.update(previous["source_hashes"])
         records = [r for r in previous["records"] if r["parent_artifact_id"] != only]
         artifacts = [a for a in artifacts if a["artifact_id"] == only]
     else:
@@ -67,6 +95,18 @@ def stage(report_dir: Path, only: str | None = None):
         old_path = Path(artifact["text_path"])
         old_text = old_path.read_text(encoding="utf-8")
         metadata = json.loads(artifact["metadata_json"] or "{}")
+        parent_supplemental_path = metadata.get("supplemental_evidence_path")
+        parent_supplemental = ""
+        if parent_supplemental_path:
+            parent_path = Path(parent_supplemental_path)
+            if not parent_path.is_file():
+                raise FileNotFoundError(f"Registered parent supplemental evidence is missing: {parent_path}")
+            parent_supplemental = parent_path.read_text(encoding="utf-8")
+            source_hashes[str(parent_path)] = fingerprint(parent_path)
+        fact_sources = [source for source in load_evidence_sources(
+            profile, old_path, old_text
+        ) if source.get("kind") == "candidate_facts"]
+        source_hashes.update({source["path"]: fingerprint(source["path"]) for source in fact_sources})
         row = conn.execute("SELECT * FROM jobs WHERE url=?", (metadata.get("registered_from_job"),)).fetchone()
         if row is None:
             row = conn.execute("""SELECT jobs.* FROM jobs JOIN resume_coverage_cells c
@@ -76,7 +116,11 @@ def stage(report_dir: Path, only: str | None = None):
         jp = extract_job_profile(job, profile)
         terms = list(dict.fromkeys([*jp.get("required_skills", []), *jp.get("preferred_skills", []),
                                    *jp.get("features", {}).get("content_terms", [])]))
-        supplemental = "\n\n".join(source_texts.values())
+        supplemental = "\n\n".join([
+            *source_texts.values(),
+            *([parent_supplemental] if parent_supplemental else []),
+            *(source["text"] for source in fact_sources),
+        ])
         variant = next((v for v in profile["tailoring"]["resume_variants"]
                         if str(v.get("track", "")).startswith(str(jp.get("track") or artifact["track"]))),
                        profile["tailoring"]["resume_variants"][0])
@@ -86,7 +130,11 @@ def stage(report_dir: Path, only: str | None = None):
         layout_options = {**profile.get("tailoring", {}).get("resume_layout", {}),
                           **editorial_options.pop("layout_override", {})}
         proposal = refine_existing_text(old_text, relevance_terms=terms,
-                                         supplemental_text=source_texts[variant["path"]],
+                                         supplemental_text="\n\n".join([
+                                             source_texts[variant["path"]],
+                                             parent_supplemental,
+                                             *(source["text"] for source in fact_sources),
+                                         ]),
                                          **editorial_options)
         if refresh_evidence:
             proposal["changes"].append({"operation": "refresh_source_evidence", "claims_changed": False})
@@ -100,6 +148,8 @@ def stage(report_dir: Path, only: str | None = None):
                   "job_url": job.get("url"), "job_title": job.get("title"),
                   "old_text_path": str(old_path), "old_text_sha256": fingerprint(old_path),
                   "old_pdf_path": artifact["pdf_path"], "old_pdf_sha256": fingerprint(artifact["pdf_path"]),
+                  "parent_supplemental_path": parent_supplemental_path,
+                  "parent_supplemental_sha256": source_hashes.get(str(parent_supplemental_path)),
                   "changes": proposal["changes"]}
         if not proposal["changes"]:
             record["status"] = "unchanged"
@@ -116,7 +166,10 @@ def stage(report_dir: Path, only: str | None = None):
         record.update(text_path=str(text_path), run_dir=str(run), source_resume_path=str(source_path),
                       validation=validation, status="needs_review")
         try:
-            pdf_path = convert_to_pdf(text_path, layout_override=layout_options)
+            layout_warnings: list[str] = []
+            pdf_path = convert_to_pdf(text_path, layout_override=layout_options,
+                                      layout_warnings=layout_warnings)
+            record["layout_warnings"] = layout_warnings
             pages = PdfReader(pdf_path).pages
             if len(pages) > 2:
                 raise ValueError(f"Expected at most two pages, got {len(pages)}")
@@ -136,11 +189,14 @@ def stage(report_dir: Path, only: str | None = None):
             "render_error": record.get("render_error"),
             "pages": record.get("pages"), "text_roundtrip": record.get("text_roundtrip", False),
             "layout_validation_options": layout_options,
-        }, source_text=source_text, supplemental_evidence=supplemental))
+            "layout_warnings": record.get("layout_warnings", []),
+        }, source_text=source_text, supplemental_evidence=supplemental,
+            evidence_sources=fact_sources))
+        record["generation_sha256"] = fingerprint(run / "generation.json")
         records.append(record)
         print(artifact["artifact_id"], record["status"], record.get("render_error", ""), flush=True)
     report = {"created_at": datetime.now(UTC).isoformat(),
-              "source_hashes": {str(p): fingerprint(p) for p in sources}, "records": records}
+              "source_hashes": source_hashes, "records": records}
     if only:
         order = {r["parent_artifact_id"]: i for i, r in enumerate(previous["records"])}
         records.sort(key=lambda r: order[r["parent_artifact_id"]])
@@ -187,6 +243,15 @@ def promote(report_dir: Path):
                     raise ValueError("Reviewed edition changed after inspection")
                 if fingerprint(r[f"old_{key}_path"]) != r[f"old_{key}_sha256"]:
                     raise ValueError("Historical edition changed")
+            if r.get("parent_supplemental_path") and fingerprint(r["parent_supplemental_path"]) != r["parent_supplemental_sha256"]:
+                raise ValueError("Registered parent supplemental evidence changed after staging")
+            if fingerprint(Path(r["run_dir"]) / "generation.json") != r.get("generation_sha256"):
+                raise ValueError("Staged generation evidence changed; stage this edition again")
+            fact_bindings = staged_fact_bindings(r)
+            parent_metadata = json.loads(parent_row["metadata_json"] or "{}")
+            catalog_metadata = {key: parent_metadata[key] for key in (
+                "library_family", "library_label", "selection_notes"
+            ) if key in parent_metadata}
             verdict_path = Path(r["run_dir"]) / "promotion-validation.json"
             preliminary = json.loads(Path(r["report_path"]).read_text(encoding="utf-8"))
             kind = ("curation_source_grounded_edits" if any(c.get("claims_changed") for c in r["changes"])
@@ -198,9 +263,12 @@ def promote(report_dir: Path):
                 conn, text_path=Path(r["text_path"]), kind="tailored", track=r["track"],
                 source_resume_path=r["source_resume_path"], validation_status="machine_validated",
                 report_path=str(verdict_path), metadata={
+                    **catalog_metadata,
+                    "page_count": r["pages"], "length_class": f"{r['pages']}_page",
                     "parent_artifact_id": r["parent_artifact_id"], "curation_review": str(report_dir / "visual-review.json"),
                     "fact_snapshot": profile_fact_snapshot(profile), "registered_from_job": r["job_url"],
                     "supplemental_evidence_path": str(Path(r["run_dir"]) / "supplemental.txt"),
+                    "evidence_source_bindings": fact_bindings,
                 },
             )
             successor = conn.execute(

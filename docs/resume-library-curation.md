@@ -34,6 +34,8 @@ Experience entries stay newest/current first by dates; older relevant entries ca
 
 The source-inspired template uses Arial, black text, thin rules and right-aligned dates. Main body defaults to 10.5pt with 1.35 line height; compact rendering is at least 10pt with 1.25 line height and 0.5in margins. Inspect rendered pages and extracted reading order, not just page count.
 
+Experience and project entries may continue across pages between complete bullets. Keep headings with following content and keep individual bullets together; keeping an entire entry unbroken can leave excessive unused space on the preceding page.
+
 ## Review and revision propagation
 
 `applypilot resume-library-review` reports current health and possible editorial improvements. Source-byte changes, changed profile facts actually used in text, missing evidence or broken TXT/PDF bindings require review before reuse. This is deliberately a lightweight dependency check, not a semantic guarantee that every paraphrase of a changed fact is detected. Maintain the human candidate-facts document and runtime profile separately.
@@ -56,3 +58,13 @@ Stage is read-only against the live DB and writes proposals to distinct run dire
 Promotion requires `visual-review.json` with an `accepted` array containing each parent ID and SHA-256 of the exact reviewed TXT and PDF. Reviewers must inspect every accepted final rendering. Promotion verifies source and historical-file identity, backs up SQLite, validates health, records final evidence, and transactionally preserves job rows. It rechecks the staged parent state under a write transaction and rejects a changed/retired parent or a retired successor; old manifests without the parent snapshot must be staged and reviewed again. New files can remain if a transaction fails; they are not proof of promotion. Read `promotion.json` and current DB state for completion.
 
 Editorial validation preserves inherited evidence and checks explicit source-grounded changes. It is not a fresh independent factual audit of every legacy statement. Past overwritten reports cannot be reconstructed; unknown provenance must remain unknown.
+
+## Project context and editorial calibration (2026-09-28)
+
+Register supplemental UTF-8 fact documents in `profile.tailoring.evidence_sources`. Missing or empty configured facts fail explicitly. Generation supplies them as candidate evidence and `finish_resume_run(..., evidence_sources=[{"path": ..., "text": ...}])` records exact source bindings; changed or missing bound files require review before reuse. Legacy editions without bindings are labeled `unbound_legacy`, not retroactively certified. The local candidate index links `docs/resume-project-context.md`, which distinguishes intended audience, supported use cases, personal contribution, delivered capability and unverified adoption claims.
+
+The first project bullet should explain its supported purpose/use case and personal contribution. Product roles emphasize users, scope, iteration and delivery; engineering roles emphasize implementation and reliability. Select experiences without a fixed deletion quota while retaining at least one substantive entry and the actual chronology. Review omission of the latest role. One main idea per bullet is a writing preference, not a rigid word limit.
+
+Aim for a professionally filled first page: restore relevant omitted evidence before accepting substantial blank space. Page fill and short line tails are editorial warnings; they do not delete PDFs, shrink typography or force retry padding. Fill checks use the printed PDF rather than browser viewport height. Render failures and factual/structural violations remain blocking. An optional complete `section_order` from generation can bring strong projects forward while keeping education early for internships.
+
+Curation stage preserves registered parent supplemental evidence and binds newly used candidate facts. Promotion checks the staged generation record and live source identities again, inherits human catalogue labels, and recalculates page metadata. A successful promotion still requires visual review of the exact PDF and preserves historical files and job rows.

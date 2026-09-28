@@ -52,6 +52,7 @@ def promotion(tmp_path, monkeypatch):
         )
         run = tmp_path / f"run-{index}"
         run.mkdir()
+        (run / "generation.json").write_text('{"evidence_source_bindings": []}', encoding="utf-8")
         text = run / "resume.txt"
         text.write_text(f"Edited evidence {index}", encoding="utf-8")
         pdf = text.with_suffix(".pdf")
@@ -62,11 +63,13 @@ def promotion(tmp_path, monkeypatch):
         records.append({
             "parent_artifact_id": parent, "parent_binding": tool.parent_binding(artifact),
             "text_roundtrip": True, "validation": {"passed": True},
+            "pages": 1,
             "text_path": str(text), "pdf_path": str(pdf),
             "old_text_path": str(old_text), "old_pdf_path": str(old_text.with_suffix(".pdf")),
             "old_text_sha256": tool.fingerprint(old_text),
             "old_pdf_sha256": tool.fingerprint(old_text.with_suffix(".pdf")),
             "run_dir": str(run), "report_path": str(report), "changes": [], "track": "data",
+            "generation_sha256": tool.fingerprint(run / "generation.json"),
             "source_resume_path": str(old_text), "job_url": "https://example.test/job",
         })
         reviews.append({"parent_artifact_id": parent, "text_sha256": tool.fingerprint(text),
@@ -165,3 +168,69 @@ def test_current_parent_and_eligible_successor_can_promote(promotion):
     assert conn.execute("SELECT COUNT(*) FROM resume_artifacts WHERE validation_status='superseded_editorial'").fetchone()[0] == 2
     report = json.loads((report_dir / "promotion.json").read_text(encoding="utf-8"))
     assert len(report["promoted"]) == 2
+
+
+def test_changed_bound_fact_source_rejects_promotion_and_rolls_back(promotion):
+    tool, conn, report_dir, records, write_reports, _, calls = promotion
+    facts = report_dir / "adopted-facts.md"
+    facts.write_text("Reviewed source fact", encoding="utf-8")
+    (Path(records[1]["run_dir"]) / "generation.json").write_text(json.dumps({
+        "evidence_source_bindings": [{"path": str(facts), "text_digest": tool.text_digest("Reviewed source fact")}]
+    }), encoding="utf-8")
+    records[1]["generation_sha256"] = tool.fingerprint(Path(records[1]["run_dir"]) / "generation.json")
+    write_reports()
+    before = snapshot(conn)
+    facts.write_text("Changed source fact", encoding="utf-8")
+    with pytest.raises(ValueError, match="Staged fact source changed"):
+        tool.promote(report_dir)
+    assert calls == ["parent-0"]
+    assert snapshot(conn) == before
+    assert not (report_dir / "promotion.json").exists()
+
+
+def test_changed_parent_supplemental_rejects_promotion(promotion):
+    tool, conn, report_dir, records, write_reports, _, calls = promotion
+    supplemental = report_dir / "registered-supplemental.txt"
+    supplemental.write_text("Original proof", encoding="utf-8")
+    records[1]["parent_supplemental_path"] = str(supplemental)
+    records[1]["parent_supplemental_sha256"] = tool.fingerprint(supplemental)
+    write_reports()
+    before = snapshot(conn)
+    supplemental.write_text("Changed proof", encoding="utf-8")
+    with pytest.raises(ValueError, match="Registered parent supplemental evidence changed"):
+        tool.promote(report_dir)
+    assert calls == ["parent-0"]
+    assert snapshot(conn) == before
+
+
+def test_promotion_keeps_only_current_catalog_metadata_and_fact_bindings(promotion, monkeypatch):
+    tool, conn, report_dir, records, write_reports, _, _ = promotion
+    parent_metadata = {
+        "library_family": "AI implementation", "library_label": "Reviewed product edition",
+        "selection_notes": "Emphasize delivery evidence", "content_review": "old report",
+        "source_evidence_sha256": "old-source-hash", "superseded_by": "stale-successor",
+    }
+    conn.execute("UPDATE resume_artifacts SET metadata_json=? WHERE artifact_id='parent-0'",
+                 (json.dumps(parent_metadata),))
+    conn.commit()
+    records[0]["parent_binding"] = tool.parent_binding(dict(conn.execute(
+        "SELECT * FROM resume_artifacts WHERE artifact_id='parent-0'").fetchone()))
+    write_reports()
+    registered = []
+    original_register = tool._register_artifact
+
+    def capture_register(writer, **kwargs):
+        registered.append(kwargs["metadata"])
+        return original_register(writer, **kwargs)
+
+    monkeypatch.setattr(tool, "_register_artifact", capture_register)
+    tool.promote(report_dir)
+    assert registered[0]["library_family"] == "AI implementation"
+    assert registered[0]["library_label"] == "Reviewed product edition"
+    assert registered[0]["selection_notes"] == "Emphasize delivery evidence"
+    assert registered[0]["page_count"] == 1
+    assert registered[0]["length_class"] == "1_page"
+    assert registered[0]["evidence_source_bindings"] == []
+    assert "content_review" not in registered[0]
+    assert "source_evidence_sha256" not in registered[0]
+    assert "superseded_by" not in registered[0]

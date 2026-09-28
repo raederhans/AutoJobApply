@@ -114,15 +114,24 @@ def start_resume_run(root: Path, job: Mapping[str, object], *, kind: str) -> Pat
 
 
 def finish_resume_run(run: Path, report: Mapping[str, object], *, source_text: str = "",
-                      supplemental_evidence: str = "") -> Path:
+                      supplemental_evidence: str = "",
+                      evidence_sources: list[dict] | None = None) -> Path:
     """Keep model/process details separate from the validation verdict."""
     generation_keys = {"attempts", "generation_diagnostics", "local_repair", "route_context", "resume_routing"}
+    bindings = []
+    for source in evidence_sources or []:
+        path = Path(str(source["path"])).expanduser().resolve()
+        supplied_text = str(source["text"])
+        if not path.is_file() or path.read_text(encoding="utf-8") != supplied_text:
+            raise ValueError(f"Live resume evidence changed or is unavailable: {path}")
+        bindings.append({"path": str(path), "text_digest": text_digest(supplied_text)})
     write_record(run / "generation.json", {
         "run_id": run.name,
         **{k: v for k, v in report.items() if k in generation_keys},
         "source_resume_path": report.get("source_resume_path"),
         "source_text_digest": text_digest(source_text),
         "supplemental_text_digest": text_digest(supplemental_evidence),
+        "evidence_source_bindings": bindings,
         "layout_version": LAYOUT_VERSION,
     })
     _immutable_bytes(run / "source.txt", source_text.encode("utf-8"))
@@ -153,12 +162,22 @@ def health_input_digest(artifact: Mapping[str, object], profile: Mapping[str, ob
     """Invalidate cached assessment when its factual/source/layout inputs change."""
     inputs = {"facts": profile_fact_snapshot(profile),
               "layout": profile.get("tailoring", {}).get("resume_layout", {})}
+    def file_digest(path: Path) -> str | None:
+        try:
+            return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+        except OSError:
+            return "unreadable"
+
     for key in ("text_path", "source_resume_path"):
         path = Path(str(artifact.get(key) or ""))
-        inputs[key] = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+        inputs[key] = file_digest(path)
     metadata = json.loads(str(artifact.get("metadata_json") or "{}"))
     supplemental = Path(str(metadata.get("supplemental_evidence_path") or ""))
-    inputs["supplemental"] = hashlib.sha256(supplemental.read_bytes()).hexdigest() if supplemental.is_file() else None
+    inputs["supplemental"] = file_digest(supplemental)
+    inputs["evidence_sources"] = [
+        (binding.get("path"), file_digest(Path(str(binding.get("path") or ""))))
+        for binding in metadata.get("evidence_source_bindings", [])
+    ]
     return hashlib.sha256(json.dumps(inputs, sort_keys=True, default=str).encode()).hexdigest()
 
 

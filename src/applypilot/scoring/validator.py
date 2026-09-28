@@ -474,8 +474,8 @@ def validate_json_fields(
                     + ", ".join(new_skill_tokens[:8])
                 )
 
-    # Experience/project selection budget: keep the newest source entry,
-    # retire at most one entry per section, and retain meaningful evidence.
+    # Select experiences for relevance; identity and substantive retained
+    # evidence remain mandatory, while omission is an editorial decision.
     resume_facts = profile.get("resume_facts", {})
     preserved_companies = resume_facts.get("preserved_companies", [])
 
@@ -487,13 +487,10 @@ def validate_json_fields(
             header for index, header in enumerate(source_experience)
             if index not in matched_experience
         ]
-        if len(dropped_experience) > 1:
-            errors.append(
-                "Experience may retire at most one source entry; dropped: "
-                + ", ".join(dropped_experience[:3])
-            )
         if source_experience and source_experience[0] in dropped_experience:
-            errors.append("The most recent experience entry cannot be retired.")
+            warnings.append("Review whether omitting the most recent experience supports the target role.")
+        if source_experience and not data["experience"]:
+            errors.append("Retain at least one substantive experience entry from the candidate evidence.")
 
         # Grounding: reject experience entries without evidence in selection source or supplemental evidence
         for entry in data["experience"]:
@@ -916,7 +913,7 @@ def validate_tailored_resume(text: str, profile: dict, original_text: str = "", 
     if display_name and display_name.casefold() not in text_lower:
         warnings.append(f"Name '{display_name}' missing -- will be injected")
 
-    # 3-4. Apply the same bounded-retirement and density rules on revalidation.
+    # 3-4. Revalidation preserves grounded retained entries, not an omission quota.
     source_experience = _source_entry_headers(selection_source, "EXPERIENCE") if selection_source else []
     experience_entries = _section_entries(text, "EXPERIENCE")
     output_experience = [str(e.get("title") or "") for e in experience_entries]
@@ -925,10 +922,10 @@ def validate_tailored_resume(text: str, profile: dict, original_text: str = "", 
         header for index, header in enumerate(source_experience)
         if index not in matched_experience
     ]
-    if len(dropped_experience) > 1:
-        errors.append("Experience retires more than one source entry.")
     if source_experience and source_experience[0] in dropped_experience:
-        errors.append("The most recent experience entry cannot be retired.")
+        warnings.append("Review whether omitting the most recent experience supports the target role.")
+    if source_experience and not experience_entries:
+        errors.append("Retain at least one substantive experience entry from the candidate evidence.")
 
     # Grounding: reject experience entries without evidence in selection source or supplemental evidence
     if original_text:
@@ -1085,7 +1082,7 @@ def validate_tailored_resume(text: str, profile: dict, original_text: str = "", 
         sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", summary) if part.strip()]
         final_sentence_words = len(re.findall(r"\b[\w+#./-]+\b", sentences[-1])) if sentences else 0
         if final_sentence_words < min_final_sentence_words:
-            errors.append(
+            warnings.append(
                 "Summary ends with an undersized sentence "
                 f"({final_sentence_words} words; minimum {min_final_sentence_words})."
             )

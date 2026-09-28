@@ -41,9 +41,9 @@ from applypilot.scoring.validator import (
 )
 from applypilot.storage.transactions import execute_transactional_script
 
-TAXONOMY_VERSION = "resume-library-v8"
+TAXONOMY_VERSION = "resume-library-v9"
 POLICY_VERSION = "reuse-policy-v5"
-HEALTH_POLICY_VERSION = "resume-health-v3"
+HEALTH_POLICY_VERSION = "resume-health-v4"
 RANKING_VERSION = "resume-ranking-v2"
 
 REUSE_REQUIRED_COVERAGE = 0.90
@@ -367,6 +367,28 @@ _RESUME_SUBTYPE_RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         ("technology analyst", "business technology", "technology consulting"),
     ),
 )
+
+
+def _duty_supported_title_alias(title: str, description: str) -> tuple[str, str] | None:
+    """Resolve two adjacent titles only when their actual duties support the family."""
+    title_text = _normalise_text(title)
+    duties = _normalise_text(description)
+    if _contains_phrase(title_text, "ai product intern"):
+        signals = (
+            ("interview", "users"), ("requirements",), ("prototype", "engineers"),
+            ("usability", "iteration"), ("product", "roadmap"),
+        )
+        if sum(all(_contains_phrase(duties, term) for term in group) for group in signals) >= 2:
+            return "product_management", "general_product_consulting"
+    if _contains_phrase(title_text, "applied ml research intern"):
+        signals = (
+            ("experiments",), ("evaluate", "transfer"), ("domain shift",),
+            ("predictive", "limits"), ("model", "evaluation"),
+            ("evaluate", "model generalization"),
+        )
+        if sum(all(_contains_phrase(duties, term) for term in group) for group in signals) >= 2:
+            return "ai_research", "ai_implementation"
+    return None
 
 
 def _now() -> str:
@@ -837,6 +859,12 @@ def extract_job_profile(
             track = rule_track
             confidence = 0.85 if title_hit else 0.60
             term_scores[subtype] = max(term_scores.get(subtype, 0), 5 if title_hit else 1)
+
+    alias = _duty_supported_title_alias(title, description)
+    if alias is not None:
+        subtype, track = alias
+        confidence = max(confidence, 0.80)
+        term_scores[subtype] = max(term_scores.get(subtype, 0), 5)
 
     lowered_title = title.casefold()
     if re.search(r"\b(?:intern|internship|trainee|co-op|graduate programme)\b", lowered_title) or re.search(
@@ -1344,6 +1372,10 @@ def register_tailored_artifact(
             supplemental_path = generation_path.with_name("supplemental.txt") if generation_path.name else None
             if supplemental_path is not None and supplemental_path.is_file():
                 evidence_metadata["supplemental_evidence_path"] = str(supplemental_path)
+            if generation_path.is_file():
+                generation = json.loads(generation_path.read_text(encoding="utf-8"))
+                if "evidence_source_bindings" in generation:
+                    evidence_metadata["evidence_source_bindings"] = generation["evidence_source_bindings"]
         except (OSError, ValueError):
             pass
     artifact_id, created = _register_artifact(
@@ -1579,10 +1611,32 @@ def assess_resume_artifact_health(
         if affected:
             metrics["changed_used_facts"] = affected
             reasons.append("Used profile facts changed; review: " + ", ".join(affected))
+    bindings = metadata.get("evidence_source_bindings")
+    metrics["evidence_binding_state"] = (
+        "bound" if bindings else "no_extra_sources"
+        if "evidence_source_bindings" in metadata else "unbound_legacy"
+    )
+    for binding in bindings or []:
+        path = Path(str(binding.get("path") or ""))
+        try:
+            if not path.is_file():
+                raise FileNotFoundError(path)
+            live_text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            reasons.append(f"Bound fact source is missing or unreadable: {path}")
+            continue
+        if text_digest(live_text) != binding.get("text_digest"):
+            reasons.append(f"Bound fact source changed since this edition; review before reuse: {path}")
+    supplemental_registered = bool(metadata.get("supplemental_evidence_path"))
     supplemental_path = Path(str(metadata.get("supplemental_evidence_path") or ""))
     evidence = source_text
-    if supplemental_path.is_file():
-        evidence += "\n\nSUPPLEMENTAL CANDIDATE EVIDENCE\n" + supplemental_path.read_text(encoding="utf-8")
+    if supplemental_registered:
+        try:
+            if not supplemental_path.is_file():
+                raise FileNotFoundError(supplemental_path)
+            evidence += "\n\nSUPPLEMENTAL CANDIDATE EVIDENCE\n" + supplemental_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            reasons.append("Registered supplemental evidence is missing or unreadable; review before reuse.")
     validation = validate_tailored_resume(text, dict(profile), original_text=evidence,
                                          selection_source_text=source_text)
     reasons.extend(
