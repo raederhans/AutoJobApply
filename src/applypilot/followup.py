@@ -12,11 +12,17 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from applypilot.storage.followup_schema import ensure_event_schema, ensure_schema
+
 EVENT_TYPES = frozenset({
     "recruiter_feedback", "rejected", "assessment", "interview_invited",
     "interview", "interview_completed", "offer", "withdrawn", "manual_note",
+    "offer_accepted", "offer_declined", "reopened", "retracted",
+    "interview_rescheduled", "interview_cancelled",
+    "submission_observed", "outgoing_message", "identity_pending",
+    "submission_confirmed", "submission_user_confirmed",
 })
-INTERVIEW_TYPES = frozenset({"interview", "interview_invited"})
+INTERVIEW_TYPES = frozenset({"interview", "interview_invited", "interview_rescheduled"})
 
 
 def timestamp(value: str) -> datetime:
@@ -63,12 +69,8 @@ def _atomic(conn: sqlite3.Connection):
 
 
 def _ensure_schema(conn: sqlite3.Connection) -> None:
-    conn.execute("""CREATE TABLE IF NOT EXISTS followup_events (
-        event_id TEXT PRIMARY KEY, provider TEXT NOT NULL, message_id TEXT NOT NULL,
-        occurred_at TEXT NOT NULL, event_type TEXT NOT NULL, payload TEXT NOT NULL,
-        job_url TEXT, resolved_at TEXT, created_at TEXT NOT NULL,
-        UNIQUE(provider, message_id)
-    )""")
+    ensure_schema(conn)
+    ensure_event_schema(conn)
     conn.execute("""CREATE TABLE IF NOT EXISTS followup_actions (
         action_id TEXT PRIMARY KEY, job_url TEXT NOT NULL, summary TEXT NOT NULL,
         due_at TEXT NOT NULL, created_at TEXT NOT NULL, completed_at TEXT
@@ -85,7 +87,9 @@ def _normalise_event(raw: dict) -> dict:
     if not isinstance(raw, dict):
         raise TypeError("Each event must be an object")
     allowed = {"provider", "message_id", "occurred_at", "event_type", "job_url",
-               "company", "title", "evidence_ref", "summary", "scheduled_at", "round"}
+               "company", "title", "evidence_ref", "summary", "scheduled_at", "round",
+               "application_id", "fact_key", "stage_id", "supersedes_event_id",
+               "time_basis", "submitted_at", "date_precision"}
     if set(raw) - allowed:
         raise ValueError(f"Unknown event fields: {', '.join(sorted(set(raw) - allowed))}")
     event = {field: _text(raw.get(field), field) for field in
@@ -94,6 +98,20 @@ def _normalise_event(raw: dict) -> dict:
     if event["event_type"] not in EVENT_TYPES:
         raise ValueError("Unsupported event_type")
     event["occurred_at"] = timestamp(raw.get("occurred_at")).isoformat()
+    event["time_basis"] = raw.get("time_basis", "occurred")
+    if event["time_basis"] not in {"occurred", "observed"}:
+        raise ValueError("time_basis must be occurred or observed")
+    event["date_precision"] = raw.get("date_precision", "instant")
+    if event["date_precision"] not in {"instant", "day"}:
+        raise ValueError("date_precision must be instant or day")
+    event["submitted_at"] = raw.get("submitted_at")
+    if event["submitted_at"] is not None:
+        from applypilot.application_progress import application_date
+
+        if event["event_type"] not in {"submission_confirmed", "submission_user_confirmed"}:
+            raise ValueError("submitted_at is only allowed on a submission confirmation")
+        if application_date(event["submitted_at"])[0] is None:
+            raise ValueError("submitted_at must be an ISO date or timezone-aware timestamp")
     for field in ("job_url", "company", "title", "evidence_ref"):
         event[field] = _text(raw.get(field), field, optional=True)
     if event["event_type"] != "manual_note" and not event["evidence_ref"]:
@@ -108,6 +126,17 @@ def _normalise_event(raw: dict) -> dict:
         type(event["round"]) is not int or event["round"] < 1
     ):
         raise ValueError("round must be a positive integer")
+    for field in ("application_id", "stage_id", "supersedes_event_id"):
+        event[field] = _text(raw.get(field), field, optional=True)
+    event["fact_key"] = raw.get("fact_key", "")
+    if not isinstance(event["fact_key"], str) or len(event["fact_key"]) > 200:
+        raise ValueError("fact_key must be a string of at most 200 characters")
+    if event["event_type"] == "retracted" and not event["supersedes_event_id"]:
+        raise ValueError("Retraction requires supersedes_event_id")
+    if event["event_type"] in {"interview_rescheduled", "interview_cancelled"} and not (
+        event["stage_id"] or event["round"]
+    ):
+        raise ValueError("Rescheduling/cancellation requires stage_id or round")
     return event
 
 
@@ -126,21 +155,47 @@ def import_events(conn: sqlite3.Connection, events: list[dict]) -> dict:
         for event in normalised:
             payload = json.dumps(event, ensure_ascii=False, sort_keys=True)
             prior = conn.execute(
-                "SELECT payload FROM followup_events WHERE provider=? AND message_id=?",
-                (event["provider"], event["message_id"]),
+                "SELECT payload FROM followup_events WHERE provider=? AND message_id=? AND fact_key=?",
+                (event["provider"], event["message_id"], event["fact_key"]),
             ).fetchone()
             if prior:
-                if prior[0] != payload:
+                if _normalise_event(json.loads(prior[0])) != event:
                     raise ValueError("provider/message_id already exists with different content")
                 result["duplicates"] += 1
                 continue
             matched = event["job_url"] if _exact_job(conn, event["job_url"]) else None
-            conn.execute("INSERT INTO followup_events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (
+            bound_application = event["application_id"]
+            if event["application_id"]:
+                application = conn.execute("SELECT job_url FROM followup_applications WHERE application_id=?",
+                                           (event["application_id"],)).fetchone()
+                if application is None:
+                    raise ValueError("Unknown application_id")
+                if event["job_url"] and event["job_url"] != application[0]:
+                    raise ValueError("application_id and job_url disagree")
+                matched = application[0]
+            if event["supersedes_event_id"]:
+                prior_event = conn.execute("SELECT job_url,application_id FROM followup_events WHERE event_id=?",
+                                           (event["supersedes_event_id"],)).fetchone()
+                if not prior_event:
+                    raise ValueError("Unknown supersedes_event_id")
+                superseded = [json.loads(row[0]).get("supersedes_event_id")
+                              for row in conn.execute("SELECT payload FROM followup_events")]
+                if event["supersedes_event_id"] in superseded:
+                    raise ValueError("Event already corrected; correct its replacement instead")
+                if not event["job_url"] and not bound_application:
+                    matched, bound_application = prior_event
+            conn.execute("""INSERT INTO followup_events
+                (event_id,provider,message_id,occurred_at,event_type,payload,job_url,resolved_at,created_at,
+                 fact_key,application_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
                 str(uuid4()), event["provider"], event["message_id"], event["occurred_at"],
                 event["event_type"], payload, matched, None, datetime.now(UTC).isoformat(),
+                event["fact_key"], bound_application,
             ))
             result["imported"] += 1
-            result["pending"] += int(matched is None)
+            result["pending"] += int(matched is None and not bound_application)
+        from applypilot.application_progress import sync_jobs
+
+        sync_jobs(conn)
     return result
 
 
@@ -148,13 +203,16 @@ def _events(conn: sqlite3.Connection | None, *, job_url: str | None = None,
             pending: bool = False) -> list[dict]:
     if not _exists(conn, "followup_events"):
         return []
+    schema = conn.execute("SELECT sql FROM sqlite_master WHERE name='followup_events' AND type='table'").fetchone()[0]
+    has_application = "application_id" in schema
     where, params = "", ()
     if pending:
-        where = " WHERE job_url IS NULL"
+        where = " WHERE job_url IS NULL" + (" AND application_id IS NULL" if has_application else "")
     elif job_url is not None:
         where, params = " WHERE job_url=?", (job_url,)
+    application_column = "application_id" if has_application else "NULL"
     rows = conn.execute(
-        "SELECT event_id, payload, job_url, resolved_at, created_at FROM followup_events"
+        f"SELECT event_id, payload, job_url, resolved_at, created_at, {application_column} FROM followup_events"
         + where + " ORDER BY occurred_at, event_id", params,
     ).fetchall()
     result = []
@@ -162,30 +220,49 @@ def _events(conn: sqlite3.Connection | None, *, job_url: str | None = None,
         payload = json.loads(row[1])
         result.append(dict(payload, event_id=row[0], source_job_url=payload["job_url"],
                            job_url=row[2], resolved_at=row[3], created_at=row[4],
-                           match_status="matched" if row[2] else "pending"))
+                           application_id=row[5], match_status="matched" if row[2] or row[5] else "pending"))
     return result
 
 
 def pending_events(conn: sqlite3.Connection | None) -> list[dict]:
-    return _events(conn, pending=True)
+    from applypilot.application_progress import effective_events
+
+    return [event for event in effective_events(_events(conn)) if event["match_status"] == "pending"]
 
 
-def resolve_event(conn: sqlite3.Connection, event_id: str, job_url: str) -> dict:
+def resolve_event(conn: sqlite3.Connection, event_id: str, job_url: str | None = None,
+                  *, application_id: str | None = None) -> dict:
     """Bind one pending observation after an explicit operator choice."""
     with _atomic(conn):
-        if not _exact_job(conn, job_url):
+        if bool(job_url) == bool(application_id):
+            raise ValueError("Choose exactly one job_url or application_id")
+        if job_url and not _exact_job(conn, job_url):
             raise ValueError("Resolve requires an exact existing jobs.url")
         if not _exists(conn, "followup_events"):
             raise ValueError("Unknown event_id")
-        row = conn.execute("SELECT job_url FROM followup_events WHERE event_id=?", (event_id,)).fetchone()
+        _ensure_schema(conn)
+        if application_id:
+            application = conn.execute("SELECT job_url FROM followup_applications WHERE application_id=?", (application_id,)).fetchone()
+            if application is None:
+                raise ValueError("Unknown application_id")
+            job_url = application[0]
+        row = conn.execute("SELECT job_url,application_id FROM followup_events WHERE event_id=?", (event_id,)).fetchone()
         if row is None:
             raise ValueError("Unknown event_id")
         if row[0] and row[0] != job_url:
             raise ValueError("An already matched event cannot be reassigned")
-        if row[0] is None:
-            conn.execute("UPDATE followup_events SET job_url=?, resolved_at=? WHERE event_id=?",
-                         (job_url, datetime.now(UTC).isoformat(), event_id))
-    return next(event for event in _events(conn, job_url=job_url) if event["event_id"] == event_id)
+        if row[1] and application_id and row[1] != application_id:
+            raise ValueError("An already matched event cannot be reassigned")
+        if row[1] and not application_id and row[0] != job_url:
+            raise ValueError("An already matched event cannot be reassigned")
+        if row[0] is None and row[1] is None:
+            conn.execute("UPDATE followup_events SET job_url=?,application_id=?,resolved_at=? WHERE event_id=?",
+                         (job_url, application_id, datetime.now(UTC).isoformat(), event_id))
+            from applypilot.application_progress import sync_jobs
+
+            _ensure_schema(conn)
+            sync_jobs(conn)
+    return next(event for event in _events(conn) if event["event_id"] == event_id)
 
 
 def actions(conn: sqlite3.Connection | None, *, job_url: str | None = None) -> list[dict]:
@@ -234,18 +311,35 @@ def timeline(conn: sqlite3.Connection | None, job_url: str) -> dict:
     return {"job_url": job_url, "events": _events(conn, job_url=job_url), "actions": actions(conn, job_url=job_url)}
 
 
+def scheduled_interviews(events: list[dict]) -> list[dict]:
+    """A reschedule replaces the same round; cancellation/completion removes it."""
+    from applypilot.application_progress import effective_events
+
+    latest = {}
+    for event in effective_events(events):
+        if not event["event_type"].startswith("interview"):
+            continue
+        identity = (event.get("application_id") or event["job_url"],
+                    event.get("stage_id") or event.get("round") or event["event_id"])
+        latest[identity] = event
+    return [event for event in latest.values() if event.get("scheduled_at")
+            and event["event_type"] not in {"interview_completed", "interview_cancelled"}]
+
+
 def followup_summary(conn: sqlite3.Connection | None, *, now: datetime | None = None, limit: int = 20) -> dict:
     """Dashboard projection; absent schema or connection yields empty data."""
     now = now or datetime.now(UTC)
     now = timestamp(now.isoformat())
     if limit < 1:
         raise ValueError("limit must be positive")
-    all_events, all_actions = _events(conn), actions(conn)
+    from applypilot.application_progress import effective_events
+
+    all_events, all_actions = effective_events(_events(conn)), actions(conn)
     due = due_actions(conn, at=now.isoformat())
-    upcoming = [event for event in all_events if event["job_url"] and event["scheduled_at"]
+    upcoming = [event for event in scheduled_interviews(all_events) if event["job_url"]
                 and timestamp(event["scheduled_at"]) >= now]
     upcoming.sort(key=lambda event: (event["scheduled_at"], event["event_id"]))
-    return {"pending_count": sum(event["job_url"] is None for event in all_events),
+    return {"pending_count": sum(event["match_status"] == "pending" for event in all_events),
             "open_action_count": sum(action["completed_at"] is None for action in all_actions),
             "due_action_count": len(due), "due_actions": due[:limit],
             "upcoming_interviews": upcoming[:limit], "recent_events": list(reversed(all_events))[:limit]}
@@ -276,7 +370,7 @@ def export_ics(conn: sqlite3.Connection | None, *, job_url: str | None = None) -
     lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//ApplyPilot//Local Followup//EN", "CALSCALE:GREGORIAN"]
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     items = [(event["event_id"], event["scheduled_at"], event["summary"], event["job_url"])
-             for event in _events(conn, job_url=job_url) if event["job_url"] and event["scheduled_at"]]
+             for event in scheduled_interviews(_events(conn, job_url=job_url)) if event["job_url"]]
     items += [(action["action_id"], action["due_at"], action["summary"], action["job_url"])
               for action in actions(conn, job_url=job_url) if not action["completed_at"]]
     for identity, when, summary, url in sorted(items, key=lambda item: (item[1], item[0])):

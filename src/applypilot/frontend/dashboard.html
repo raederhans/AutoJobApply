@@ -717,6 +717,7 @@
       }
     }
   </style>
+  <link rel="stylesheet" href="assets/job-apply-pilot/progress.css">
 </head>
 <body>
   <a class="skip-link" href="#main-content">Skip to main content</a>
@@ -736,6 +737,7 @@
         <li class="active" role="presentation"><button id="decide-tab" type="button" role="tab" aria-selected="true" aria-controls="decide-panel" data-stage="decide"><span class="step-number">02</span><span><strong>Decide</strong><span>Fit &amp; eligibility</span></span><span class="stage-count" id="decide-stage-count">0</span></button></li>
         <li role="presentation"><button id="prepare-tab" type="button" role="tab" aria-selected="false" aria-controls="prepare-panel" data-stage="prepare" tabindex="-1"><span class="step-number">03</span><span><strong>Prepare</strong><span>Resumes &amp; materials</span></span><span class="stage-count" id="prepare-stage-count">0</span></button></li>
         <li role="presentation"><button id="verify-tab" type="button" role="tab" aria-selected="false" aria-controls="verify-panel" data-stage="verify" tabindex="-1"><span class="step-number">04</span><span><strong>Verify</strong><span>Authority &amp; receipts</span></span><span class="stage-count" id="verify-stage-count">0</span></button></li>
+        <li role="presentation"><button id="progress-tab" type="button" role="tab" aria-selected="false" aria-controls="progress-panel" data-stage="progress" tabindex="-1"><span class="step-number">05</span><span><strong>申请进度</strong><span>转化与时间轴</span></span><span class="stage-count" id="progress-stage-count">0</span></button></li>
       </ol>
       <div class="language-control">
         <span>Interface language</span>
@@ -967,10 +969,13 @@
             </aside>
           </div>
         </section>
+        <section id="progress-panel" role="tabpanel" aria-labelledby="progress-tab" hidden></section>
       </section>
     </main>
   </div>
 
+  <script src="assets/job-apply-pilot/echarts-6.1.0.min.js"></script>
+  <script src="assets/job-apply-pilot/progress.js"></script>
   <script id="dashboard-data" type="application/json">__APPLYPILOT_DASHBOARD_DATA__</script>
   <script>
     (() => {
@@ -2091,6 +2096,7 @@
       };
 
       const stageCopy = {
+        progress: {eyebrow: "Application progress", title: "See where your applications stand.", copy: "Track conversions, actual paths and recruiting history."},
         discover: {
           eyebrow: "Discovery workbench",
           title: "Trace every source.",
@@ -2116,6 +2122,10 @@
       const setStage = (stage, { focusPanel = false, updateHash = true } = {}) => {
         if (!(stage in stageCopy)) return;
         state.stage = stage;
+        document.getElementById("progress-panel").hidden = stage !== "progress";
+        document.querySelector("#progress-tab strong").textContent = locale === "zh" ? "申请进度" : "Progress";
+        document.querySelector("#progress-tab span > span").textContent = locale === "zh" ? "转化与时间轴" : "Conversions & timeline";
+        document.getElementById("progress-stage-count").textContent = (data.progress?.applications || []).filter(a => ["verified", "user_confirmed"].includes(a.basis)).length;
         document.getElementById("discover-panel").hidden = stage !== "discover";
         document.getElementById("decide-panel").hidden = stage !== "decide";
         document.getElementById("prepare-panel").hidden = stage !== "prepare";
@@ -2126,7 +2136,7 @@
           button.tabIndex = selected ? 0 : -1;
           button.closest("li").classList.toggle("active", selected);
         });
-        const copy = stageCopy[stage];
+        const copy = stage === "progress" && locale === "zh" ? {eyebrow: "申请进度", title: "看清每一次申请的进展。", copy: "从投递到接受 offer，追踪转化、实际路径与招聘反馈。"} : stageCopy[stage];
         document.getElementById("page-eyebrow").textContent = t(copy.eyebrow);
         document.getElementById("page-title").textContent = t(copy.title);
         document.getElementById("page-copy").textContent = t(copy.copy);
@@ -2135,7 +2145,11 @@
           try { history.replaceState(null, "", `#${stage}`); }
           catch { location.hash = stage; }
         }
-        if (stage === "discover") {
+        if (stage === "progress") {
+          discoverList.replaceChildren(); list.replaceChildren(); materialList.replaceChildren(); verifyList.replaceChildren();
+          renderSystem({ state: "ready" });
+          window.renderApplicationProgress(data.progress, locale);
+        } else if (stage === "discover") {
           list.replaceChildren();
           materialList.replaceChildren();
           verifyList.replaceChildren();

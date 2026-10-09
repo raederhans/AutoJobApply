@@ -27,6 +27,7 @@ from applypilot.apply.contracts import (
 from applypilot.config import DB_PATH
 from applypilot.storage import agent_control as _agent_control
 from applypilot.storage import application_ledger as _application_ledger
+from applypilot.storage import followup_schema as _followup_schema
 from applypilot.storage import job_identity as _job_identity
 from applypilot.storage import job_stats as _job_stats
 from applypilot.storage import posting_lifecycle as _posting_lifecycle
@@ -371,6 +372,7 @@ def _establish_current_schema_baseline(connection: sqlite3.Connection) -> None:
 _DATABASE_MIGRATIONS = (
     _establish_current_schema_baseline,
     _posting_lifecycle.ensure_posting_lifecycle_schema,
+    _followup_schema.ensure_schema,
 )
 DATABASE_SCHEMA_VERSION = len(_DATABASE_MIGRATIONS)
 

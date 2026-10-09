@@ -54,10 +54,65 @@ def timeline(url: Annotated[str, typer.Option("--url")]) -> None:
 
 
 @app.command("import")
-def import_file(file: Annotated[Path, typer.Option("--file", exists=True, dir_okay=False)]) -> None:
+def import_file(file: Annotated[Path, typer.Option("--file", exists=True, dir_okay=False)],
+                dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+                refresh: Annotated[bool, typer.Option("--refresh-dashboard")] = False) -> None:
     """Atomically import a user-reviewed JSON event array."""
+    from applypilot.progress_import import import_bundle, preview
+
+    payload = json.loads(file.read_text(encoding="utf-8-sig"))
+    with _connection(write=not dry_run) as conn:
+        result = preview(conn, import_bundle, payload) if dry_run else import_bundle(conn, payload)
+    _print(result)
+    if refresh and not dry_run:
+        _refresh_dashboard()
+
+
+def _refresh_dashboard() -> None:
+    from applypilot.view import generate_dashboard
+
+    try:
+        generate_dashboard(str(_database_path().parent / "dashboard.html"), db_path=_database_path())
+    except (OSError, sqlite3.Error, ValueError) as exc:
+        typer.echo(f"Events saved; dashboard refresh failed: {exc}", err=True)
+        raise typer.Exit(2) from exc
+
+
+@app.command("import-history")
+def import_history(
+    directory: Annotated[Path, typer.Option("--directory", exists=True, file_okay=False)],
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+) -> None:
+    """Import the structured legacy baseline. Dry-run uses a disposable database snapshot."""
+    from applypilot.progress_import import import_legacy, preview
+
+    with _connection(write=not dry_run) as conn:
+        _print(preview(conn, import_legacy, directory) if dry_run else import_legacy(conn, directory))
+
+
+@app.command("refresh")
+def refresh_progress() -> None:
+    """Reconcile local submission facts into progress identities, then regenerate the dashboard."""
+    from applypilot.application_progress import sync_jobs
+
     with _connection(write=True) as conn:
-        _print(followup.import_events(conn, json.loads(file.read_text(encoding="utf-8-sig"))))
+        _print(sync_jobs(conn))
+    _refresh_dashboard()
+
+
+@app.command("stats")
+def progress_stats(
+    as_of: Annotated[str | None, typer.Option("--as-of")] = None,
+    since: Annotated[str | None, typer.Option("--since")] = None,
+    until: Annotated[str | None, typer.Option("--until")] = None,
+    scope: Annotated[str, typer.Option("--scope")] = "confirmed",
+    query: Annotated[str, typer.Option("--query")] = "",
+) -> None:
+    """Read counts and drill-down records. since/until are Singapore submission dates."""
+    from applypilot.application_progress import collect_progress, summarize
+
+    with _connection() as conn:
+        _print(summarize(collect_progress(conn), as_of=as_of, since=since, until=until, scope=scope, query=query))
 
 
 @app.command("pending")
@@ -70,11 +125,12 @@ def pending() -> None:
 @app.command("resolve")
 def resolve(
     event_id: Annotated[str, typer.Option("--event-id")],
-    url: Annotated[str, typer.Option("--url")],
+    url: Annotated[str | None, typer.Option("--url")] = None,
+    application_id: Annotated[str | None, typer.Option("--application-id")] = None,
 ) -> None:
     """Explicitly associate one pending observation with an exact jobs.url."""
     with _connection(write=True) as conn:
-        _print(followup.resolve_event(conn, event_id, url))
+        _print(followup.resolve_event(conn, event_id, url, application_id=application_id))
 
 
 @app.command("add-action")

@@ -33,6 +33,11 @@ console = Console()
 DATA_PLACEHOLDER = "__APPLYPILOT_DASHBOARD_DATA__"
 DASHBOARD_ASSET_DIRECTORY = Path("assets") / "job-apply-pilot"
 DASHBOARD_ASSET_NAMES = (
+    "progress.js",
+    "progress.css",
+    "echarts-6.1.0.min.js",
+    "ECHARTS-LICENSE.txt",
+    "ECHARTS-NOTICE.txt",
     "job-apply-pilot-lockup.svg",
     "job-apply-pilot-lockup-inverse.svg",
     "job-apply-pilot-mark.svg",
@@ -95,6 +100,8 @@ def _empty_dashboard(system: dict[str, Any]) -> dict[str, Any]:
         "prepare": prepare,
         "verify": verify,
         "followup": _empty_followup(),
+        "progress": {"state": "unavailable" if system["state"] == "error" else "not_initialized",
+                     "applications": [], "sources": [], "pending_count": 0},
     }
 
 
@@ -366,11 +373,12 @@ def _followup_data(conn: sqlite3.Connection, verify: dict[str, Any]) -> dict[str
     }
 
 
-def collect_dashboard_data(conn: sqlite3.Connection | None = None) -> dict[str, Any]:
+def collect_dashboard_data(conn: sqlite3.Connection | None = None, *, db_path: Path | None = None) -> dict[str, Any]:
     """Read existing opportunity contracts without changing workspace state."""
     owns_connection = conn is None
     if conn is None:
-        if not DB_PATH.is_file():
+        source_path = db_path or DB_PATH
+        if not source_path.is_file():
             return _empty_dashboard(
                 _system_state(
                     "empty",
@@ -380,7 +388,7 @@ def collect_dashboard_data(conn: sqlite3.Connection | None = None) -> dict[str, 
                     ("Build shortlist", "applypilot run discover enrich score"),
                 )
             )
-        conn = _read_only_connection(DB_PATH)
+        conn = _read_only_connection(source_path)
     else:
         conn.row_factory = sqlite3.Row
 
@@ -474,6 +482,9 @@ def collect_dashboard_data(conn: sqlite3.Connection | None = None) -> dict[str, 
             job["prepare"] = build_prepare_job(contract_job, assignments.get(contract_job["url"]))
         verify = _verify_data(conn)
         followup = _followup_data(conn, verify)
+        from applypilot.application_progress import collect_progress
+
+        progress = collect_progress(conn)
         discover = _discover_data(conn)
     finally:
         if owns_connection:
@@ -518,6 +529,7 @@ def collect_dashboard_data(conn: sqlite3.Connection | None = None) -> dict[str, 
         "prepare": prepare,
         "verify": verify,
         "followup": followup,
+        "progress": progress,
     }
 
 
@@ -543,11 +555,11 @@ def _publish_dashboard_assets(output: Path) -> None:
         (target / name).write_bytes(asset.read_bytes())
 
 
-def generate_dashboard(output_path: str | None = None) -> str:
+def generate_dashboard(output_path: str | None = None, *, db_path: Path | None = None) -> str:
     """Generate the local HTML workbench and return its absolute path."""
     out = Path(output_path) if output_path else APP_DIR / "dashboard.html"
     try:
-        data = collect_dashboard_data()
+        data = collect_dashboard_data(db_path=db_path)
     except (OSError, sqlite3.DatabaseError) as exc:
         console.print("[yellow]Workspace data could not be read:[/yellow]", str(exc))
         data = _empty_dashboard(
