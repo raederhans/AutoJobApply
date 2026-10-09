@@ -5,7 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { observeForm, operateObservedControl } from './browser-form-state.mjs';
 
 const fixture = fileURLToPath(new URL('../tests/fixtures/apply/ats_shadow.html', import.meta.url));
@@ -25,8 +25,21 @@ class Cdp {
     this.nextId = 1;
     this.pending = new Map();
     this.ready = new Promise((resolve, reject) => {
-      this.socket.addEventListener('open', resolve, { once: true });
-      this.socket.addEventListener('error', event => reject(event.error || Error('CDP WebSocket error')), { once: true });
+      const timer = setTimeout(() => reject(Error('CDP WebSocket connection timed out')), 10000);
+      const clearTimer = () => clearTimeout(timer);
+      this.socket.addEventListener('open', () => { clearTimer(); resolve(); }, { once: true });
+      this.socket.addEventListener('error', event => {
+        clearTimer();
+        const error = event.error || Error('CDP WebSocket error');
+        reject(error);
+        this.rejectPending(error);
+      });
+      this.socket.addEventListener('close', () => {
+        clearTimer();
+        const error = Error('CDP WebSocket closed');
+        reject(error);
+        this.rejectPending(error);
+      });
     });
     this.socket.addEventListener('message', event => {
       const message = JSON.parse(event.data);
@@ -34,9 +47,18 @@ class Cdp {
       const pending = this.pending.get(message.id);
       if (!pending) return;
       this.pending.delete(message.id);
+      clearTimeout(pending.timer);
       if (message.error) pending.reject(new Error(message.error.message));
       else pending.resolve(message.result);
     });
+  }
+
+  rejectPending(error) {
+    for (const [id, pending] of this.pending) {
+      this.pending.delete(id);
+      clearTimeout(pending.timer);
+      pending.reject(error);
+    }
   }
 
   async send(method, params = {}, sessionId) {
@@ -44,25 +66,55 @@ class Cdp {
     const id = this.nextId++;
     const message = { id, method, params };
     if (sessionId) message.sessionId = sessionId;
-    const result = new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }));
-    this.socket.send(JSON.stringify(message));
+    const result = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(Error(`CDP request timed out: ${method}`));
+      }, 10000);
+      this.pending.set(id, { resolve, reject, timer });
+    });
+    try { this.socket.send(JSON.stringify(message)); }
+    catch (error) {
+      const pending = this.pending.get(id);
+      if (pending) {
+        this.pending.delete(id);
+        clearTimeout(pending.timer);
+        pending.reject(error);
+      }
+    }
     return result;
   }
 
   async close() {
-    if (this.socket.readyState === WebSocket.OPEN) this.socket.close();
+    this.rejectPending(Error('CDP client closed'));
+    if (this.socket.readyState === WebSocket.CLOSED) return;
+    const closed = new Promise(resolve => this.socket.addEventListener('close', resolve, { once: true }));
+    try { this.socket.close(); } catch { /* The browser may already have closed the socket. */ }
+    let timer;
+    await Promise.race([closed, new Promise(resolve => { timer = setTimeout(resolve, 1000); })]);
+    clearTimeout(timer);
   }
 }
 
-async function launchFixture({ withSnapshot = true } = {}) {
+async function launchFixture(t, { withSnapshot = true } = {}) {
   const executable = chromiumPath();
   assert.ok(executable, 'A local Playwright Chromium executable is required');
   const userData = await mkdtemp(path.join(process.env.TEMP || '/tmp', 'applypilot-shadow-'));
-  const child = spawn(executable, [
-    '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-background-networking',
-    '--disable-component-update', '--disable-default-apps', '--no-first-run',
-    '--allow-file-access-from-files', '--remote-debugging-port=0', `--user-data-dir=${userData}`,
-  ], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+  let child;
+  const runtime = { child: null, browser: null, userData };
+  try {
+    child = spawn(executable, [
+      '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-background-networking',
+      '--disable-component-update', '--disable-default-apps', '--no-first-run',
+      '--allow-file-access-from-files', '--remote-debugging-port=0', `--user-data-dir=${userData}`,
+    ], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+  } catch (error) {
+    assertOwnedUserData(userData);
+    await rm(userData, { recursive: true, force: true });
+    throw error;
+  }
+  runtime.child = child;
+  t.after(() => closeFixture(runtime));
   const devtoolsUrl = await new Promise((resolve, reject) => {
     let output = '';
     const timer = setTimeout(() => reject(Error(`Chromium did not announce CDP: ${output}`)), 10000);
@@ -74,9 +126,11 @@ async function launchFixture({ withSnapshot = true } = {}) {
     child.stderr.on('data', onData);
     child.stdout.on('data', onData);
     child.once('exit', code => { clearTimeout(timer); reject(Error(`Chromium exited before CDP startup (${code}): ${output}`)); });
+    child.once('error', error => { clearTimeout(timer); reject(error); });
   });
   const browser = new Cdp(devtoolsUrl);
-  const fixtureUrl = new URL(`file:///${fixture.replaceAll('\\', '/')}`).href;
+  runtime.browser = browser;
+  const fixtureUrl = pathToFileURL(fixture).href;
   const target = await browser.send('Target.createTarget', { url: fixtureUrl });
   const attached = await browser.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
   const sessionId = attached.sessionId;
@@ -103,21 +157,39 @@ async function launchFixture({ withSnapshot = true } = {}) {
     if (Date.now() >= deadline) throw Error('Synthetic fixture navigation did not complete');
     await new Promise(resolve => setTimeout(resolve, 20));
   }
-  return { browser, child, userData, tab, evaluate };
+  return { ...runtime, tab, evaluate };
+}
+
+async function waitForChildExit(child, timeoutMs) {
+  if (child.exitCode !== null || child.signalCode !== null) return true;
+  return new Promise(resolve => {
+    const onExit = () => { clearTimeout(timer); resolve(true); };
+    const timer = setTimeout(() => {
+      child.removeListener('exit', onExit);
+      resolve(false);
+    }, timeoutMs);
+    child.once('exit', onExit);
+  });
+}
+
+function assertOwnedUserData(userData) {
+  const tempRoot = path.resolve(process.env.TEMP || '/tmp');
+  assert.equal(path.dirname(path.resolve(userData)), tempRoot);
+  assert.ok(path.basename(userData).startsWith('applypilot-shadow-'));
 }
 
 async function closeFixture(runtime) {
   // Graceful shutdown lets Chromium release its Crashpad files before cleanup.
-  await runtime.browser.send('Browser.close').catch(() => {});
-  await runtime.browser.close();
-  await new Promise(resolve => {
-    if (runtime.child.exitCode !== null) resolve();
-    else runtime.child.once('exit', resolve);
-  });
+  if (runtime.browser) {
+    await runtime.browser.send('Browser.close').catch(() => {});
+    await runtime.browser.close();
+  }
+  if (runtime.child && !await waitForChildExit(runtime.child, 3000)) {
+    runtime.child.kill('SIGKILL');
+    if (!await waitForChildExit(runtime.child, 3000)) throw Error('Owned Chromium process did not exit after kill');
+  }
   await new Promise(resolve => setTimeout(resolve, 100));
-  const tempRoot = path.resolve(process.env.TEMP || '/tmp');
-  assert.equal(path.dirname(path.resolve(runtime.userData)), tempRoot);
-  assert.ok(path.basename(runtime.userData).startsWith('applypilot-shadow-'));
+  assertOwnedUserData(runtime.userData);
   await rm(runtime.userData, { recursive: true, force: true });
 }
 
@@ -151,8 +223,7 @@ function locatorFor(evaluate, selector) {
 }
 
 test('observeForm traverses nested open roots and keeps duplicate and anonymous controls stable', async t => {
-  const runtime = await launchFixture();
-  t.after(() => closeFixture(runtime));
+  const runtime = await launchFixture(t);
   const form = await observeForm(runtime.tab);
   assert.equal(form.coverage.scope, 'visible_top_document_open_shadow');
   assert.ok(form.coverage.open_shadow_count >= 4);
@@ -175,8 +246,7 @@ test('observeForm traverses nested open roots and keeps duplicate and anonymous 
 });
 
 test('operateObservedControl fills the second anonymous date in its nested shadow root', async t => {
-  const runtime = await launchFixture({ withSnapshot: false });
-  t.after(() => closeFixture(runtime));
+  const runtime = await launchFixture(t, { withSnapshot: false });
   const before = await observeForm(runtime.tab);
   const dates = before.fields.filter(field => field.control === 'date');
   const result = await operateObservedControl(runtime.tab, before, 'fill_control', { field_key: dates[1].field_key, value: '2027-06-30' });
@@ -186,8 +256,7 @@ test('operateObservedControl fills the second anonymous date in its nested shado
 });
 
 test('React Select single selection persists by selected display when input value stays blank', async t => {
-  const runtime = await launchFixture({ withSnapshot: false });
-  t.after(() => closeFixture(runtime));
+  const runtime = await launchFixture(t, { withSnapshot: false });
   const before = await observeForm(runtime.tab);
   const country = before.fields.find(field => field.label === 'Preferred country');
   assert.ok(country);
@@ -202,8 +271,7 @@ test('React Select single selection persists by selected display when input valu
 });
 
 test('cross-shadow aria-controls resolves the unique visible ancestor-root list', async t => {
-  const runtime = await launchFixture();
-  t.after(() => closeFixture(runtime));
+  const runtime = await launchFixture(t);
   const form = await observeForm(runtime.tab);
   const country = form.fields.find(field => field.label === 'Country');
   assert.ok(country);
@@ -213,8 +281,7 @@ test('cross-shadow aria-controls resolves the unique visible ancestor-root list'
 });
 
 test('visible required markers stay bound to one unambiguous form-group control', async t => {
-  const runtime = await launchFixture({ withSnapshot: false });
-  t.after(() => closeFixture(runtime));
+  const runtime = await launchFixture(t, { withSnapshot: false });
   await runtime.evaluate(`document.body.innerHTML = ${JSON.stringify(`
     <div class="form-group"><label for="">Full Name: <span>*</span></label><div><input id="name" placeholder="Full Name" name="922716"></div></div>
     <div class="form-group"><label for="email">Email: <span>*</span></label><input id="email" type="email"></div>
@@ -254,8 +321,7 @@ test('visible required markers stay bound to one unambiguous form-group control'
 });
 
 test('isolated application questions expose their visible title and required marker', async t => {
-  const runtime = await launchFixture({ withSnapshot: false });
-  t.after(() => closeFixture(runtime));
+  const runtime = await launchFixture(t, { withSnapshot: false });
   await runtime.evaluate(`document.body.innerHTML = ${JSON.stringify(`
     <ul>
       <li class="application-question"><label><div class="application-label">Resume/CV <span class="required">✱</span></div><div class="application-field"><a><span>Attach</span><input id="question-file" type="file"></a><span style="display:none">Analyzing resume...</span></div></label></li>
@@ -283,8 +349,7 @@ test('isolated application questions expose their visible title and required mar
 });
 
 test('required select helpers are excluded only beside one asserted primary combobox', async t => {
-  const runtime = await launchFixture({ withSnapshot: false });
-  t.after(() => closeFixture(runtime));
+  const runtime = await launchFixture(t, { withSnapshot: false });
   const helper = '<input required tabindex="-1" aria-hidden="true">';
   const combo = '<input class="select__input" role="combobox" aria-label="Choice" aria-required="true">';
   await runtime.evaluate(`document.body.innerHTML = ${JSON.stringify(`
@@ -306,8 +371,7 @@ test('required select helpers are excluded only beside one asserted primary comb
 });
 
 test('single file upload groups inherit their bound visible title and aria requirement', async t => {
-  const runtime = await launchFixture({ withSnapshot: false });
-  t.after(() => closeFixture(runtime));
+  const runtime = await launchFixture(t, { withSnapshot: false });
   const uploader = (id, title, required = '') => `<div class="file-upload" role="group" aria-labelledby="title-${id}" ${required}><div id="title-${id}" class="upload-label">${title}</div><div><button type="button">Attach</button><label for="${id}">Attach</label><input id="${id}" type="file"></div></div>`;
   await runtime.evaluate(`document.body.innerHTML = ${JSON.stringify([
     uploader('resume-fixture', 'Resume/CV*', 'aria-required="true"'),
@@ -336,8 +400,7 @@ test('single file upload groups inherit their bound visible title and aria requi
 });
 
 test('clipped file inputs expose only a uniquely bound visible upload trigger', async t => {
-  const runtime = await launchFixture({ withSnapshot: false });
-  t.after(() => closeFixture(runtime));
+  const runtime = await launchFixture(t, { withSnapshot: false });
   const html = '<div class="file-upload" role="group" aria-labelledby="upload-title">' +
     '<div id="upload-title">Resume/CV*</div><div><button id="attach" type="button">Attach</button>' +
     '<label for="resume" style="position:absolute;width:1px;height:1px;overflow:hidden">Attach</label>' +

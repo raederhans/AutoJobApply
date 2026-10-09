@@ -24,16 +24,29 @@ CONTRACTS = (
 def _run_node(files: tuple[str, ...], extra_env: dict[str, str] | None = None) -> None:
     node = shutil.which("node")
     assert node, "Node.js 18+ is required for the attended host contract tests"
-    result = subprocess.run(
-        [node, "--test", *files],
-        cwd=ROOT,
-        env={**os.environ, **(extra_env or {})},
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        timeout=120,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            [node, "--test", *files],
+            cwd=ROOT,
+            env={**os.environ, **(extra_env or {})},
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=120,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        def output_text(value: str | bytes | None) -> str:
+            if isinstance(value, bytes):
+                return value.decode("utf-8", errors="replace")
+            return value or ""
+
+        pytest.fail(
+            f"Node contracts timed out after {exc.timeout}s\n"
+            f"stdout:\n{output_text(exc.stdout)}\n"
+            f"stderr:\n{output_text(exc.stderr)}",
+            pytrace=False,
+        )
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
 
 
