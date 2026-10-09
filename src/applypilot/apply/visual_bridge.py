@@ -24,7 +24,7 @@ HOST_MAX_AGE_SECONDS = 120.0
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 45.0
 MAX_REQUEST_TIMEOUT_SECONDS = 120.0
 OPERATIONS = frozenset({"observe", "click", "scroll", "type_text", "press_key", "navigate", "upload_artifact",
-                        "fill_control", "select_control", "set_checked", "fill_batch"})
+                        "fill_control", "select_control", "open_control", "search_control", "set_checked", "fill_batch"})
 SURFACES = frozenset({"computer_use", "browser"})
 PRESS_KEYS = frozenset(
     {
@@ -162,7 +162,7 @@ def request_visual_operation(
     host = read_active_host(root, now=now())
     if operation == "fill_batch" and (host.phase != "prepare" or host.target.get("runtime") != "iab"):
         raise VisualBridgeError("invalid_request", "Field batch requires an IAB prepare host.")
-    if operation in {"navigate", "upload_artifact", "fill_control", "select_control", "set_checked", "fill_batch"} and host.surface != "browser":
+    if operation in {"navigate", "upload_artifact", "fill_control", "select_control", "open_control", "search_control", "set_checked", "fill_batch"} and host.surface != "browser":
         raise VisualBridgeError("invalid_request", f"{operation} is only available on the browser surface.")
     if operation == "type_text" and "node_id" in args and host.surface != "browser":
         raise VisualBridgeError("invalid_request", "Targeted text entry is only available on the browser surface.")
@@ -351,9 +351,11 @@ def _validate_operation(
         "type_text": {"text", "node_id"},
         "press_key": {"key", "keys"},
         "navigate": {"url"},
-        "upload_artifact": {"artifact_id", "node_id"},
+        "upload_artifact": {"artifact_id", "node_id", "field_key"},
         "fill_control": {"field_key", "value"},
-        "select_control": {"field_key", "value"},
+        "select_control": {"field_key", "value", "values"},
+        "open_control": {"field_key"},
+        "search_control": {"field_key", "value"},
         "set_checked": {"field_key", "checked"},
         "fill_batch": {"steps"},
     }
@@ -378,16 +380,29 @@ def _validate_operation(
         for step in steps:
             if not isinstance(step, dict) or step.get("operation") not in {"fill_control", "select_control"}:
                 raise VisualBridgeError("invalid_request", "Only routine text and native selects may be batched.")
+            if set(step) != {"operation", "field_key", "value"}:
+                raise VisualBridgeError("invalid_request", "Batch steps require routine scalar values.")
             _validate_operation(step["operation"], observation_id, {k: v for k, v in step.items() if k != "operation"})
             if step["field_key"] in seen:
                 raise VisualBridgeError("invalid_request", "Duplicate batch field.")
             seen.add(step["field_key"])
-    elif operation in {"fill_control", "select_control", "set_checked"}:
-        value_key = "checked" if operation == "set_checked" else "value"
+    elif operation in {"fill_control", "select_control", "open_control", "search_control", "set_checked"}:
+        value_key = "checked" if operation == "set_checked" else "values" if operation == "select_control" and "values" in arguments else "value"
+        if operation == "open_control":
+            if set(arguments) != {"field_key"} or not isinstance(arguments.get("field_key"), str) or not arguments["field_key"].strip():
+                raise VisualBridgeError("invalid_request", "Open requires an observed field_key.")
+            return
         if set(arguments) != {"field_key", value_key} or not isinstance(arguments.get("field_key"), str) or not arguments["field_key"].strip():
             raise VisualBridgeError("invalid_request", "Control operation requires an observed field_key and value.")
         if value_key == "checked":
             valid_value = isinstance(arguments[value_key], bool)
+        elif value_key == "values":
+            values = arguments[value_key]
+            if values == []:
+                raise VisualBridgeError("invalid_request", "Clearing native multiple selection is unsupported; values must be nonempty.")
+            valid_value = isinstance(values, list) and 1 <= len(values) <= 80 and all(
+                isinstance(value, str) and len(value) <= 12000 for value in values
+            ) and len(set(values)) == len(values)
         else:
             valid_value = isinstance(arguments[value_key], str) and len(arguments[value_key]) <= 12000
         if not valid_value:
@@ -399,11 +414,11 @@ def _validate_operation(
         if parsed.scheme not in {"https", "http"} or not parsed.hostname or parsed.username or parsed.password:
             raise VisualBridgeError("invalid_request", "navigate requires a web URL without credentials.")
     elif operation == "upload_artifact":
-        if set(arguments) != {"artifact_id", "node_id"} or any(
+        if set(arguments) not in ({"artifact_id", "node_id"}, {"artifact_id", "field_key"}) or any(
             not isinstance(arguments.get(name), str) or not str(arguments[name]).strip()
-            for name in ("artifact_id", "node_id")
+            for name in arguments
         ):
-            raise VisualBridgeError("invalid_request", "Upload requires a host artifact reference and observed control node_id.")
+            raise VisualBridgeError("invalid_request", "Upload requires a host artifact reference and exactly one observed field_key or node_id.")
     elif operation == "click":
         locator_shapes = ({"node_id"}, {"element_index"}, {"x", "y"})
         if set(arguments) not in locator_shapes:

@@ -123,6 +123,11 @@ def _call_transport(transport: Transport, url: str) -> tuple[int, str, dict[str,
 
 def _empty_run(company: Mapping[str, Any]) -> dict[str, Any]:
     now = datetime.now(UTC).isoformat()
+    provider = str(company.get("provider") or "").casefold()
+    tenant_keys = {
+        "smartrecruiters": ("company_id", "identifier", "site", "board"),
+        "workable": ("subdomain", "account", "site"),
+    }.get(provider, (_ACTIVE_PROVIDER_KEYS.get(provider, ""),))
     return {
         "source_id": f"official:{company.get('id', '')}:{company.get('provider', '')}",
         "company_id": company.get("id", ""),
@@ -149,6 +154,15 @@ def _empty_run(company: Mapping[str, Any]) -> dict[str, Any]:
                 or ""
             ),
             "read_only": True,
+            "inventory_contract": "official_api_v1",
+            "inventory_complete": False,
+            "provider": provider,
+            "inventory_scope": {
+                "provider": provider,
+                "tenant": _company_key(company, *tenant_keys),
+                "country": str(company.get("country") or "").strip().casefold()
+                    if provider == "smartrecruiters" else "",
+            },
         },
         "started_at": now,
         "finished_at": now,
@@ -159,6 +173,11 @@ def _empty_run(company: Mapping[str, Any]) -> dict[str, Any]:
 def _finish_run(run: dict[str, Any]) -> dict[str, Any]:
     run["normalised_count"] = len(run["jobs"])
     run["pagination_complete"] = run["status"] == "complete"
+    run["metadata"]["inventory_complete"] = bool(
+        run["status"] == "complete"
+        and run["metadata"].get("inventory_validated") is True
+        and run["metadata"].get("coverage_mode") == "full"
+    )
     run["error"] = "; ".join(run["errors"]) or None
     run["finished_at"] = datetime.now(UTC).isoformat()
     return run
@@ -255,7 +274,7 @@ def normalise_job(raw: Mapping[str, Any], company: Mapping[str, Any], provider: 
         raw.get("locations"),
         raw.get("secondaryLocations"),
         raw.get("jobLocation"),
-        raw.get("categories", {}).get("location"),
+        _nested_mapping(raw.get("categories")).get("location"),
     ]
     location = "; ".join(
         dict.fromkeys(
@@ -308,16 +327,16 @@ def _parse_json(body: str) -> Any:
     return json.loads(body.lstrip("\ufeff"))
 
 
-def _records_and_next(payload: Any) -> tuple[list[Mapping[str, Any]], str | None]:
+def _records_and_next(payload: Any) -> tuple[list[Any], str | None]:
     if isinstance(payload, list):
-        return [item for item in payload if isinstance(item, Mapping)], None
+        return payload, None
     if not isinstance(payload, Mapping):
-        return [], None
-    records = payload.get("jobs") or payload.get("data") or payload.get("results") or payload.get("postings") or []
-    if isinstance(records, Mapping):
-        records = records.get("jobs") or records.get("data") or []
+        raise TypeError("response is missing job list")
+    records = next((payload[key] for key in ("jobs", "data", "results", "postings") if key in payload), None)
+    if not isinstance(records, list):
+        raise TypeError("response is missing job list")
     next_url = payload.get("next") or payload.get("nextPage") or payload.get("next_page")
-    return [item for item in records if isinstance(item, Mapping)] if isinstance(records, list) else [], str(next_url) if next_url else None
+    return records, str(next_url) if next_url else None
 
 
 def _safe_pagination_url(origin_url: str, current_url: str, successor: str) -> str | None:
@@ -334,8 +353,10 @@ def _safe_pagination_url(origin_url: str, current_url: str, successor: str) -> s
 
 def _collect_json_pages(company: Mapping[str, Any], url: str, transport: Transport, provider: str) -> dict[str, Any]:
     run = _empty_run(company)
+    run["metadata"]["inventory_validated"] = True
     next_url: str | None = url
     seen_urls: set[str] = set()
+    seen_job_identities: set[str] = set()
     max_pages = min(max(int(company.get("max_pages", 50)), 1), 100)
     while next_url:
         if run["pages_scanned"] >= max_pages:
@@ -363,15 +384,43 @@ def _collect_json_pages(company: Mapping[str, Any], url: str, transport: Transpo
             run["status"] = "partial"
             run["errors"].append(f"invalid JSON: {error}")
             break
-        records, successor = _records_and_next(payload)
+        try:
+            if provider in {"greenhouse", "ashby"} and (
+                not isinstance(payload, Mapping) or not isinstance(payload.get("jobs"), list)
+            ):
+                raise ValueError(f"{provider} response is missing jobs list")
+            records, successor = _records_and_next(payload)
+        except (TypeError, ValueError) as error:
+            run["status"] = "partial"
+            run["errors"].append(str(error))
+            break
+        # Lever's public API returns a list. Keep legacy pagination wrappers
+        # readable, but do not let them attest to a complete official inventory.
+        if provider == "lever" and not isinstance(payload, list):
+            run["metadata"]["inventory_validated"] = False
+        if isinstance(payload, Mapping) and any(payload.get(key) for key in ("paging", "hasMore", "has_more")):
+            run["status"] = "partial"
+            run["errors"].append("unrecognised pagination metadata")
         run["pages_scanned"] += 1
         run["raw_count"] += len(records)
         for record in records:
-            job = normalise_job(record, company, provider, source_url=next_url)
+            if not isinstance(record, Mapping):
+                run["status"] = "partial"
+                run["errors"].append("skipped non-object job record")
+                continue
+            try:
+                job = normalise_job(record, company, provider, source_url=next_url)
+            except (TypeError, ValueError, AttributeError):
+                job = None
             if job is None:
                 run["status"] = "partial"
                 run["errors"].append("skipped record without title or public URL")
                 continue
+            identity = job["external_id"] or job["canonical_url"]
+            if identity in seen_job_identities:
+                run["status"] = "partial"
+                run["errors"].append("duplicate job identity in inventory")
+            seen_job_identities.add(identity)
             run["jobs"].append(job)
         if successor:
             next_url = _safe_pagination_url(url, next_url, successor)
@@ -471,6 +520,7 @@ def collect_smartrecruiters(
 ) -> dict[str, Any]:
     """Read every SmartRecruiters posting page and enrich it from its official detail ref."""
     run = _empty_run(company)
+    run["metadata"]["inventory_validated"] = True
     identifier = _company_key(company, "company_id", "identifier", "site", "board")
     if not identifier:
         run["status"] = "partial"
@@ -712,6 +762,7 @@ def _workable_record(raw: Mapping[str, Any]) -> dict[str, Any]:
 def collect_workable(company: Mapping[str, Any], transport: Transport = _default_transport) -> dict[str, Any]:
     """Read Workable's anonymous public account collection, which is not paginated."""
     run = _empty_run(company)
+    run["metadata"]["inventory_validated"] = True
     account = _company_key(company, "subdomain", "account", "site")
     if not account:
         run["status"] = "partial"

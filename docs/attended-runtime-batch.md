@@ -108,3 +108,11 @@ observation, not per-runtime memory usage; shared Codex/IAB memory needs a separ
 whole-app measurement. See [real ATS results and evidence limits](attended-runtime-results.md).
 The default remains two workers; a successful four-worker sample is not a reason
 to automatically raise concurrency or bypass the default one-worker hostname cap.
+
+The host group's two operation slots are shared by overlapping `execute` calls
+on that group. Each queued job is reserved immediately; a concurrent request for
+the same job is rejected instead of replayed later. When one operation finishes,
+the next reviewed job can start without waiting for the other slot. Keep one
+group for the attended batch; independent group instances do not share a pool.
+See [the October 9 concurrency validation](concurrency-validation-20261009.md)
+for isolated process, SQLite and live IAB evidence and its limits.

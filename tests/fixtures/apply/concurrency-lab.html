@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>ApplyPilot concurrent form lab</title>
+<style>
+body{font:16px/1.5 system-ui,sans-serif;background:#edf2f7;color:#172337;margin:40px auto;padding:0 24px;max-width:780px}
+main{background:white;border:1px solid #ccd9e5;border-radius:16px;padding:32px}h1{margin:0 0 12px;font-size:28px}
+.badge{color:#087764;font-weight:700}label{display:block;margin-top:18px;font-weight:600}input,select,textarea{font:inherit;box-sizing:border-box;width:100%;padding:10px;border:1px solid #99aabe;border-radius:6px}textarea{height:90px}output{display:block;margin-top:24px;padding:14px;background:#edf8f5}small{color:#54667a}
+</style></head><body><main>
+<span class="badge">LOCAL TEST · SYNTHETIC DATA · NO SUBMISSION</span>
+<h1>Concurrent application preparation</h1><p id="scenario"></p>
+<form onsubmit="event.preventDefault()">
+<label for="name">Test name</label><input id="name" autocomplete="off" required>
+<label for="email">Test email</label><input id="email" type="email" autocomplete="off" required>
+<label for="city">City</label><select id="city"><option value="">Choose city</option><option value="SG">Singapore</option><option value="LDN">London</option></select>
+<label for="team">Team</label><select id="team"><option value="general">General</option></select>
+<label for="notes">Test notes</label><textarea id="notes"></textarea>
+</form><output id="status" aria-live="polite">Ready for supervised preparation.</output>
+<small>All fields stay on this loopback page. No backend, employer connection, upload or submit control.</small>
+</main><script>
+const mode = new URLSearchParams(location.search).get('scenario') || 'stable';
+const labels = {
+stable:'A · Stable text, email, native select and textarea',
+dynamic:'B · Changing city replaces the dependent team options',
+invalid:'C · Invalid email must stop the remaining batch',
+rollback:'D · Name is reset on blur to simulate a controlled-field rollback'
+};
+document.querySelector('#scenario').textContent=labels[mode] || labels.stable;
+const status=document.querySelector('#status');
+document.querySelector('form').addEventListener('input',()=>{status.textContent='Local input changed; awaiting independent readback.'});
+if(mode==='dynamic') document.querySelector('#city').addEventListener('change',()=>{
+document.querySelector('#team').innerHTML='<option value="data">Data</option><option value="platform">Platform</option>';
+status.textContent='Dependent team options changed. Re-observe before continuing.';
+});
+if(mode==='rollback') document.querySelector('#name').addEventListener('blur',event=>{
+event.target.value=''; status.textContent='Name rolled back on blur. Remaining fields should stay empty.';
+});
+if(mode==='invalid') document.querySelector('#email').addEventListener('blur',event=>{
+status.textContent=event.target.validity.valid?'Email valid after correction.':'Invalid email. Remaining fields should stay empty.';
+});
+</script></body></html>

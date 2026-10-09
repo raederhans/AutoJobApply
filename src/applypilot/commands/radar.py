@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sqlite3
+from contextlib import contextmanager
 from types import ModuleType
 
 
@@ -12,7 +14,7 @@ def run_radar_main(runtime: ModuleType, values: dict[str, object]) -> None:
 
     _assert_discovery_only_command(
         ctx.invoked_subcommand,
-        {"collect", "queries", "explore", "advance", "import-leads", "import-company-seeds", "report"},
+        {"collect", "queries", "explore", "advance", "discover-careers", "lifecycle", "budget", "import-leads", "import-company-seeds", "report"},
     )
 
 
@@ -67,6 +69,7 @@ def run_radar_explore(runtime: ModuleType, values: dict[str, object]) -> None:
         results_per_site=values["limit"],
         job_type=values.get("job_type"),
         hours_old=values["hours"],
+        budget=values.get("budget"),
     )
     runtime.console.print_json(data=result)
 
@@ -78,6 +81,85 @@ def run_radar_advance(runtime: ModuleType, values: dict[str, object]) -> None:
 
     runtime._radar_bootstrap()
     runtime.console.print_json(data=advance_radar_queue(get_connection(), limit=values["limit"]))
+
+
+def run_radar_discover_careers(runtime: ModuleType, values: dict[str, object]) -> None:
+    """Inspect explicit company pages without activating a source or writing jobs."""
+    from applypilot.discovery.career_entries import (
+        candidate_to_source_config,
+        discover_career_entries,
+    )
+
+    company = {
+        "id": values["company_id"],
+        "name": values["name"],
+        "official_url": values["url"],
+    }
+    try:
+        result = discover_career_entries(
+            company,
+            official_relationship_reviewed=values["official_reviewed"],
+            max_pages=values["max_pages"],
+        )
+        result["source_configs"] = [
+            candidate_to_source_config(candidate, company)
+            for candidate in result.get("candidates", [])
+            if candidate.get("status") == "pending"
+        ]
+    except ValueError as error:
+        runtime.console.print_json(data={"read_only": True, "status": "invalid_input", "error": str(error)})
+        raise runtime.typer.Exit(code=2) from error
+    runtime.console.print_json(data=result)
+
+
+def run_radar_lifecycle(runtime: ModuleType, values: dict[str, object]) -> None:
+    """Inspect posting availability separately from application history."""
+    from applypilot.database import get_connection, get_possible_repost_hints, get_posting_lifecycle
+
+    runtime._radar_bootstrap()
+    conn = get_connection()
+    url = str(values["url"])
+    runtime.console.print_json(data={
+        "url": url,
+        **get_posting_lifecycle(conn, url),
+        "possible_reposts": get_possible_repost_hints(conn, url),
+    })
+
+
+@contextmanager
+def _planning_connection():
+    """Read planning evidence without creating files, migrating or initializing a workspace."""
+    from applypilot import database
+
+    path = database.DB_PATH
+    conn = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True) if path.exists() else sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+def run_radar_budget(runtime: ModuleType, values: dict[str, object]) -> None:
+    """Explain a bounded plan without searching, collecting or writing storage."""
+    from applypilot.discovery.budget import plan_exploration, plan_official_collection
+    from applypilot.discovery.official import load_company_watchlist
+
+    mode = values["mode"]
+    if mode not in {"explore", "official"}:
+        raise runtime.typer.BadParameter("mode must be explore or official")
+    if mode == "explore" and (values["due_only"] or (values["budget"] is not None and values["budget"] > 6)):
+        raise runtime.typer.BadParameter("explore supports a budget of 0..6; due-only is for official sources")
+    with _planning_connection() as conn:
+        if mode == "explore":
+            plan = plan_exploration(conn, queries=values["query"], sites=values["site"] or ("linkedin", "indeed"),
+                                    budget=values["budget"])
+        else:
+            if values["query"] or values["site"]:
+                raise runtime.typer.BadParameter("query/site are only supported for explore plans")
+            plan = plan_official_collection(conn, load_company_watchlist(), budget=values["budget"],
+                                           due_only=values["due_only"])
+    runtime.console.print_json(data=plan)
 
 
 def run_radar_collect(runtime: ModuleType, values: dict[str, object]) -> None:
@@ -97,6 +179,7 @@ def run_radar_collect(runtime: ModuleType, values: dict[str, object]) -> None:
         finish_radar_fetch_run,
         get_connection,
         ingest_radar_official_jobs,
+        reconcile_posting_lifecycle,
         reconcile_radar_leads,
         start_radar_fetch_run,
     )
@@ -121,9 +204,21 @@ def run_radar_collect(runtime: ModuleType, values: dict[str, object]) -> None:
         console.print("[yellow]No matching radar sources.[/yellow]")
         return
 
+    budget_plan = None
+    if values.get("budget") is not None or values.get("due_only"):
+        from applypilot.discovery.budget import plan_official_collection
+
+        with _planning_connection() as planning_conn:
+            budget_plan = plan_official_collection(
+                planning_conn, selected, budget=values.get("budget"),
+                due_only=bool(values.get("due_only")), explicit=bool(selected_ids),
+            )
+        selected = [item["company"] for item in budget_plan["selected"]]
+
     if dry_run:
         console.print_json(data={
             "read_only": True,
+            "budget_plan": budget_plan,
             "selected": [
                 {
                     "company_id": item.get("id"),
@@ -134,6 +229,10 @@ def run_radar_collect(runtime: ModuleType, values: dict[str, object]) -> None:
                 for item in selected
             ],
         })
+        return
+
+    if not selected:
+        console.print_json(data={"read_only": True, "sources": [], "budget_plan": budget_plan})
         return
 
     _radar_bootstrap()
@@ -193,6 +292,7 @@ def run_radar_collect(runtime: ModuleType, values: dict[str, object]) -> None:
                     "unclassified_count": unclassified,
                 },
             )
+            lifecycle = reconcile_posting_lifecycle(conn, run_id, result.get("jobs", []))
             reconciled = reconcile_radar_leads(conn, official_run_ids=[run_id])
             summaries.append({
                 "company_id": company_config.get("id"),
@@ -202,6 +302,7 @@ def run_radar_collect(runtime: ModuleType, values: dict[str, object]) -> None:
                 "accepted": len(accepted_jobs),
                 **counts,
                 "promoted_leads": reconciled["promoted"],
+                "lifecycle": lifecycle,
                 "error": result.get("error"),
             })
         except Exception as error:  # noqa: BLE001 - provider failures must close the run ledger
@@ -211,7 +312,7 @@ def run_radar_collect(runtime: ModuleType, values: dict[str, object]) -> None:
                 "status": "partial",
                 "error": str(error),
             })
-    console.print_json(data={"read_only": True, "sources": summaries})
+    console.print_json(data={"read_only": True, "sources": summaries, "budget_plan": budget_plan})
 
 
 def run_radar_import_leads(runtime: ModuleType, values: dict[str, object]) -> None:

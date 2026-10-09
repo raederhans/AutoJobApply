@@ -5,7 +5,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { observeForm, changedFields, operateObservedControl, ControlNotReady } from './browser-form-state.mjs';
+import { observeForm, changedFields, structureChanges, operateObservedControl, ControlNotReady } from './browser-form-state.mjs';
 import { operateFieldBatch } from './browser-field-batch.mjs';
 import { BridgeMetrics, canReuseActionReadback, observationCoverage, observationSizes,
   queueWaitMs } from './browser-observation-feedback.mjs';
@@ -20,13 +20,13 @@ async function writeJson(file, value) {
 
 /** Attach directly to a returned IAB tab; callers do not invent CDP identities. */
 export async function createInAppBrowserHost({ directory, tab, phase = 'prepare', submission_authorized = false,
-  artifacts = {}, reuseFormObservations = true }) {
+  artifacts = {}, reuseFormObservations = true, observationMode = 'dom_cua' }) {
   if (typeof reuseFormObservations !== 'boolean') throw new TypeError('reuseFormObservations must be boolean');
   if (activeTabs.has(tab.id)) throw Error('This tab already has an active owner');
   activeTabs.add(tab.id);
   try {
     const host = await createVisualHost({ directory,
-      adapter: browserAdapter(tab, { artifacts, allowFieldBatch: phase === 'prepare', reuseFormObservations: phase === 'prepare' && reuseFormObservations }),
+      adapter: browserAdapter(tab, { artifacts, observationMode, allowFieldBatch: phase === 'prepare', reuseFormObservations: phase === 'prepare' && reuseFormObservations }),
       phase, submission_authorized,
       target: { runtime: 'iab', tab_id: tab.id, application_url: await tab.url() } });
     const close = host.close;
@@ -123,6 +123,7 @@ export async function createVisualHost({ directory, adapter, target, phase = 'pr
       let request;
       let claimed = false;
       let inputStarted = false;
+      let actionCompleted = false;
       let adapterStarted = false;
       const serviceStarted = performance.now();
       const sample = { outcome: 'rejected', queue_wait_ms: null, action_ms: null,
@@ -154,7 +155,10 @@ export async function createVisualHost({ directory, adapter, target, phase = 'pr
           inputStarted = true;
           sample.outcome = 'outcome_unknown';
           const started = performance.now();
-          try { actionResult = await adapter.act(request.operation, request.arguments); }
+          try {
+            actionResult = await adapter.act(request.operation, request.arguments);
+            actionCompleted = true;
+          }
           finally { sample.action_ms = performance.now() - started; }
         }
         let content;
@@ -177,7 +181,7 @@ export async function createVisualHost({ directory, adapter, target, phase = 'pr
       } catch (error) {
         observationId = null;
         if (!claimed) throw error;
-        const rejectedBeforeInput = error instanceof ControlNotReady;
+        const rejectedBeforeInput = error instanceof ControlNotReady && !actionCompleted;
         if (adapterStarted && !rejectedBeforeInput) {
           // A runtime stop/disconnection is not permission to retry input.
           closed = true;
@@ -187,7 +191,8 @@ export async function createVisualHost({ directory, adapter, target, phase = 'pr
           schema_version: 1, request_id: requestId, session_id: binding.session_id,
           token_epoch: binding.token_epoch, ok: false,
           outcome: inputStarted && !rejectedBeforeInput ? 'outcome_unknown' : 'failed',
-          content: [text({ error: String(error.message), reobserve_before_retry: true })],
+          content: [text({ error: String(error.message), reobserve_before_retry: !closed,
+            host_state: closed ? 'stopped' : 'active', handoff_required: closed })],
         };
         sample.outcome = response.outcome;
         await writeJson(path.join(root, 'responses', `${requestId}.json`), response);
@@ -206,8 +211,14 @@ export async function createVisualHost({ directory, adapter, target, phase = 'pr
   };
 }
 
-export function browserAdapter(tab, { artifacts = {}, reuseFormObservations = false, allowFieldBatch = false } = {}) {
+export function browserAdapter(tab, { artifacts = {}, reuseFormObservations = false, allowFieldBatch = false,
+  observationMode = 'dom_cua' } = {}) {
   if (typeof reuseFormObservations !== 'boolean') throw new TypeError('reuseFormObservations must be boolean');
+  if (!['dom_cua', 'playwright'].includes(observationMode)) throw new TypeError('Unsupported observationMode');
+  if (observationMode === 'playwright' && ['domSnapshot', 'evaluate', 'locator'].some(method =>
+    typeof tab.playwright?.[method] !== 'function')) {
+    throw new TypeError('Playwright observation requires domSnapshot, evaluate and locator');
+  }
   // Only the trusted host supplies paths. Workers select opaque references.
   const artifactFiles = new Map(Object.entries(artifacts));
   let lastMode = 'dom';
@@ -216,6 +227,7 @@ export function browserAdapter(tab, { artifacts = {}, reuseFormObservations = fa
   let observedNodes = new Set();
   let formSnapshot = null;
   let uploadBaseline = null;
+  let lastUploadResult = null;
   let lastControlResult = null;
   let lastBatchResult = null;
   let lastBatchObservation = null;
@@ -224,13 +236,19 @@ export function browserAdapter(tab, { artifacts = {}, reuseFormObservations = fa
     surface: 'browser',
     tabId: tab.id,
     async observe({ mode = 'dom', actionResult } = {}) {
+      if (observationMode === 'playwright' && mode !== 'dom') {
+        throw new ControlNotReady('Playwright observation supports DOM mode only');
+      }
       // Consume exactly once. Explicit observations, pause/resume and screenshots never reuse it.
       const pending = pendingReadback;
       pendingReadback = null;
       if (reuseFormObservations && (!pending || actionResult !== pending || mode !== 'dom')) lastControlResult = null;
       lastMode = mode;
       const url = await tab.url();
-      const context = text({ tab_id: tab.id, page_url: url, title: await tab.title(), artifact_ids: [...artifactFiles.keys()] });
+      if (uploadBaseline && uploadBaseline.page_url !== url) uploadBaseline = null;
+      const context = text({ tab_id: tab.id, page_url: url, title: await tab.title(), artifact_ids: [...artifactFiles.keys()],
+        ...(lastUploadResult ? { upload_result: lastUploadResult } : {}) });
+      lastUploadResult = null;
       observedLinks = new Set();
       observedInputs = new Set();
       observedNodes = new Set();
@@ -238,11 +256,11 @@ export function browserAdapter(tab, { artifacts = {}, reuseFormObservations = fa
         formSnapshot = null;
         return [context, { type: 'image', mimeType: 'image/png', data: Buffer.from(await tab.screenshot({})).toString('base64') }];
       }
-      const dom = await tab.dom_cua.get_visible_dom();
+      const dom = observationMode === 'playwright' ? '' : await tab.dom_cua.get_visible_dom();
       // Keep current visible DOM (including alerts/navigation) even in the smaller reply.
       const reuse = reuseFormObservations && mode === 'dom' &&
         canReuseActionReadback(pending, actionResult, url, performance.now()) && await tab.url() === url;
-      const snapshot = reuse ? '' : await tab.playwright.domSnapshot();
+      const snapshot = reuse && observationMode !== 'playwright' ? '' : await tab.playwright.domSnapshot();
       for (const match of dom.matchAll(/\bnode_id=["']?([^\s"'>]+)/g)) observedNodes.add(match[1]);
       for (const match of dom.matchAll(/<(input|textarea)\b([^>]*)>/g)) {
         const id = /\bnode_id=["']?([^\s"'>]+)/.exec(match[2])?.[1];
@@ -262,17 +280,19 @@ export function browserAdapter(tab, { artifacts = {}, reuseFormObservations = fa
           if (['http:', 'https:'].includes(link.protocol) && !link.username && !link.password) observedLinks.add(link.href);
         } catch { /* Non-web links are not navigation targets. */ }
       }
-      const content = [context, text(dom), ...(reuse ? [] : [text(snapshot)])];
+      const content = [context, ...(observationMode === 'dom_cua' ? [text(dom)] : []),
+        ...(reuse && observationMode !== 'playwright' ? [] : [text(snapshot)])];
       if (typeof tab.playwright.evaluate === 'function') {
         const previous = formSnapshot;
         formSnapshot = reuse ? pending.form : await observeForm(tab);
+        if (uploadBaseline && uploadBaseline.page_url !== formSnapshot.page_url) uploadBaseline = null;
         if (reuseFormObservations && formSnapshot.page_url !== url) {
           throw Error('Page changed during observation; observe again before continuing');
         }
         // A delayed full refresh must not attach old persistence to a changed current value.
         if (reuseFormObservations && pending && !reuse && lastControlResult) {
           const state = field => field && JSON.stringify([field.selector, field.label, field.group_key,
-            field.group, field.control, field.value, field.checked, field.selected_display]);
+            field.group, field.control, field.dom_identity, field.value, field.checked, field.selected_display, field.selected_values]);
           const old = pending.form.fields.find(field => field.field_key === lastControlResult.field_key);
           const current = formSnapshot.fields.find(field => field.field_key === lastControlResult.field_key);
           if (pending.form.page_url !== formSnapshot.page_url || !old || !current ||
@@ -282,8 +302,9 @@ export function browserAdapter(tab, { artifacts = {}, reuseFormObservations = fa
           }
         }
         if (lastBatchResult?.status === 'verified' && lastBatchObservation) {
-          const state = f => JSON.stringify([f?.selector, f?.label, f?.control, f?.value, f?.options]);
+          const state = f => JSON.stringify([f?.selector, f?.label, f?.control, f?.dom_identity, f?.value, f?.options]);
           const stable = lastBatchObservation.page_url === formSnapshot.page_url &&
+            !structureChanges(lastBatchObservation, formSnapshot).changed &&
             lastBatchResult.results.every(r => {
               const current = formSnapshot.fields.find(f => f.field_key === r.field_key);
               return current && current.value_source !== 'unavailable' &&
@@ -294,11 +315,13 @@ export function browserAdapter(tab, { artifacts = {}, reuseFormObservations = fa
         }
         content.push(text({ form_state: formSnapshot,
           changed_fields: changedFields(previous, formSnapshot),
+          structure_changes: structureChanges(previous, formSnapshot),
           post_upload_changes: changedFields(uploadBaseline, formSnapshot),
+          post_upload_structure_changes: structureChanges(uploadBaseline, formSnapshot),
           control_result: lastControlResult,
           batch_result: lastBatchResult,
           ...(reuseFormObservations ? { observation_feedback: {
-            kind: reuse ? 'action_readback_with_visible_dom' : 'full_dom', form_readback_reused: reuse,
+            kind: reuse ? (observationMode === 'playwright' ? 'action_readback_with_playwright_snapshot' : 'action_readback_with_visible_dom') : 'full_dom', form_readback_reused: reuse,
             full_observation_available: true, coverage: observationCoverage(formSnapshot),
             // The next write still re-reads its control; this is not evidence of later persistence.
             immediate_readback_only: true,
@@ -310,6 +333,15 @@ export function browserAdapter(tab, { artifacts = {}, reuseFormObservations = fa
       return content;
     },
     async act(operation, args) {
+      // Any new input attempt ends attribution to the preceding upload, even if
+      // rejected before input. Consecutive read-only observations keep it alive.
+      uploadBaseline = null;
+      if (observationMode === 'playwright' && args.mode !== undefined && args.mode !== 'dom') {
+        throw new ControlNotReady('Playwright actions support DOM response mode only');
+      }
+      if (observationMode === 'playwright' && !['fill_batch', 'fill_control', 'select_control', 'open_control', 'search_control', 'set_checked', 'upload_artifact'].includes(operation)) {
+        throw new ControlNotReady('Playwright observation supports observed form controls only; host handles other actions');
+      }
       pendingReadback = null;
       lastBatchResult = null;
       if (operation === 'fill_batch') {
@@ -320,7 +352,7 @@ export function browserAdapter(tab, { artifacts = {}, reuseFormObservations = fa
         lastControlResult = null;
         return;
       }
-      if (['fill_control', 'select_control', 'set_checked'].includes(operation)) {
+      if (['fill_control', 'select_control', 'open_control', 'search_control', 'set_checked'].includes(operation)) {
         const result = await operateObservedControl(tab, formSnapshot, operation, args);
         const { observation, ...report } = result;
         lastControlResult = report;
@@ -332,17 +364,67 @@ export function browserAdapter(tab, { artifacts = {}, reuseFormObservations = fa
         return;
       }
       if (operation === 'upload_artifact') {
+        lastUploadResult = null;
+        const keys = Object.keys(args).filter(key => key !== 'mode');
+        const targetKey = keys.includes('field_key') ? 'field_key' : 'node_id';
+        if (keys.length !== 2 || !keys.includes('artifact_id') || !keys.includes(targetKey) ||
+            [args.artifact_id, args[targetKey]].some(value => typeof value !== 'string' || !value.trim())) {
+          throw new ControlNotReady('Upload requires an artifact reference and exactly one observed field_key or node_id');
+        }
         const file = artifactFiles.get(args.artifact_id);
-        if (typeof file !== 'string' || !path.isAbsolute(file)) throw Error('Unknown artifact or non-absolute artifact path');
-        if (!observedNodes.has(args.node_id)) throw Error('Upload requires a node from the current DOM observation');
-        if (!(await fs.stat(file)).isFile()) throw Error('Artifact must be a regular file');
-        uploadBaseline = formSnapshot;
+        if (typeof file !== 'string' || !path.isAbsolute(file)) throw new ControlNotReady('Unknown artifact or non-absolute artifact path');
+        let click;
+        let uploadObservation = null;
+        if (targetKey === 'field_key') {
+          if (!formSnapshot) throw new ControlNotReady('Observe form controls before upload');
+          const matches = formSnapshot.fields.filter(field => field.field_key === args.field_key);
+          if (matches.length !== 1) throw new ControlNotReady('Upload requires a unique control in the current form observation');
+          const old = matches[0];
+          if (old.control !== 'file' || old.disabled || old.readonly) throw new ControlNotReady('Upload requires an available file control');
+          const fresh = await observeForm(tab);
+          uploadObservation = fresh;
+          const current = fresh.fields.filter(field => field.field_key === args.field_key);
+          const identity = field => JSON.stringify([field.selector, field.label, field.group_key, field.group, field.control, field.dom_identity,
+            field.upload_trigger?.selector, field.upload_trigger?.label]);
+          if (fresh.page_url !== formSnapshot.page_url || await tab.url() !== fresh.page_url ||
+              current.length !== 1 || identity(current[0]) !== identity(old)) {
+            throw new ControlNotReady('Upload control changed; observe again before input');
+          }
+          const field = current[0];
+          if (field.control !== 'file' || field.disabled || field.readonly) throw new ControlNotReady('Upload requires an available file control');
+          if (field.upload_trigger?.disabled) throw new ControlNotReady('Upload trigger is not available');
+          const locator = tab.playwright.locator(field.upload_trigger?.selector || field.selector);
+          if (await locator.count() !== 1) throw new ControlNotReady('Upload control is ambiguous');
+          click = () => locator.click({ timeoutMs: 10000 });
+        } else {
+          if (observationMode === 'playwright' || !observedNodes.has(args.node_id)) {
+            throw new ControlNotReady('Upload requires a node from the current DOM observation');
+          }
+          click = () => tab.dom_cua.click({ node_id: args.node_id });
+          if (typeof tab.playwright.evaluate === 'function') {
+            uploadObservation = await observeForm(tab);
+            if (await tab.url() !== uploadObservation.page_url) {
+              throw new ControlNotReady('Page changed; observe again before upload');
+            }
+          }
+        }
+        let stat;
+        try { stat = await fs.stat(file); }
+        catch { throw new ControlNotReady('Artifact is unavailable; host must provide an existing regular file'); }
+        if (!stat.isFile()) throw new ControlNotReady('Artifact must be a regular file');
+        if (typeof tab.playwright.waitForEvent !== 'function') throw new ControlNotReady('Supported file chooser is unavailable');
+        if (targetKey === 'field_key' && await tab.url() !== formSnapshot.page_url) {
+          throw new ControlNotReady('Page changed; observe again before upload');
+        }
+        uploadBaseline = uploadObservation;
         const chooserPromise = tab.playwright.waitForEvent('filechooser', { timeoutMs: 10000 });
         // Click may fail first; the pending waiter must still have a rejection handler.
         chooserPromise.catch(() => {});
-        await tab.dom_cua.click({ node_id: args.node_id });
+        await click();
         const chooser = await chooserPromise;
         await chooser.setFiles([file]);
+        lastUploadResult = { artifact_id: args.artifact_id, [targetKey]: args[targetKey],
+          status: 'file_selection_done', webpage_acceptance: 'unverified' };
         return;
       }
       if (operation === 'navigate') {

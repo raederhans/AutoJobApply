@@ -182,7 +182,7 @@ test('navigation while reading visible DOM prevents reuse', async () => {
   await assert.rejects(f.adapter.observe({ actionResult: ticket }), /Page changed during observation/);
 });
 
-test('upload always observes again and later feedback preserves upload deltas', async t => {
+test('upload always observes again and a later write ends upload deltas', async t => {
   const f = fixture();
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'applypilot-feedback-upload-'));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
@@ -193,8 +193,9 @@ test('upload always observes again and later feedback preserves upload deltas', 
   await f.adapter.act('upload_artifact', { artifact_id: 'resume', node_id: '7' });
   const uploaded = formBlock(await f.adapter.observe());
   assert.equal(uploaded.observation_feedback.form_readback_reused, false);
+  assert.ok(uploaded.post_upload_changes.some(field => field.field_key === 'city'));
   const { content } = await operate(f);
-  assert.ok(formBlock(content).post_upload_changes.some(field => field.field_key === 'city'));
+  assert.deepEqual(formBlock(content).post_upload_changes, []);
 });
 
 test('coverage never equates partial inspection or missing metadata with completeness', () => {

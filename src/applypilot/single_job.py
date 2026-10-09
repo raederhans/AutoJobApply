@@ -1051,8 +1051,13 @@ def approve_cover_letter_for_url(url: str, approved_by: str = "user") -> dict:
 def mark_cover_letter_not_required_for_url(
     url: str,
     verified_by: str = "browser_preview",
+    *,
+    bridge_dir: Path | None = None,
+    observation_file: Path | None = None,
 ) -> dict:
-    """Record that an exact, successfully previewed form has no cover-letter field."""
+    """Record exact preview or bound attending-host evidence of no required cover."""
+    if (bridge_dir is None) != (observation_file is None):
+        raise ValueError("bridge_dir and observation_file must be supplied together")
     conn = get_connection()
     rows = conn.execute(
         "SELECT * FROM jobs WHERE url = ? OR application_url = ?", (url, url)
@@ -1065,7 +1070,21 @@ def mark_cover_letter_not_required_for_url(
     if job.get("eligibility_status") == "ineligible":
         conn.close()
         raise ValueError("Hard-excluded jobs cannot advance to application readiness.")
-    if job.get("apply_status") != "previewed":
+    observation = None
+    if bridge_dir is not None:
+        if job.get("apply_status") in {"applied", "applying", "in_progress", "submission_uncertain"}:
+            conn.close()
+            raise ValueError("Submitted or active applications cannot change cover readiness")
+        from applypilot.apply.cover_observation import validate_cover_observation
+
+        try:
+            observation = validate_cover_observation(job, bridge_dir, observation_file)
+        except Exception:
+            conn.close()
+            raise
+        if verified_by == "browser_preview":
+            verified_by = "attending_host"
+    elif job.get("apply_status") != "previewed":
         conn.close()
         raise ValueError(
             "Cover-letter absence may be recorded only after a successful browser preview; "
@@ -1073,11 +1092,34 @@ def mark_cover_letter_not_required_for_url(
         )
 
     now = datetime.now(UTC).isoformat()
-    conn.execute(
-        "UPDATE jobs SET cover_letter_status='not_required', cover_letter_error=NULL, "
-        "cover_letter_approved_at=?, cover_letter_approved_by=? WHERE url=?",
-        (now, verified_by, job_url),
-    )
+    if observation is not None:
+        # Observation involves external file I/O. Do not overwrite a job that
+        # another owner acquired or materially revised during that review.
+        binding_fields = (
+            "application_url", "title", "company_name", "description", "full_description",
+            "eligibility_status", "apply_status", "apply_task_id", "agent_id",
+            "cover_letter_status", "cover_letter_path", "cover_letter_approved_at",
+            "cover_letter_approved_by", "cover_letter_evidence_sources",
+        )
+        evidence_sources = json.dumps([
+            *observation["evidence_refs"],
+            "attending_host_observation:" + json.dumps(observation, sort_keys=True),
+        ])
+        updated = conn.execute(
+            "UPDATE jobs SET cover_letter_status='not_required', cover_letter_error=NULL, "
+            "cover_letter_approved_at=?, cover_letter_approved_by=?, cover_letter_evidence_sources=? "
+            "WHERE url=? AND " + " AND ".join(f"{field} IS ?" for field in binding_fields),
+            (now, verified_by, evidence_sources, job_url, *(job.get(field) for field in binding_fields)),
+        )
+        if updated.rowcount != 1:
+            conn.close()
+            raise ValueError("Job changed during cover observation; inspect its current owner and readiness")
+    else:
+        conn.execute(
+            "UPDATE jobs SET cover_letter_status='not_required', cover_letter_error=NULL, "
+            "cover_letter_approved_at=?, cover_letter_approved_by=? WHERE url=?",
+            (now, verified_by, job_url),
+        )
     conn.commit()
     conn.close()
     return {
@@ -1085,4 +1127,5 @@ def mark_cover_letter_not_required_for_url(
         "status": "not_required",
         "verified_at": now,
         "verified_by": verified_by,
+        **({"observation": observation} if observation is not None else {}),
     }

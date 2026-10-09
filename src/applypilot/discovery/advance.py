@@ -156,16 +156,27 @@ def safe_public_get(
     timeout_seconds: float = _TIMEOUT_SECONDS,
     max_body_bytes: int = _MAX_BODY_BYTES,
     max_redirects: int = _MAX_REDIRECTS,
+    allowed_origins: set[str] | None = None,
 ) -> dict[str, Any]:
-    """Read public HTTPS without proxies, DNS rebinding, or unbounded responses."""
+    """Read public HTTPS, optionally restricting every redirect to reviewed origins."""
     if timeout_seconds <= 0 or max_body_bytes < 1 or max_redirects < 0:
         raise ValueError("invalid public GET bounds")
     request_headers = {"User-Agent": _USER_AGENT, **dict(headers or {})}
+    origin_keys = None
+    if allowed_origins is not None:
+        origin_keys = set()
+        for origin in allowed_origins:
+            parsed_origin, _ = _validate_public_https_url(origin, resolve_dns=False)
+            origin_keys.add((parsed_origin.hostname.casefold(), parsed_origin.port or 443))
     current_url = str(url).strip()
     for redirect_count in range(max_redirects + 1):
         _parsed, addresses = _validate_public_https_url(
             current_url, resolve_dns=transport is None
         )
+        if origin_keys is not None and (
+            _parsed.hostname.casefold(), _parsed.port or 443
+        ) not in origin_keys:
+            raise ValueError("official URL is outside the allowed origins")
         if transport is None:
             response = _default_get_once(
                 current_url,

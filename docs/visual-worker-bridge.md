@@ -15,6 +15,43 @@ that tab, and exposes URL/title/tab identity with every observation. Launch
 --task-file <goal.txt> --phase discovery` (or `prepare`) with the source-tree
 Python environment / workspace wrapper. `scripts/run_browser_worker.py` is also
 available as a standalone runner for the same API.
+
+When the current IAB exposes Playwright APIs but no `dom_cua` or `cua`, attach a
+preparation host explicitly with the supported observation mode:
+
+```js
+const host = await createInAppBrowserHost({
+  directory, tab, phase: 'prepare', observationMode: 'playwright'
+});
+```
+
+This mode requires `tab.playwright.domSnapshot`, `evaluate`, and `locator`.
+Before attachment, read the current browser's capabilities, tab, and CDP
+documentation if `observeForm` will use its supported `capabilities.get('cdp')`
+live-value observation. Capability availability does not authorize an undocumented
+CDP call or a different browser controller.
+It returns the actual Playwright page snapshot and existing structured form
+observation, without inventing node IDs. `fill_batch` and existing observed form
+control operations keep their current control validation, blur and readback.
+`upload_artifact` also supports an observed file `field_key` and a host-provided
+artifact reference through the documented chooser capability. Screenshots,
+node/coordinate actions, navigation and typing/key primitives through this bridge
+are rejected before input; the attending operator handles those steps with the
+current browser's documented APIs. After direct operator
+actions, call `host.invalidate()` and obtain a fresh observation. Default
+`observationMode: 'dom_cua'` retains the existing browser path. This mode does not
+replace the final pre-submit snapshot or grant submission authority.
+
+Structured fields report `required_source` as `native`, `aria`, `visible_label`,
+or `not_asserted`. Visible trailing asterisks are admitted only from a visible
+label in the nearest `.form-group` with exactly one control and one label whose
+nonempty `for` matches that control. A file input may additionally have a
+`.custom-file-label` inside its own `.custom-file` container when the semantic
+label is the group's unique direct-child label; a companion's nonempty `for`
+must match the file input. Ambiguous or unrelated labels do not assert
+required state. This metadata guides review; it does not prove completeness or
+authorize filling declarations. The operator still reviews all visible mandatory
+questions independently before submission.
 The standalone runner also accepts `--phase submit`, but only for a matching
 submit host whose top-level `submission_authorized` is the boolean `true`.
 The task text cannot grant that authority or upgrade a prepare host. Discovery
@@ -61,8 +98,29 @@ handoff, re-observe the same tab before continuing.
 For attachments, pass trusted absolute paths in `artifacts: {resume: absolutePath}`
 when creating the host. The worker sees only the available `artifact_ids` and
 calls `upload_artifact` with `artifact_id` and an observed upload control's
-`node_id`. The host starts `waitForEvent('filechooser')` before clicking, then
-calls `chooser.setFiles()`. Verify the accepted filename/status on the page.
+`field_key` from `form_state` (or a host-reviewed legacy `node_id`, never both).
+Playwright observation mode uses `field_key`: the host re-observes the same page
+and verifies its URL, control identity, file type, availability and unique locator
+before clicking. Workers cannot supply paths, selectors or action buttons through
+this route. For a clipped 1x1 file input in a uniquely labelled file group, the
+observation can include `upload_trigger`: a unique visible sibling `type=button`
+whose text matches the input's bound label. Submit, Apply, Confirm and consent
+buttons are excluded. The host rechecks this binding and clicks that observed
+trigger once, without first clicking the clipped input or retrying.
+The legacy `node_id` route retains its existing behavior and requires
+host review of the observed upload node.
+The host starts a caught `waitForEvent('filechooser')` before clicking, then
+calls `chooser.setFiles([hostArtifactPath])` with exactly one nonempty file selection.
+An empty array is not a supported clear/cancel operation.
+`upload_result.status: file_selection_done` reports
+selection only; `webpage_acceptance: unverified` requires checking the accepted
+filename/status on the page. Pre-input validation failures reject the request;
+an uncertain chooser/click/setFiles failure stops the host with `outcome_unknown`.
+Failure replies expose `host_state` and `handoff_required`. An active host's
+pre-input rejection has `reobserve_before_retry: true`; a stopped host has
+`reobserve_before_retry: false` and requires coordinator handling. This applies
+to runtime and readback errors as well as timeouts. Do not switch controllers,
+upload controls or resume-text modes while an upload outcome is unresolved.
 Do not repeatedly click Upload merely because a native picker is outside the
 page screenshot. If the supported chooser fails, preserve progress for host
 handling. Selecting a file is not proof that an ATS accepted the attachment.
@@ -360,8 +418,14 @@ Native date/month inputs advance through keyboard segments until focus leaves
 the input (bounded to four Tabs), so blur validation is actually exercised.
 `control_result.persisted` is an immediate readback, not a guarantee against a
 later asynchronous parser or validator. Observe again after visible loading
-settles; upload baselines remain available across later observations. Changed
-values are untrusted observations requiring comparison with candidate facts.
+settles; upload baselines use the fresh form read immediately before that upload
+and remain available across consecutive read-only observations for delayed parsing.
+The next input attempt (including another upload) or an observed departure from
+the page retires the old baseline permanently. Later corrections are therefore
+not attributed to that upload, and returning to the original URL does not revive
+old deltas. `changed_fields` still describes changes between observations; an
+empty `post_upload_changes` does not prove parsing is finished or the form is ready.
+Changed values are untrusted observations requiring comparison with candidate facts.
 Visible top-document and open Shadow DOM controls are covered. Linked option
 lists resolve through ancestor open roots with unique matches, including slotted
 labels. `iframe_count` advertises the remaining inspection boundary. Protected credential/identity/consent controls
@@ -372,6 +436,73 @@ shadow trees may still require independent semantic or screenshot readback.
 React Select's `selected_display` preserves its visible choice separately from
 the cleared search input; exact string persistence alone is not a semantic
 country/phone verification.
+
+### Complex controls and structural diagnostics
+
+`open_control {field_key}` opens an observed single combobox.
+`search_control {field_key, value}` types a query only into an observed editable
+native INPUT with the combobox role. Both return `persisted: null`: opening a
+menu or typing a query is not selection. If suggestions arrive asynchronously,
+observe again, then use `select_control {field_key, value}` with one exact,
+unique, currently observed option. Missing or ambiguous suggestions do not
+authorize a guessed choice. A search-input value alone is not selection proof.
+
+Native `<select multiple>` accepts `select_control {field_key, values}` with a
+nonempty array of exact observed options. It replaces the selection and checks
+the entire `selected_values` set using live DOM snapshot evidence. Empty-array
+clearing is rejected before input because the current IAB selection API does
+not support it. Custom multi-select add/remove semantics remain unsupported.
+`set_checked {field_key, checked: true}` also supports native radio controls
+when their complete group is observed. Group identity includes DOM root, form
+owner and name; readback checks that the selected member is checked and its
+peers are clear. Direct radio deselection is rejected.
+
+`structure_changes` reports bounded added/removed/changed/reordered field keys
+and option changes; `post_upload_structure_changes` uses the current upload
+baseline. A changed row or option list requires a new observation before input.
+Transient DOM node identity helps reject reused selectors after row replacement;
+it is not persisted as a reusable recipe. These operations do not expand the
+routine scalar-only `fill_batch` subset or frame/closed-shadow coverage.
+
+Recipe shadow telemetry adds value-free `diagnostic_codes` and capped
+`diagnostic_counts` alongside the existing outcome/reason. Codes describe actual
+observed limitations such as multi-select, truncated options, repeated semantic
+fields, unsupported controls, frame scope or unavailable cache candidates.
+They contain no labels, values, selectors or raw exceptions. A cache miss does
+not claim a cause that the snapshot cannot prove. Native multiple controls are
+excluded from routine recipe persistence; diagnostics grant no write authority.
+
+The existing protected-word matcher is conservative: for example, `acceptable`
+can match its `accept` guard and exclude an ordinary preference control. This
+known false positive remains unchanged; the host must inspect such omissions
+rather than treating its observed field list as complete.
+
+Before authorization, an attending operator may record an observed optional or
+absent cover requirement without creating a preview status or an attempt:
+
+```powershell
+../run.ps1 mark-cover-not-required --url <exact-job-or-application-url> --verified-by codex_root --bridge-dir <active-host-directory> --observation-file <inspection.json>
+```
+
+Save the fresh `host.inspect()` result with `source: "attending_host"`,
+timezone-aware `observed_at`, nonempty `evidence_refs`, and `all_form_checked: true`.
+For the reviewed visible-marker convention, add:
+
+```json
+{"cover_letter":{"status":"optional","operator_attested":true,"field_keys":["the observed cover field key"],"basis":"visible_required_marker_convention","evidence_text":"Cover Letter:"}}
+```
+
+The evidence text must occur in the actual page snapshot. The cover controls
+must be unmarked, while at least two distinct observed peers have visible
+required markers. Explicit optional wording may instead use
+`basis: "explicit_optional_text"`. Absent cover evidence uses `status: "absent"`
+and empty `field_keys`, with no cover controls or cover text in the complete
+observation. This trusted operator boundary requires active matching IAB
+host/session/tab/URL and supported whole-form coverage, including no unreviewed
+frames. It does not authenticate operator claims. Observations expire after
+five minutes; host freshness is checked separately. Changes to job identity,
+ownership, or readiness during review reject the update. Existing preview use
+without these two flags is unchanged.
 
 `applypilot attended-application --db PATH --request-file request.json` connects an
 attending Codex operator's browser observations to the existing application ledger.

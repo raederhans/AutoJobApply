@@ -609,6 +609,7 @@ def render_daily_report(
     company_seeds: Sequence[Mapping[str, object]] = (),
     applied_exclusions: Sequence[Mapping[str, object]] = (),
     applied_snapshot: Mapping[str, object] | None = None,
+    posting_lifecycle: Sequence[Mapping[str, object]] = (),
     report_date: str | None = None,
 ) -> str:
     """Render a daily, side-effect-free report with explicit coverage truth.
@@ -678,6 +679,20 @@ def render_daily_report(
                 f"- {run.source_id}: {run.status.value} "
                 f"({run.observations_seen} observations, {run.pages_seen} pages{detail})"
             )
+
+    if posting_lifecycle:
+        lines.extend(["", "## Posting availability", "",
+                      "Availability evidence is separate from application status. Repost hints do not merge jobs.", ""])
+        for item in posting_lifecycle[:100]:
+            title = normalize_text(item.get("title")) or normalize_text(item.get("url"))
+            company = normalize_text(item.get("company_name") or item.get("company"))
+            status = normalize_text(item.get("posting_status")) or "needs_reverification"
+            reason = normalize_text(item.get("posting_reason"))
+            hints = item.get("possible_repost_hints") or []
+            hint_text = f"; {len(hints)} advisory repost hint(s)" if hints else ""
+            lines.append(f"- {company} | {title}: {status} ({reason}{hint_text})")
+        if len(posting_lifecycle) > 100:
+            lines.append(f"- Showing 100 of {len(posting_lifecycle)} tracked postings; inspect individual URLs with radar lifecycle.")
 
     lines.extend(["", "## Exclusions", ""])
     exclusions = [

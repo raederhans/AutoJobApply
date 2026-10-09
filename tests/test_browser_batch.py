@@ -117,7 +117,9 @@ def test_concurrency_and_origin_cap(mock_mem, mock_kill, mock_popen, workspace):
         mock_proc = MagicMock()
         mock_proc.poll.return_value = None
         mock_proc.pid = len(running_procs) + 1000
-        running_procs.append(mock_proc)
+        # Patching the subprocess module also intercepts Windows platform probes.
+        if args[0][1:3] == ["-m", "applypilot.apply.browser_worker"]:
+            running_procs.append(mock_proc)
         return mock_proc
 
     mock_popen.side_effect = popen_side_effect

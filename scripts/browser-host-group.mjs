@@ -12,6 +12,28 @@ export function createBrowserHostGroup(entries) {
     jobs.set(job_id, host);
     tabs.add(binding.target.tab_id);
   }
+  const scheduled = new Set();
+  const waiting = [];
+  let active = 0;
+  async function acquire() {
+    if (active < 2) { active++; return; }
+    await new Promise(resolve => waiting.push(resolve));
+  }
+  function release() {
+    const next = waiting.shift();
+    if (next) next();
+    else active--;
+  }
+  async function executeOne({ job_id, request_id }) {
+    // Reserve before waiting for a slot: a second caller must review afresh,
+    // rather than replaying its old observation after the first write finishes.
+    if (scheduled.has(job_id)) return { job_id, error: 'Host already scheduled or executing' };
+    scheduled.add(job_id);
+    await acquire();
+    try { return { job_id, response: await jobs.get(job_id).execute(request_id) }; }
+    catch (error) { return { job_id, error: String(error.message) }; }
+    finally { scheduled.delete(job_id); release(); }
+  }
   return {
     // Caller reviews each returned request against the latest page observation.
     async peek() {
@@ -28,15 +50,9 @@ export function createBrowserHostGroup(entries) {
         }
         seen.add(item.job_id);
       }
-      const results = [];
-      // More model workers need not imply an equally wide burst of browser RPCs.
-      for (let offset = 0; offset < reviewed.length; offset += 2) {
-        results.push(...await Promise.all(reviewed.slice(offset, offset + 2).map(async ({ job_id, request_id }) => {
-          try { return { job_id, response: await jobs.get(job_id).execute(request_id) }; }
-          catch (error) { return { job_id, error: String(error.message) }; }
-        })));
-      }
-      return results;
+      // Both slots are shared across calls. A completed operation releases its
+      // slot immediately even if the other job is slow; results retain review order.
+      return Promise.all(reviewed.map(executeOne));
     },
   };
 }

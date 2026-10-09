@@ -7,6 +7,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
+from applypilot.storage.posting_lifecycle import get_posting_lifecycle, posting_allows_application
+
 
 @dataclass(frozen=True, slots=True)
 class JobCandidate:
@@ -14,15 +16,18 @@ class JobCandidate:
 
     stored: Mapping[str, object]
     job: dict
+    lifecycle_preview: bool = False
 
     def still_current(self, connection: sqlite3.Connection) -> bool:
         """Compare the exact stored row while the caller owns the write lock."""
         if not connection.in_transaction:
             raise RuntimeError("candidate revalidation requires a claim transaction")
-        row = connection.execute(
-            "SELECT * FROM jobs WHERE url=?", (self.stored["url"],)
-        ).fetchone()
-        return row is not None and dict(row) == dict(self.stored)
+        row = connection.execute("SELECT * FROM jobs WHERE url=?", (self.stored["url"],)).fetchone()
+        return (
+            row is not None
+            and dict(row) == dict(self.stored)
+            and (self.lifecycle_preview or posting_allows_application(connection, str(self.stored["url"])))
+        )
 
 
 def select_candidates(
@@ -80,17 +85,19 @@ def select_candidates(
         "SELECT * FROM jobs WHERE " + " AND ".join(f"({clause})" for clause in clauses) + order,
         params,
     ).fetchall()
+    lifecycle_preview = bool(target_url and preview_only)
+    if not lifecycle_preview:
+        rows = [row for row in rows if posting_allows_application(connection, str(row["url"]))]
     snapshots = {str(row["url"]): dict(row) for row in rows}
     jobs = [dict(row) for row in rows]
     if not target_url:
         from applypilot.discovery.company_priority import rank_with_company_priority
         from applypilot.discovery.diversity import recent_handled_companies
 
-        jobs = rank_with_company_priority(
-            connection, jobs, recent_companies=recent_handled_companies(connection)
-        )
+        jobs = rank_with_company_priority(connection, jobs, recent_companies=recent_handled_companies(connection))
     candidates = []
     for job in jobs:
+        job.update(get_posting_lifecycle(connection, str(job["url"])))
         job["application_url"] = job.get("application_url") or job.get("url")
-        candidates.append(JobCandidate(MappingProxyType(snapshots[str(job["url"])]), job))
+        candidates.append(JobCandidate(MappingProxyType(snapshots[str(job["url"])]), job, lifecycle_preview))
     return candidates

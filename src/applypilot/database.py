@@ -29,6 +29,7 @@ from applypilot.storage import agent_control as _agent_control
 from applypilot.storage import application_ledger as _application_ledger
 from applypilot.storage import job_identity as _job_identity
 from applypilot.storage import job_stats as _job_stats
+from applypilot.storage import posting_lifecycle as _posting_lifecycle
 from applypilot.storage import radar as _radar
 from applypilot.storage import runtime_control as _runtime_control
 from applypilot.storage import semantic_browser_writes as _semantic_browser_writes
@@ -55,6 +56,9 @@ link_radar_job_source = _radar.link_radar_job_source
 ingest_radar_leads = _radar.ingest_radar_leads
 ingest_radar_company_seeds = _radar.ingest_radar_company_seeds
 reconcile_radar_leads = _radar.reconcile_radar_leads
+reconcile_posting_lifecycle = _posting_lifecycle.reconcile_posting_lifecycle
+get_posting_lifecycle = _posting_lifecycle.get_posting_lifecycle
+get_possible_repost_hints = _posting_lifecycle.get_possible_repost_hints
 _location_scope = _radar._location_scope
 _find_applied_exclusion = _radar._find_applied_exclusion
 
@@ -364,7 +368,10 @@ def _establish_current_schema_baseline(connection: sqlite3.Connection) -> None:
         )
 
 
-_DATABASE_MIGRATIONS = (_establish_current_schema_baseline,)
+_DATABASE_MIGRATIONS = (
+    _establish_current_schema_baseline,
+    _posting_lifecycle.ensure_posting_lifecycle_schema,
+)
 DATABASE_SCHEMA_VERSION = len(_DATABASE_MIGRATIONS)
 
 

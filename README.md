@@ -82,6 +82,8 @@ Switch between English and Chinese, filter your queue, and copy useful commands.
 - **Prepare multiple applications.** v0.7 adds concurrent preparation in Codex's in-app browser, with per-job progress. [Batch guide](docs/attended-runtime-batch.md)
 - **Keep the history together.** Track jobs, materials, application attempts, receipts, and outstanding follow-ups.
 
+The current development tree also adds recruiting timelines, actions and calendar export, source-bound interview packs, JSON Resume draft exchange, supervised observation adapters, and offline quality evaluation. These commands require an installation from the current source tree; they are not included in the `v0.7.0` package pinned above.
+
 ## More ways to use it
 
 | Task | Command / guide |
@@ -90,6 +92,11 @@ Switch between English and Chinese, filter your queue, and copy useful commands.
 | Review recent discoveries | `applypilot radar report --hours 24` |
 | Sync and inspect your resume library | `applypilot resume-library-sync` / `applypilot resume-library-status` |
 | Choose a resume for one role | `applypilot resume-route --url "<job-url>"` |
+| Track recruiting feedback and calendar items | `applypilot followup --help` · [Followup guide](docs/followup.md) |
+| Prepare for an interview | `applypilot interview prepare --url "<job-url>" --output "<new-directory>"` · [Source rules](docs/interview-prep.md) |
+| Exchange JSON Resume drafts | `applypilot json-resume --help` · [Exchange guide](docs/json-resume.md) |
+| Adapt external browser observations | `applypilot browser-prepare --help` · [Adapter guide](docs/browser-observation-adapter.md) |
+| Evaluate quality and export Promptfoo cases | `applypilot quality --help` · [Evaluation guide](docs/quality-evaluation.md) |
 | Add optional job-board connectors | [Installation options](docs/getting-started.md#installation-options) |
 | Work inside Codex's in-app browser | [Browser worker guide](docs/visual-worker-bridge.md) |
 | Explore all commands | `applypilot --help` |

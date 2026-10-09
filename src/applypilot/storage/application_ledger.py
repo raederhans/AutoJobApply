@@ -554,18 +554,14 @@ def claim_submission_gate(
                 and str(replay[2]) == job_url
                 and str(replay[4] or "") == str(audit_fingerprint or "")
             )
-            if owns_transaction:
-                connection.commit() if same_claim else connection.rollback()
             if not same_claim:
+                if owns_transaction:
+                    connection.rollback()
                 return {"claimed": False, "reason": "submission_gate_claim_conflict"}
-            return {
-                "claimed": True,
-                "reason": "submission_gate_replay",
-                "gate_id": str(replay[0]),
-                "idempotency_key": str(replay[5]),
-                "state": str(replay[3]),
-                "replay": True,
-            }
+            if str(replay[3]) != "claimed":
+                if owns_transaction:
+                    connection.rollback()
+                return {"claimed": False, "reason": "submission_gate_not_active"}
 
         attempt = connection.execute(
             "SELECT job_url, phase, submit_started, status, lease_expires_at "
@@ -598,6 +594,20 @@ def claim_submission_gate(
             if owns_transaction:
                 connection.rollback()
             return {"claimed": False, "reason": "submission_gate_attempt_lease_expired"}
+
+        # An idempotency key identifies a prior claim; it cannot revive terminal
+        # authority or bypass the current attempt's readiness and lease checks.
+        if replay is not None:
+            if owns_transaction:
+                connection.commit()
+            return {
+                "claimed": True,
+                "reason": "submission_gate_replay",
+                "gate_id": str(replay[0]),
+                "idempotency_key": str(replay[5]),
+                "state": str(replay[3]),
+                "replay": True,
+            }
 
         # This check intentionally runs in the same write transaction as the
         # reservation below.  A terminal gate alone is not success: a durable,

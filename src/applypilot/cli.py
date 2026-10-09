@@ -21,6 +21,11 @@ from rich.console import Console
 from rich.table import Table
 
 from applypilot import __version__
+from applypilot.commands.browser_prepare import app as browser_prepare_app
+from applypilot.commands.followup import app as followup_app
+from applypilot.commands.interview import app as interview_app
+from applypilot.commands.json_resume import app as json_resume_app
+from applypilot.commands.quality import app as quality_app
 
 logging.basicConfig(
     level=logging.INFO,
@@ -57,6 +62,11 @@ app.add_typer(radar_app, name="radar")
 app.add_typer(exceptions_app, name="exceptions")
 app.add_typer(runs_app, name="runs")
 app.add_typer(batches_app, name="batches")
+app.add_typer(followup_app, name="followup")
+app.add_typer(interview_app, name="interview")
+app.add_typer(json_resume_app, name="json-resume")
+app.add_typer(browser_prepare_app, name="browser-prepare")
+app.add_typer(quality_app, name="quality")
 console = Console()
 log = logging.getLogger(__name__)
 
@@ -1028,6 +1038,7 @@ def radar_queries(
 def radar_explore(
     query: list[str] | None = typer.Option(None, "--query", help="Up to 3 role queries; defaults rotate daily."),
     site: list[str] | None = typer.Option(None, "--site", help="linkedin or indeed; defaults to both."),
+    budget: int | None = typer.Option(None, "--budget", min=0, max=6, help="Search calls: automatic default 4, explicit queries up to 6; 0 explains without searching."),
     limit: int = typer.Option(5, "--limit", min=1, max=10, help="Results per query and platform."),
     job_type: str | None = typer.Option(None, "--job-type", help="Optional internship/fulltime/parttime/contract filter."),
     hours: int = typer.Option(
@@ -1044,6 +1055,7 @@ def radar_explore(
         {
             "query": query,
             "site": site,
+            "budget": budget,
             "limit": limit,
             "job_type": job_type,
             "hours": hours,
@@ -1061,6 +1073,46 @@ def radar_advance(
     )
 
 
+@radar_app.command("discover-careers")
+def radar_discover_careers(
+    url: str = typer.Option(..., "--url", help="Explicit HTTPS company homepage or careers page."),
+    name: str = typer.Option(..., "--name", help="Reviewed company name; never inferred from third-party text."),
+    company_id: str = typer.Option(..., "--company-id", help="Stable local company ID for candidate source configurations."),
+    official_reviewed: bool = typer.Option(
+        False, "--official-reviewed", help="Attest that this URL belongs to the named employer. Sources remain inactive.",
+    ),
+    max_pages: int = typer.Option(3, "--max-pages", min=1, max=5, help="Maximum same-origin company pages to read."),
+) -> None:
+    """Discover observed ATS entries and emit pending source configurations."""
+    return _command_module("radar").run_radar_discover_careers(
+        sys.modules[__name__],
+        {"url": url, "name": name, "company_id": company_id,
+         "official_reviewed": official_reviewed, "max_pages": max_pages},
+    )
+
+
+@radar_app.command("lifecycle")
+def radar_lifecycle(
+    url: str = typer.Option(..., "--url", help="Exact stored job URL to inspect."),
+) -> None:
+    """Inspect availability evidence and advisory repost hints for one job."""
+    return _command_module("radar").run_radar_lifecycle(sys.modules[__name__], {"url": url})
+
+
+@radar_app.command("budget")
+def radar_budget(
+    mode: str = typer.Option("explore", "--mode", help="explore or official."),
+    budget: int | None = typer.Option(None, "--budget", min=0, help="Maximum calls/sources; explore cannot exceed 6."),
+    query: list[str] | None = typer.Option(None, "--query", help="Optional exact exploration queries."),
+    site: list[str] | None = typer.Option(None, "--site", help="Optional linkedin/indeed exploration sites."),
+    due_only: bool = typer.Option(False, "--due-only", help="Select only due official sources."),
+) -> None:
+    """Preview evidence, chosen work and deferred reasons without network or DB writes."""
+    return _command_module("radar").run_radar_budget(sys.modules[__name__], {
+        "mode": mode, "budget": budget, "query": query, "site": site, "due_only": due_only,
+    })
+
+
 @radar_app.command("collect")
 def radar_collect(
     company: list[str] | None = typer.Option(
@@ -1074,6 +1126,8 @@ def radar_collect(
         help="Show inactive/manual sources in a dry run; live collection still requires --company.",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show selected sources without HTTP or DB writes."),
+    budget: int | None = typer.Option(None, "--budget", min=0, help="Bound the number of official sources to collect."),
+    due_only: bool = typer.Option(False, "--due-only", help="Respect daily cadence and provider failure cooldown."),
 ) -> None:
     """Collect verified official jobs using bounded public GET adapters."""
     return _command_module("radar").run_radar_collect(
@@ -1082,6 +1136,8 @@ def radar_collect(
             "company": company,
             "include_inactive": include_inactive,
             "dry_run": dry_run,
+            "budget": budget,
+            "due_only": due_only,
         },
     )
 
@@ -1978,18 +2034,22 @@ def approve_cover(
 
 @app.command("mark-cover-not-required")
 def mark_cover_not_required(
-    url: str = typer.Option(..., "--url", help="Exact successfully previewed job URL."),
+    url: str = typer.Option(..., "--url", help="Exact job or application URL."),
     verified_by: str = typer.Option(
         "browser_preview",
         "--verified-by",
         help="Audit label for the form inspection that found no cover-letter field.",
     ),
+    bridge_dir: Path | None = typer.Option(None, "--bridge-dir", exists=True, file_okay=False),
+    observation_file: Path | None = typer.Option(None, "--observation-file", exists=True, dir_okay=False),
 ) -> None:
-    """Mark an exact previewed form as not requiring a cover letter."""
+    """Record preview or bound attending-host proof that a cover letter is not required."""
     _bootstrap()
     from applypilot.single_job import mark_cover_letter_not_required_for_url
 
-    result = mark_cover_letter_not_required_for_url(url, verified_by=verified_by)
+    result = mark_cover_letter_not_required_for_url(
+        url, verified_by=verified_by, bridge_dir=bridge_dir, observation_file=observation_file
+    )
     _print_json(data=result)
 
 

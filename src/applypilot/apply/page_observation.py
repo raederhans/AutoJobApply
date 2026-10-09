@@ -1822,6 +1822,7 @@ def _audit_live_pre_submit_page(
                   required: required(el),
                   disabled: Boolean(el.disabled),
                   readonly: Boolean(el.readOnly),
+                  multiple: el.tagName === 'SELECT' && Boolean(el.multiple),
                   autocomplete: String(el.autocomplete || '').slice(0, 120),
                   placeholder: String(el.placeholder || '').slice(0, 240),
                   protected_identifier: protectedIdentifier(el, structuralLabel(el)),

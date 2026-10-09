@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -86,12 +88,19 @@ def test_run_uses_goal_directed_bounded_prompt_and_returns_real_exit(monkeypatch
         def __init__(self, command, **kwargs):
             observed["command"] = command
             observed["kwargs"] = kwargs
+            observed["prompt"] = kwargs["stdin"].read()
 
-        def communicate(self, *, input, timeout):
-            observed["prompt"] = input
+        def communicate(self, *, timeout):
             observed["timeout"] = timeout
 
-    monkeypatch.setattr(browser_worker.subprocess, "Popen", Process)
+    real_popen = subprocess.Popen
+
+    def spawn(command, **kwargs):
+        if isinstance(command, list) and command[0] == "codex-native":
+            return Process(command, **kwargs)
+        return real_popen(command, **kwargs)
+
+    monkeypatch.setattr(browser_worker.subprocess, "Popen", spawn)
 
     result = browser_worker.run_browser_worker(
         bridge_dir=tmp_path,
@@ -117,6 +126,7 @@ def test_run_uses_goal_directed_bounded_prompt_and_returns_real_exit(monkeypatch
     env = observed["kwargs"]["env"]
     assert env["APPLYPILOT_VISUAL_BRIDGE_TIMEOUT_SECONDS"] == "33"
     assert env["PYTHONPATH"].endswith("existing")
+    assert observed["kwargs"]["stdin"].closed
 
 
 def test_run_stops_timed_out_process_and_reports_exit_124(monkeypatch, tmp_path, capsys):
@@ -133,7 +143,7 @@ def test_run_stops_timed_out_process_and_reports_exit_124(monkeypatch, tmp_path,
         def __init__(self, _command, **_kwargs):
             pass
 
-        def communicate(self, *, input, timeout):
+        def communicate(self, *, timeout):
             raise subprocess.TimeoutExpired("codex", timeout)
 
         def poll(self):
@@ -150,7 +160,15 @@ def test_run_stops_timed_out_process_and_reports_exit_124(monkeypatch, tmp_path,
             self.returncode = -9
 
     process = Process([], stdin=None)
-    monkeypatch.setattr(browser_worker.subprocess, "Popen", lambda *_args, **_kwargs: process)
+    real_popen = subprocess.Popen
+
+    def spawn(command, **kwargs):
+        if isinstance(command, list) and command[0] == "codex-native":
+            process.stdin = kwargs["stdin"]
+            return process
+        return real_popen(command, **kwargs)
+
+    monkeypatch.setattr(browser_worker.subprocess, "Popen", spawn)
     killed = []
     monkeypatch.setattr(browser_worker, "_kill_process_tree", lambda pid: killed.append(pid) or True)
 
@@ -165,7 +183,38 @@ def test_run_stops_timed_out_process_and_reports_exit_124(monkeypatch, tmp_path,
     assert result == browser_worker.TIMEOUT_EXIT_CODE
     assert killed == [1234]
     assert process.terminated is False
+    assert process.stdin.closed
     assert "timed out after 2 seconds" in capsys.readouterr().err
+
+
+def test_real_cli_reads_complete_utf8_prompt_and_eof(monkeypatch, tmp_path):
+    """No model: a real CLI decodes the complete stdin bytes and extracts the goal."""
+    goal = 'Inspect the form.\n中文备注: "保留换行" 🌏'
+    task = tmp_path / "goal.txt"
+    task.write_text(goal, encoding="utf-8")
+    output = tmp_path / "stdin.json"
+    code = (
+        "import json,sys\nfrom pathlib import Path\n"
+        "prompt=sys.stdin.buffer.read().decode('utf-8')\n"
+        "encoded=[line for line in prompt.splitlines() if line.startswith('Goal JSON string: ')][0]\n"
+        "goal=json.loads(encoded.removeprefix('Goal JSON string: '))\n"
+        f"Path({str(output)!r}).write_text(json.dumps({{'goal':goal,'isatty':sys.stdin.isatty()}}),encoding='utf-8')\n"
+    )
+    monkeypatch.setattr(browser_worker, "build_browser_worker_command", lambda **_kwargs: [sys.executable, "-c", code])
+    streams = []
+    real_temporary_file = browser_worker.tempfile.TemporaryFile
+
+    def capture_stream(**kwargs):
+        stream = real_temporary_file(**kwargs)
+        streams.append(stream)
+        return stream
+
+    monkeypatch.setattr(browser_worker.tempfile, "TemporaryFile", capture_stream)
+    assert browser_worker.run_browser_worker(bridge_dir=tmp_path, task_file=task, phase="prepare",
+                                             timeout_seconds=5) == 0
+    assert json.loads(output.read_text(encoding="utf-8")) == {"goal": goal, "isatty": False}
+    assert len(streams) == 1 and streams[0].closed
+    assert not (tmp_path / ".worker-owner").exists()
 
 
 @pytest.mark.parametrize("timeout", [float("nan"), float("inf"), 0, -1])

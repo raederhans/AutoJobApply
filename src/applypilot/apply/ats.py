@@ -367,6 +367,40 @@ class CornerstoneAtsAdapter(GenericAtsAdapter):
 
 
 @dataclass(frozen=True, slots=True)
+class ManatalAtsAdapter(GenericAtsAdapter):
+    """Proposal-only recognition of Manatal's hosted, exact job routes."""
+
+    name: str = "manatal"
+
+    def matches(self, *, hostname: str, path: str) -> bool:
+        return hostname in {"careers-page.com", "www.careers-page.com"} and bool(
+            re.fullmatch(r"/[A-Za-z0-9][A-Za-z0-9_-]*/job/[A-Za-z0-9]+(?:/apply)?/?", path)
+        )
+
+    def matches_url(self, url: str) -> bool:
+        # The host/path protocol alone cannot reject credential-bearing or
+        # non-HTTPS URLs. Keep this stricter admission local to this provider.
+        try:
+            parsed = urlsplit(url)
+            return (
+                parsed.scheme.casefold() == "https"
+                and parsed.username is None
+                and parsed.password is None
+                and parsed.port in {None, 443}
+                and self.matches(hostname=(parsed.hostname or "").casefold(), path=parsed.path)
+            )
+        except ValueError:
+            return False
+
+    def guidance(self) -> tuple[str, ...]:
+        return (
+            *GenericAtsAdapter.guidance(self),
+            ("On Manatal, independently inspect visible required labels and accepted attachment state; "
+             "a selected file or completed fill batch is not submission evidence."),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class WorkdayAtsAdapter(GenericAtsAdapter):
     name: str = "workday"
 
@@ -415,6 +449,10 @@ class AtsAdapterRegistry:
         hostname = (parsed.hostname or "").rstrip(".").casefold()
         path = parsed.path or "/"
         for adapter in self._items.values():
+            if isinstance(adapter, ManatalAtsAdapter):
+                if adapter.matches_url(url):
+                    return adapter
+                continue
             if adapter.matches(hostname=hostname, path=path):
                 return adapter
         return self.fallback
@@ -428,6 +466,7 @@ def default_ats_registry() -> AtsAdapterRegistry:
             AshbyAtsAdapter(),
             SmartRecruitersAtsAdapter(),
             CornerstoneAtsAdapter(),
+            ManatalAtsAdapter(),
             WorkdayAtsAdapter(),
         )
     )

@@ -68,6 +68,8 @@ def _tool() -> dict[str, object]:
     argument_properties.update({
         "field_key": {"type": "string", "minLength": 1},
         "value": {"type": "string", "maxLength": 12000},
+        "values": {"type": "array", "minItems": 1, "maxItems": 80, "uniqueItems": True,
+                   "items": {"type": "string", "maxLength": 12000}},
         "checked": {"type": "boolean"},
         "steps": {"type": "array", "minItems": 1, "maxItems": 4, "items": {
             "type": "object", "properties": {
@@ -83,9 +85,15 @@ def _tool() -> dict[str, object]:
             "Ask the supervised visual host to observe or operate its fixed application tab. "
             "Actions after observe must reference the returned observation_id. "
             "navigate opens a currently observed link in the same tab; it is browser-only. "
-            "upload_artifact selects one host-provided artifact through an observed upload control node_id. "
-            "fill_control replaces ordinary text/date values and commits blur; select_control selects an observed native option; "
-            "set_checked sets an ordinary checkbox state. These use field_key from form_state, never a guessed selector. "
+            "upload_artifact selects one host-provided artifact through an observed file control field_key, "
+            "or a host-reviewed legacy upload node_id, never both. Playwright observation uses field_key. "
+            "Check upload_result: file_selection_done leaves webpage acceptance unverified; inspect the page before continuing. "
+            "fill_control replaces ordinary text/date values and commits blur; select_control selects one exact observed option via value, "
+            "or the complete nonempty native SELECT multiple set via values, never both. Clearing that set is unsupported. "
+            "open_control opens an observed single combobox; search_control fills only an editable ARIA combobox query. "
+            "These return fresh candidates with persisted=null: a query or open menu is not a selection. "
+            "set_checked sets an ordinary checkbox state or checked=true for a completely observed native radio group. "
+            "These use field_key from form_state, never a guessed selector. "
             "fill_batch prepares up to four ordinary text/native-select fields in one supervised request, using steps. "
             "Only prepare supports batches. Each field is rechecked and read back; inspect batch_result. "
             "A parked batch may have partial writes: reobserve and review before any further action, never replay the batch. "
@@ -98,7 +106,7 @@ def _tool() -> dict[str, object]:
                 "operation": {
                     "type": "string",
                     "enum": ["observe", "click", "scroll", "type_text", "press_key", "navigate", "upload_artifact",
-                             "fill_control", "select_control", "set_checked", "fill_batch"],
+                             "fill_control", "select_control", "open_control", "search_control", "set_checked", "fill_batch"],
                 },
                 "observation_id": {"type": "string", "minLength": 1},
                 "arguments": {
