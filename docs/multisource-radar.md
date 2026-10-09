@@ -54,6 +54,32 @@ ecosystem company directory ──> source run ──> company seed
 - ST Engineering 仅公开最新条目，固定记录为 `partial`，不能用空结果宣称“官网零职位”。
 - Palantir、Wise 等已验证但当前无新加坡岗位的来源保留为 inactive，可在 dry-run 中检查，不能直接 live 采集。
 
+## 官网入口发现
+
+`radar discover-careers --url https://company.example/careers --name Example --company-id example --official-reviewed`
+从已核对归属的公司页面读取实际 HTML 链接和 iframe，最多检查 3 页（`--max-pages` 可调至 5），只跟随首页明确的同源招聘链接。它识别 Greenhouse、Lever、Ashby、SmartRecruiters、Workable 的招聘板入口，输出含来源页面、原始链接的 inactive/pending 配置；多个招聘板会提示需要选择。Workday 入口单独标为 unsupported。
+
+该命令不修改 watchlist、数据库或申请记录。`--official-reviewed` 表示调用方已经核对公司与域名关系，不能由网页自称“官方”代替。跨域重定向、访问挑战、超出页面/链接/响应大小限制都会明确报告；静态 HTML 没有招聘板链接时保留未发现，动态渲染、只显示单个岗位链接的网站仍需可见页面核验。入口发现成功不等于已核验岗位开放或已启用采集。
+
+## 岗位开放状态与重发提示
+
+官网采集完成后，生命周期归并使用**过滤前**的完整列表核对已入库岗位，避免因为本地地点或标题过滤而误判下架。状态独立于 `apply_status` 和申请历史：
+
+- `open`：本次官方列表确认仍在，最近核验不超过 72 小时。
+- `needs_reverification`：首次完整列表缺失、已核验开放证据过期，或身份出现冲突。停止自动申请候选选择，仍可对精确 URL 做 preview 核查。
+- `closed`：同来源、同 tenant/国家范围至少两次完整列表缺失，且缺失证据横跨至少 24 小时；其他来源仍有新鲜开放证据时保留开放。
+- `reopened`：已关闭的同一岗位身份重新出现；不同岗位 ID 的相似职位只产生独立的 advisory 重发提示，不合并或改写申请记录。
+
+只有明确通过格式、分页和条数验证的官方 API 库存能证明缺失；异常 JSON、采集失败、分页不足、RSS/JSON-LD 或 latest-only 来源不能关闭岗位。已有但尚未进入该机制的岗位标为 `legacy_untracked`，不伪装成已核验。`radar lifecycle --url <存储的岗位 URL>` 可查看原因和来源证据；日报另列岗位状态，包括本轮未再次出现的已跟踪职位。
+
+## 有证据的搜索预算
+
+`radar budget` 只读现有采集记录，输出 selected/deferred、选择理由、计数口径和冷却截止时间，不联网、不初始化或迁移数据库。自动探索默认最多 4 次 query×平台调用，硬上限 6 次，保留一个探索名额；显式 `--query` 不被替换，未指定 `--budget` 时保留其全部组合（最多 6 次）。`--budget 0` 可验证不执行搜索的路径。
+
+探索计数区分本来源新增 observation 和重复 observation，同批重复及并发重复不重复计算；旧 `lead_count` 是处理条数，不是新增数。当前尚不能可靠地把后续官方核验晋升归因到最初 query，计划明确标注不可归因，不将这些线索称为已匹配或合格岗位。
+
+官网采集可用 `--budget N --due-only` 限定来源数并参考每日 cadence；未指定新参数时保留原有全 active 采集。失败来源采用 30 分钟冷却，空结果不等于失败。明确 `--company` 可覆盖日常间隔，但在预算策略启用时仍保留失败冷却。`radar collect --dry-run --budget N --due-only` 同样只读计划。
+
 ## 常用命令
 
 在 `applypilot-local` 目录使用安全包装器：
@@ -64,6 +90,12 @@ ecosystem company directory ──> source run ──> company seed
 .\run-radar.ps1 radar collect --company openai --company grab
 .\run-radar.ps1 radar collect --company shopback --company venti_technologies --company porsche_asia_pacific
 .\run-radar.ps1 radar collect --dry-run --include-inactive
+.\run-radar.ps1 radar discover-careers --url https://company.example/careers --name Example --company-id example --official-reviewed
+.\run-radar.ps1 radar lifecycle --url https://company.example/jobs/123
+.\run-radar.ps1 radar budget --budget 4
+.\run-radar.ps1 radar budget --mode official --budget 4 --due-only
+.\run-radar.ps1 radar collect --dry-run --budget 4 --due-only
+.\run-radar.ps1 radar explore --budget 4
 
 .\run-radar.ps1 radar queries --track ai_implementation --window past-24h
 .\run-radar.ps1 radar queries --subtrack product_management --window past-week

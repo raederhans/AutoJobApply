@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "schema_version": 1,
+      "id": "synthetic-evidence-fail",
+      "kind": "evidence",
+      "jd": "Analyse operational data with SQL. Prepare client reports. Operate production Kubernetes.",
+      "sources": [
+        {
+          "id": "sql-project",
+          "text": "Analysed 120 synthetic support tickets using SQL queries and documented recurring issues."
+        },
+        {
+          "id": "campus-report",
+          "text": "Produced weekly inventory reports for campus operations and presented findings to a student team."
+        }
+      ],
+      "requirements": [
+        {
+          "id": "sql",
+          "text": "Analyse operational data with SQL.",
+          "expected_support": "direct",
+          "source_ids": [
+            "sql-project"
+          ],
+          "allowed_statements": [
+            "Analysed 120 synthetic support tickets using SQL queries and documented recurring issues."
+          ]
+        },
+        {
+          "id": "reporting",
+          "text": "Prepare client reports.",
+          "expected_support": "transferable",
+          "source_ids": [
+            "campus-report"
+          ],
+          "allowed_statements": [
+            "Produced weekly inventory reports for campus operations and presented findings to a student team."
+          ]
+        },
+        {
+          "id": "kubernetes",
+          "text": "Operate production Kubernetes.",
+          "expected_support": "gap",
+          "source_ids": [],
+          "allowed_statements": [
+            "No registered production Kubernetes evidence."
+          ]
+        }
+      ],
+      "output": {
+        "evidence_map": [
+          {
+            "requirement_id": "sql",
+            "support_level": "direct",
+            "source_id": "sql-project",
+            "source_quote": "Analysed 120 synthetic support tickets using SQL queries and documented recurring issues.",
+            "statement": "Led 500 customer deployments using Kubernetes."
+          },
+          {
+            "requirement_id": "reporting",
+            "support_level": "direct",
+            "source_id": "campus-report",
+            "source_quote": "Produced weekly inventory reports for campus operations and presented findings to a student team.",
+            "statement": "Produced weekly inventory reports for campus operations and presented findings to a student team."
+          },
+          {
+            "requirement_id": "kubernetes",
+            "support_level": "gap",
+            "source_id": "",
+            "source_quote": "",
+            "statement": "No registered production Kubernetes evidence."
+          }
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "id": "synthetic-submit-click-fail",
+      "kind": "receipt",
+      "jd": "Fictional analyst internship.",
+      "job_url": "https://example.test/jobs/42",
+      "sources": [
+        {
+          "id": "click-42",
+          "kind": "submit_attempt",
+          "text": "Clicked Submit; no receipt observed.",
+          "job_url": "https://example.test/jobs/42"
+        }
+      ],
+      "output": {
+        "job_url": "https://example.test/jobs/42",
+        "status": "submitted",
+        "evidence_refs": [
+          "click-42"
+        ]
+      }
+    }
+  ]
+}

@@ -13,6 +13,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACTS = (
     "scripts/browser-form-state.test.mjs",
+    "scripts/browser-complex-controls.test.mjs",
+    "scripts/browser-field-batch.test.mjs",
+    "scripts/browser-host-group.test.mjs",
     "scripts/visual-bridge-host.test.mjs",
     "scripts/browser-observation-feedback.test.mjs",
 )
@@ -54,4 +57,17 @@ def test_attended_feedback_chromium() -> None:
     _run_node(
         ("scripts/browser-observation-feedback.chromium.test.mjs",),
         {"APPLYPILOT_TEST_PLAYWRIGHT_MODULE": str(driver)},
+    )
+
+
+@pytest.mark.browser
+def test_attended_complex_controls_chromium() -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as playwright:
+        executable = playwright.chromium.executable_path
+    assert Path(executable).is_file(), "Installed Playwright Chromium is missing"
+    _run_node(
+        ("scripts/browser-form-shadow.test.mjs",),
+        {"APPLYPILOT_TEST_CHROMIUM_EXECUTABLE": executable},
     )

@@ -25,7 +25,14 @@ def test_submit_binding_and_upload_reference_validation(tmp_path):
         target={"runtime": "iab", "tab_id": "real-tab", "application_url": "https://jobs.example.test/apply"})
     assert visual_bridge.read_active_host(tmp_path).submission_authorized is True
     visual_bridge._validate_operation("upload_artifact", "fresh", {"artifact_id": "resume", "node_id": "4"})
-    for args in ({"path": "private-file", "node_id": "4"}, {"artifact_id": "resume"}):
+    visual_bridge._validate_operation("upload_artifact", "fresh", {"artifact_id": "resume", "field_key": "observed-file"})
+    for args in (
+        {"path": "private-file", "node_id": "4"}, {"artifact_id": "resume"},
+        {"artifact_id": "resume", "node_id": "4", "field_key": "observed-file"},
+        {"artifact_id": "resume", "field_key": ""}, {"artifact_id": "resume", "field_key": 4},
+        {"artifact_id": "resume", "field_key": "observed-file", "selector": "input"},
+        {"artifact_id": "resume", "field_key": "observed-file", "paths": ["private-file"]},
+    ):
         with pytest.raises(visual_bridge.VisualBridgeError):
             visual_bridge.request_visual_operation(tmp_path, operation="upload_artifact", observation_id="fresh", arguments=args)
     assert not list((tmp_path / "pending").glob("*.json"))

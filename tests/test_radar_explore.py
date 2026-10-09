@@ -216,3 +216,50 @@ def test_only_explicit_review_session_can_issue_target_attestation(conn, monkeyp
     payload = json.loads(conn.execute("SELECT payload_json FROM radar_source_observations").fetchone()[0])
     assert payload["official_target_review"]["method"] == "agent_visible_employer_review"
     assert payload["official_target_review"]["url"] == "https://small.example/job/1"
+
+
+def test_budget_zero_makes_no_search_or_run_writes(conn):
+    def search(*args, **kwargs):
+        pytest.fail("zero budget must not call a provider")
+
+    result = explore_job_boards(conn, budget=0, search=search)
+    assert result["sources"] == []
+    assert result["plan"]["why"] == "zero_budget"
+    assert conn.execute("SELECT count(*) FROM radar_fetch_runs").fetchone()[0] == 0
+
+
+def test_budget_actual_calls_and_new_observation_metadata(conn):
+    calls = []
+
+    def search(query, site, **kwargs):
+        calls.append((query, site))
+        return {"status": "partial", "raw_count": 2, "jobs": [
+            {"url": "https://sg.indeed.com/viewjob?jk=repeat", "title": "Intern", "company_name": "Small"},
+            {"url": "https://sg.indeed.com/viewjob?jk=repeat", "title": "Intern", "company_name": "Small"},
+        ]}
+
+    result = explore_job_boards(conn, queries=["one", "two", "three"], sites=["indeed"], budget=2, search=search)
+    assert calls == [("one", "indeed"), ("two", "indeed")]
+    assert [row["new_observations"] for row in result["sources"]] == [1, 0]
+    assert [row["duplicate_observations"] for row in result["sources"]] == [1, 2]
+    assert len(result["plan"]["deferred"]) == 1
+    for row in conn.execute("SELECT metadata_json, lead_count, pagination_complete FROM radar_fetch_runs"):
+        metadata = json.loads(row[0])
+        assert metadata["budget_evidence_version"] == 1
+        assert metadata["elapsed_ms"] >= 0
+        assert row[1] == 2 and row[2] == 0
+    assert conn.execute("SELECT count(*) FROM jobs").fetchone()[0] == 0
+
+
+def test_failure_skips_remaining_same_provider_calls_in_batch(conn):
+    calls = []
+
+    def search(query, site, **kwargs):
+        calls.append((query, site))
+        return {"status": "blocked", "raw_count": 0, "jobs": []} if site == "linkedin" else {"status": "empty", "raw_count": 0, "jobs": []}
+
+    result = explore_job_boards(conn, queries=["one", "two"], search=search)
+    assert calls == [("one", "linkedin"), ("one", "indeed"), ("two", "indeed")]
+    assert result["plan"]["deferred"][0]["reason"] == "provider_cooldown"
+    assert len(result["plan"]["selected"]) == 3
+    assert conn.execute("SELECT status FROM radar_fetch_runs ORDER BY rowid").fetchone()[0] == "blocked"

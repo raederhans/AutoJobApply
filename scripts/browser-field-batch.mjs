@@ -1,10 +1,11 @@
 /** Bounded preparation on one observed page. No clicks, uploads or submission. */
-import { operateObservedControl, ControlNotReady } from './browser-form-state.mjs';
+import { operateObservedControl, structureChanges, ControlNotReady } from './browser-form-state.mjs';
 
 const textControls = new Set(['text', 'textarea', 'email', 'tel', 'url', 'search', 'number']);
 const shape = form => JSON.stringify([form.page_url, form.protected_count, form.fields.map(f =>
-  [f.field_key, f.selector, f.label, f.group_key, f.group, f.control, f.disabled, f.readonly, f.options])]);
-const value = f => JSON.stringify([f.value, f.checked, f.files, f.selected_display]);
+  [f.field_key, f.selector, f.label, f.group_key, f.group, f.control, f.disabled, f.readonly,
+    f.options.map(o => [o.value, o.label, o.selector, o.disabled, o.dom_identity])])]);
+const value = f => JSON.stringify([f.value, f.checked, f.files, f.selected_display, f.selected_values]);
 
 export function validateFieldBatch(snapshot, steps) {
   if (!snapshot || !Array.isArray(steps) || steps.length < 1 || steps.length > 4) {
@@ -20,7 +21,7 @@ export function validateFieldBatch(snapshot, steps) {
     seen.add(step.field_key);
     const field = snapshot.fields.find(f => f.field_key === step.field_key);
     if (!field || field.disabled || field.readonly || field.value_source === 'unavailable' ||
-        (step.operation === 'fill_control' ? !textControls.has(field.control) : field.control !== 'select')) {
+        (step.operation === 'fill_control' ? !textControls.has(field.control) : field.control !== 'select' || field.multiple === true)) {
       throw new ControlNotReady('Batch contains an unsupported or unavailable control');
     }
     if (step.operation === 'select_control' && field.options.filter(o => !o.disabled &&
@@ -46,12 +47,14 @@ export async function operateFieldBatch(tab, snapshot, steps, operate = operateO
     }
     const { observation: after, ...report } = result;
     results.push(report);
-    const unexpectedChange = shape(current) !== shape(after) || current.fields.some(f =>
+    const structural = structureChanges(current, after);
+    const unexpectedChange = structural.changed || shape(current) !== shape(after) || current.fields.some(f =>
       f.field_key !== step.field_key && value(f) !== value(after.fields.find(x => x.field_key === f.field_key) || {}));
     current = after;
     if (report.persisted !== true || report.invalid === true || unexpectedChange) {
       return { observation: current, batch_result: { status: 'parked', completed: results.length,
         requested: steps.length, results, reason: unexpectedChange ? 'form_changed' : 'readback_not_verified',
+        structure_changes: structural,
         reobserve_required: true } };
     }
   }

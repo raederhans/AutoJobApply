@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>ApplyPilot complex control validation</title>
+<style>
+  body { max-width: 850px; margin: 32px auto; font: 18px/1.5 system-ui; color: #172235; }
+  fieldset { margin: 18px 0; padding: 18px; border: 1px solid #aab5c4; border-radius: 8px; }
+  label { display: block; margin: 8px 0; }
+  [hidden] { display: none !important; }
+  select { font: inherit; min-width: 250px; padding: 8px; }
+  input { font: inherit; } button { font: inherit; margin: 8px; padding: 6px 14px; }
+  output { display: block; padding: 12px; background: #e8f3eb; }
+</style>
+<h1>Complex control validation</h1>
+<p>Local fixture. No submission, account, file upload or external requests.</p>
+<form id="preferences" onsubmit="return false">
+  <fieldset>
+    <legend>Work modes</legend>
+    <label for="modes">Preferred work modes</label>
+    <select id="modes" name="modes" multiple size="3">
+      <option value="remote">Remote</option>
+      <option value="hybrid">Hybrid</option>
+      <option value="onsite">On-site</option>
+    </select>
+  </fieldset>
+  <fieldset id="style-a">
+    <legend>Primary work style</legend>
+    <label><input id="style-a-remote" name="style" type="radio" value="remote" checked> Remote first</label>
+    <label><input id="style-a-onsite" name="style" type="radio" value="onsite"> Office first</label>
+  </fieldset>
+</form>
+<form id="independent" onsubmit="return false">
+  <fieldset id="style-b">
+    <legend>Independent form with the same radio name</legend>
+    <label><input id="style-b-remote" name="style" type="radio" value="remote" checked> Keep this selected</label>
+    <label><input id="style-b-onsite" name="style" type="radio" value="onsite"> Keep this clear</label>
+  </fieldset>
+</form>
+<form id="incomplete" onsubmit="return false">
+  <fieldset>
+    <legend>Incomplete group must reject input</legend>
+    <label><input id="style-c-visible" name="incomplete-style" type="radio" value="visible"> Visible member with a hidden peer</label>
+    <label hidden><input id="style-c-hidden" name="incomplete-style" type="radio" value="hidden" checked> Hidden member</label>
+  </fieldset>
+</form>
+<form id="protected-group" onsubmit="return false">
+  <fieldset>
+    <legend>I agree to terms and privacy policy</legend>
+    <label><input id="answer-a" name="answer" type="radio" value="yes"> Yes</label>
+    <label><input id="answer-b" name="answer" type="radio" value="no"> No</label>
+  </fieldset>
+</form>
+<fieldset>
+  <legend>Custom multiple selection must reject input</legend>
+  <label for="custom-modes">Other work modes</label>
+  <input id="custom-modes" role="combobox" aria-controls="custom-choices" aria-expanded="true">
+  <div id="custom-choices" role="listbox" aria-multiselectable="true">
+    <div id="custom-choice-remote" role="option" aria-selected="false">Remote</div>
+    <div id="custom-choice-hybrid" role="option" aria-selected="false">Hybrid</div>
+  </div>
+</fieldset>
+<output id="readback" aria-live="polite"></output>
+<script>
+  function updateReadback() {
+    const modes = [...document.querySelector('#modes').selectedOptions].map(option => option.textContent);
+    const first = document.querySelector('#preferences input[name="style"]:checked').value;
+    const second = document.querySelector('#independent input[name="style"]:checked').value;
+    document.querySelector('#readback').textContent = `Selected modes: ${modes.join(', ') || '(none)'}. Primary: ${first}. Independent: ${second}.`;
+  }
+  document.addEventListener('change', updateReadback);
+  updateReadback();
+</script>
+</html>

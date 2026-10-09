@@ -494,6 +494,23 @@
 
     .insights { min-width: 0; padding: 25px 22px; border-left: 1px solid var(--line); background: color-mix(in srgb, var(--surface-sand) 42%, var(--surface-raised)); }
     .insight-block + .insight-block { margin-top: 34px; padding-top: 28px; border-top: 1px solid var(--line-soft); }
+    .followup-board { margin: 18px 0 24px; padding: 16px 18px; border: 1px solid var(--line-soft); border-radius: 10px; background: color-mix(in srgb, var(--surface-sand) 35%, var(--surface-raised)); }
+    .followup-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .followup-head h2 { margin: 0; font-size: 13px; font-weight: 650; }
+    .followup-counts { display: flex; flex-wrap: wrap; justify-content: end; gap: 8px; }
+    .followup-count { display: inline-flex; align-items: center; gap: 7px; padding: 5px 9px; border: 1px solid var(--line-soft); border-radius: 999px; color: var(--muted); font-size: 10px; }
+    .followup-count strong { color: var(--text-primary); font: 650 11px/1 var(--mono); }
+    .followup-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin-top: 14px; }
+    .followup-columns h3 { display: flex; align-items: baseline; gap: 7px; margin: 0; color: var(--text-muted); font-size: 11px; font-weight: 650; }
+    .followup-columns h3 span { color: var(--quiet); font: 10px/1 var(--mono); }
+    .followup-list { display: grid; margin: 6px 0 0; padding: 0; list-style: none; }
+    .followup-item { min-width: 0; padding: 9px 0; border-top: 1px solid var(--line-soft); }
+    .followup-item:first-child { border-top: 0; }
+    .followup-item a, .followup-job { display: inline-flex; align-items: center; min-height: 44px; color: var(--link); font-size: 12px; font-weight: 620; overflow-wrap: anywhere; text-decoration: none; }
+    .followup-item a:hover { text-decoration: underline; }
+    .followup-meta { display: block; color: var(--quiet); font: 10px/1.45 var(--mono); overflow-wrap: anywhere; }
+    .followup-summary { margin: 2px 0 3px; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+    .followup-empty { margin: 8px 0 0; color: var(--quiet); font-size: 11px; }
     .insight-kicker { margin: 5px 0 18px; color: var(--quiet); font-size: 11px; }
     .score-bars { display: grid; gap: 8px; }
     .bar-row { display: grid; grid-template-columns: 18px 1fr 28px; align-items: center; gap: 8px; color: var(--quiet); font: 10px/1 var(--mono); }
@@ -674,6 +691,9 @@
       .source-head, .source-health strong, .source-health span { font-size: 13px; }
       .material-status-grid { grid-template-columns: 1fr; }
       .material-status-grid.verify-status-grid { grid-template-columns: 1fr; }
+      .followup-head { align-items: start; flex-direction: column; }
+      .followup-counts { justify-content: start; }
+      .followup-columns { grid-template-columns: 1fr; gap: 12px; }
       .material-title-row { display: block; }
       .material-score { margin-top: 4px; }
       .evidence-record { grid-template-columns: 1fr; gap: 4px; }
@@ -890,6 +910,28 @@
             <div class="metric emphasis"><strong class="metric-value" id="verify-reconciled">0</strong><span class="metric-label">Receipts reconciled</span></div>
           </div>
 
+          <section class="followup-board" aria-labelledby="followup-title">
+            <div class="followup-head">
+              <h2 id="followup-title">Recruiting follow-up</h2>
+              <div class="followup-counts" aria-label="Recruiting follow-up counts">
+                <span class="followup-count"><span>Unmatched observations</span><strong id="followup-pending-count">0</strong></span>
+                <span class="followup-count"><span>Open actions</span><strong id="followup-open-count">0</strong></span>
+              </div>
+            </div>
+            <div class="followup-columns">
+              <section aria-labelledby="followup-due-title">
+                <h3 id="followup-due-title">Due actions <span id="followup-due-count">0</span></h3>
+                <ul class="followup-list" id="followup-due-list"></ul>
+                <p class="followup-empty" id="followup-due-empty">No due actions.</p>
+              </section>
+              <section aria-labelledby="followup-interview-title">
+                <h3 id="followup-interview-title">Upcoming interviews <span id="followup-interview-count">0</span></h3>
+                <ul class="followup-list" id="followup-interview-list"></ul>
+                <p class="followup-empty" id="followup-interview-empty">No upcoming interviews.</p>
+              </section>
+            </div>
+          </section>
+
           <div class="toolbar">
             <label class="search-wrap"><span class="sr-only">Search verification evidence</span><input id="verify-search" class="search" type="search" autocomplete="off" placeholder="Search role, company, status, evidence…"></label>
             <label><span class="sr-only">Sort verification evidence</span><select id="verify-sort" class="sort"><option value="attention">ATTENTION FIRST</option><option value="recent">RECENT</option><option value="company">COMPANY</option></select></label>
@@ -1040,6 +1082,17 @@
         "Batch reservations": "批次预留",
         "Needs reconciliation": "需要对账",
         "Receipts reconciled": "已对账回执",
+        "Recruiting follow-up": "招聘跟进",
+        "Recruiting follow-up counts": "招聘跟进数量",
+        "Unmatched observations": "待匹配记录",
+        "Open actions": "未完成待办",
+        "Due actions": "到期待办",
+        "Upcoming interviews": "近期面试",
+        "No due actions.": "暂无到期待办。",
+        "No upcoming interviews.": "暂无近期面试。",
+        "Open job: {job}": "打开岗位：{job}",
+        "Job not matched": "未匹配岗位",
+        "Interview round {round}": "第 {round} 轮面试",
         "Search verification evidence": "搜索核验依据",
         "Search role, company, status, evidence…": "搜索岗位、公司、状态、依据…",
         "Sort verification evidence": "排序核验依据",
@@ -1293,6 +1346,7 @@
       const rawDiscoverItems = Array.isArray(data.discover?.items) ? data.discover.items : [];
       const rawJobs = Array.isArray(data.jobs) ? data.jobs : [];
       const rawVerifyJobs = Array.isArray(data.verify?.jobs) ? data.verify.jobs : [];
+      const rawFollowup = data.followup && typeof data.followup === "object" ? data.followup : {};
       const indexedDiscoverItems = rawDiscoverItems.map((item) => ({
         item,
         search: [
@@ -1338,6 +1392,58 @@
         return new Intl.DateTimeFormat(locale === "zh" ? "zh-CN" : "en", {
           year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
         }).format(date);
+      };
+      const renderFollowupLink = (parent, item) => {
+        const label = [item.company, item.title].filter(Boolean).join(" · ") || t("Job not matched");
+        const href = safeUrl(item.job_url);
+        if (!href) {
+          parent.append(make("span", "followup-job", label));
+          return;
+        }
+        const link = make("a", "", label);
+        link.href = href;
+        link.rel = "noopener noreferrer";
+        link.setAttribute("aria-label", t("Open job: {job}", { job: label }));
+        parent.append(link);
+      };
+      const renderFollowupBoard = () => {
+        const pendingCount = Number(rawFollowup.pending_count || 0);
+        const openCount = Number(rawFollowup.open_action_count || 0);
+        const dueCount = Number(rawFollowup.due_action_count || 0);
+        const dueActions = Array.isArray(rawFollowup.due_actions) ? rawFollowup.due_actions : [];
+        const interviews = Array.isArray(rawFollowup.upcoming_interviews) ? rawFollowup.upcoming_interviews : [];
+        document.getElementById("followup-pending-count").textContent = String(pendingCount);
+        document.getElementById("followup-open-count").textContent = String(openCount);
+        document.getElementById("followup-due-count").textContent = String(dueCount);
+        document.getElementById("followup-interview-count").textContent = String(interviews.length);
+
+        const dueList = document.getElementById("followup-due-list");
+        const dueFragment = document.createDocumentFragment();
+        dueActions.forEach((item) => {
+          if (!item || typeof item !== "object") return;
+          const row = make("li", "followup-item");
+          renderFollowupLink(row, item);
+          row.append(make("p", "followup-summary", item.summary || ""));
+          row.append(make("time", "followup-meta", formatTime(item.due_at)));
+          dueFragment.append(row);
+        });
+        dueList.replaceChildren(dueFragment);
+        document.getElementById("followup-due-empty").hidden = dueList.childElementCount > 0;
+
+        const interviewList = document.getElementById("followup-interview-list");
+        const interviewFragment = document.createDocumentFragment();
+        interviews.forEach((item) => {
+          if (!item || typeof item !== "object") return;
+          const row = make("li", "followup-item");
+          renderFollowupLink(row, item);
+          const details = [];
+          if (Number.isInteger(item.round) && item.round > 0) details.push(t("Interview round {round}", { round: item.round }));
+          details.push(formatTime(item.scheduled_at));
+          row.append(make("time", "followup-meta", details.join(" · ")));
+          interviewFragment.append(row);
+        });
+        interviewList.replaceChildren(interviewFragment);
+        document.getElementById("followup-interview-empty").hidden = interviewList.childElementCount > 0;
       };
       const textCompare = (left, right) => String(left || "").localeCompare(String(right || ""), undefined, { sensitivity: "base" });
       const timeValue = (value) => {
@@ -2047,6 +2153,7 @@
           discoverList.replaceChildren();
           list.replaceChildren();
           materialList.replaceChildren();
+          renderFollowupBoard();
           renderVerifyJobs();
           renderSystem(data.verify?.system || { state: "ready" });
           if (focusPanel) document.getElementById("verify-title").focus({ preventScroll: true });

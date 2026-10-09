@@ -9,6 +9,7 @@ outcome preserves the existing Agent fallback.
 from __future__ import annotations
 
 import re
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +23,7 @@ from applypilot.apply.provider_registry import provider_for_url
 from applypilot.apply.provider_semantic_adapters import (
     ProviderControlStructure,
     ProviderPageRecipeObservation,
+    ProviderSemanticRecipeAdapter,
     ProviderSemanticRecipeRegistry,
     default_provider_recipe_shadow_registry,
 )
@@ -38,6 +40,18 @@ PersistentExperienceStatus = Literal[
     "disabled", "not_recorded", "persistent_candidate", "persistent_hit", "invalidated", "degraded"
 ]
 _ADMITTED_PROVIDERS = frozenset({"greenhouse", "smartrecruiters", "workday"})
+# Closed, value-free vocabulary. Counts are capped before crossing the telemetry
+# boundary; neither control descriptors nor exception messages are diagnostics.
+RECIPE_SHADOW_DIAGNOSTIC_CODES = frozenset({
+    "unsupported_control_kind", "multi_select", "truncated_options",
+    "ambiguous_repeated_semantic", "unknown_semantic", "sensitive_or_legal",
+    "captcha", "assessment", "verification", "file_upload",
+    "framed_surface", "cross_origin_surface", "nonwritable_control",
+    "invalid_control_structure", "invalid_option_structure", "no_routine_controls",
+    "registry_constraints_not_satisfied", "fresh_browser_authority_unavailable",
+    "cache_candidate_unavailable",
+})
+RECIPE_SHADOW_DIAGNOSTIC_COUNT_LIMIT = 10_000
 _LEGAL_OR_SENSITIVE_RE = re.compile(
     r"work (?:authorization|authorisation)|right to work|visa|sponsorship|"
     r"citizenship|legal identity|passport|national id|nric|\bfin\b|"
@@ -59,6 +73,7 @@ class ProviderRecipeShadowTelemetry:
     persistent_status: PersistentExperienceStatus = "not_recorded"
     persistent_observation_count: int = 0
     persistent_validation_count: int = 0
+    diagnostic_counts: tuple[tuple[str, int], ...] = ()
 
     def __post_init__(self) -> None:
         if self.agent_fallback_required is not True:
@@ -69,6 +84,22 @@ class ProviderRecipeShadowTelemetry:
             raise ValueError("duration_ms must be non-negative")
         if self.persistent_observation_count < 0 or self.persistent_validation_count < 0:
             raise ValueError("persistent evidence counts must be non-negative")
+        if not isinstance(self.diagnostic_counts, tuple):
+            raise TypeError("diagnostic counts must be immutable")
+        codes: set[str] = set()
+        for item in self.diagnostic_counts:
+            if not isinstance(item, tuple) or len(item) != 2:
+                raise ValueError("invalid diagnostic count entry")
+            code, count = item
+            if code not in RECIPE_SHADOW_DIAGNOSTIC_CODES or code in codes:
+                raise ValueError("diagnostic code must be unique and admitted")
+            if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= RECIPE_SHADOW_DIAGNOSTIC_COUNT_LIMIT:
+                raise ValueError("diagnostic count must be a bounded positive integer")
+            codes.add(code)
+
+    @property
+    def diagnostic_codes(self) -> tuple[str, ...]:
+        return tuple(code for code, _count in self.diagnostic_counts)
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -79,6 +110,8 @@ class ProviderRecipeShadowTelemetry:
             "cache_hit": self.cache_hit,
             "agent_fallback_required": True,
             "reason_code": self.reason_code,
+            "diagnostic_codes": list(self.diagnostic_codes),
+            "diagnostic_counts": dict(self.diagnostic_counts),
             "duration_ms": self.duration_ms,
             "routine_control_count": self.routine_control_count,
             "persistent_status": self.persistent_status,
@@ -104,6 +137,7 @@ def _telemetry(
     persistent_status: PersistentExperienceStatus = "not_recorded",
     persistent_observation_count: int = 0,
     persistent_validation_count: int = 0,
+    diagnostic_counts: Mapping[str, int] | None = None,
 ) -> ProviderRecipeShadowTelemetry:
     return ProviderRecipeShadowTelemetry(
         provider=provider,
@@ -117,6 +151,10 @@ def _telemetry(
         persistent_status=persistent_status,
         persistent_observation_count=persistent_observation_count,
         persistent_validation_count=persistent_validation_count,
+        diagnostic_counts=tuple(
+            (code, min(count, RECIPE_SHADOW_DIAGNOSTIC_COUNT_LIMIT))
+            for code, count in sorted((diagnostic_counts or {}).items())
+        ),
     )
 
 
@@ -153,17 +191,23 @@ def _semantic(field: Mapping[str, object]) -> str:
 
 def _snapshot_controls(
     snapshot: Mapping[str, object],
-) -> tuple[tuple[ProviderControlStructure, ...], tuple[str, ...]]:
+) -> tuple[tuple[ProviderControlStructure, ...], tuple[str, ...], Counter[str]]:
     raw_fields = snapshot.get("form_fields")
     fields = raw_fields if isinstance(raw_fields, list) else []
     controls: list[ProviderControlStructure] = []
     markers: set[str] = set()
+    diagnostics: Counter[str] = Counter()
+    if not isinstance(raw_fields, list):
+        diagnostics["invalid_control_structure"] += 1
     if snapshot.get("captcha_visible") is True:
         markers.add("captcha")
+        diagnostics["captcha"] += 1
     if snapshot.get("assessment_visible") is True:
         markers.add("assessment")
+        diagnostics["assessment"] += 1
     if snapshot.get("verification_visible") is True:
         markers.add("verification")
+        diagnostics["verification"] += 1
     if snapshot.get("resume_field_present") is True or snapshot.get("file_fields"):
         markers.add("file_upload")
     if snapshot.get("sensitive_required_unknown"):
@@ -172,6 +216,7 @@ def _snapshot_controls(
     for index, raw_field in enumerate(fields):
         if not isinstance(raw_field, Mapping):
             markers.add("complex_control")
+            diagnostics["invalid_control_structure"] += 1
             continue
         raw_kind = str(raw_field.get("control") or "").strip().casefold()
         if raw_kind in {"submit", "button", "reset", "hidden"}:
@@ -183,19 +228,37 @@ def _snapshot_controls(
         else:
             kind = raw_kind or "unknown"
             markers.add("file_upload" if raw_kind == "file" else "complex_control")
+            diagnostics["unsupported_control_kind"] += 1
+            if raw_kind == "file":
+                diagnostics["file_upload"] += 1
+        multiple = raw_kind == "select" and raw_field.get("multiple") is True
+        if multiple:
+            markers.add("complex_control")
+            diagnostics["multi_select"] += 1
         descriptor = " ".join(str(raw_field.get(key) or "") for key in ("label", "field_key", "placeholder"))
         sensitive = raw_field.get("protected_identifier") is True or bool(_LEGAL_OR_SENSITIVE_RE.search(descriptor))
         if sensitive:
             markers.add("legal")
+            diagnostics["sensitive_or_legal"] += 1
+        semantic = _semantic(raw_field)
+        if semantic == "unknown":
+            diagnostics["unknown_semantic"] += 1
+        writable = not (raw_field.get("disabled") is True or raw_field.get("readonly") is True)
+        if not writable:
+            diagnostics["nonwritable_control"] += 1
         options = raw_field.get("options")
         option_values = options if isinstance(options, list) else []
         option_count = raw_field.get("option_count", 0)
-        if isinstance(option_count, bool) or not isinstance(option_count, int):
+        invalid_option_count = isinstance(option_count, bool) or not isinstance(option_count, int)
+        if invalid_option_count:
             option_count = 0
             markers.add("complex_control")
         dynamic = raw_field.get("options_truncated") is True
         if dynamic:
             markers.add("complex_control")
+            diagnostics["truncated_options"] += 1
+        if invalid_option_count or option_count < 0 or (kind == "text" and option_count != 0) or (kind == "native_select" and option_count < 1):
+            diagnostics["invalid_option_structure"] += 1
         structural_identity = {
             "field_key": str(raw_field.get("field_key") or ""),
             "index": index,
@@ -205,10 +268,10 @@ def _snapshot_controls(
         }
         controls.append(
             ProviderControlStructure(
-                semantic=_semantic(raw_field),
+                semantic=semantic,
                 kind=kind,
                 required=raw_field.get("required") is True,
-                writable=not (raw_field.get("disabled") is True or raw_field.get("readonly") is True),
+                writable=writable,
                 locator_digest=canonical_digest(structural_identity),
                 dom_identity_digest=canonical_digest(
                     {
@@ -219,13 +282,27 @@ def _snapshot_controls(
                 ),
                 option_count=max(0, option_count),
                 option_digest=canonical_digest(option_values),
-                stateful=raw_kind in {"checkbox", "radio", "date"},
+                stateful=multiple or raw_kind in {"checkbox", "radio", "date"},
                 dynamic=dynamic,
                 custom=raw_kind == "combobox",
                 sensitive=sensitive,
             )
         )
-    return tuple(controls), tuple(sorted(markers))
+    # Summary flags establish presence; count matching controls where available
+    # without counting the same control again through a page-level flag.
+    if "file_upload" in markers and not diagnostics["file_upload"]:
+        diagnostics["file_upload"] = 1
+    if "legal" in markers and not diagnostics["sensitive_or_legal"]:
+        diagnostics["sensitive_or_legal"] = 1
+    # Use the registry's existing routine-control constraint, including the
+    # filtering it performs before testing for repeated semantic identities.
+    routine = [control for control in controls if ProviderSemanticRecipeAdapter._routine_control(control) is not None]
+    if not routine:
+        diagnostics["no_routine_controls"] += 1
+    for count in Counter(control.semantic for control in routine).values():
+        if count > 1:
+            diagnostics["ambiguous_repeated_semantic"] += count
+    return tuple(controls), tuple(sorted(markers)), diagnostics
 
 
 def _origin(value: str) -> tuple[str, str, int | None] | None:
@@ -340,6 +417,7 @@ class ProviderRecipeShadowObserver:
                 outcome="denied",
                 admission_enabled=True,
                 reason_code="framed_surface_not_admitted",
+                diagnostic_counts={"framed_surface": 1},
             )
         if _origin(surface_url) != _origin(page_url):
             return _telemetry(
@@ -348,8 +426,9 @@ class ProviderRecipeShadowObserver:
                 outcome="denied",
                 admission_enabled=True,
                 reason_code="cross_origin_surface_not_admitted",
+                diagnostic_counts={"cross_origin_surface": 1},
             )
-        controls, markers = _snapshot_controls(snapshot)
+        controls, markers, diagnostics = _snapshot_controls(snapshot)
         observation = ProviderPageRecipeObservation(
             provider=provider,  # type: ignore[arg-type]
             application_target_url=application_target_url,
@@ -384,12 +463,14 @@ class ProviderRecipeShadowObserver:
         try:
             candidate = self._registry.normalize(observation)
         except (SemanticBatchDenied, TypeError, ValueError):
+            diagnostics["registry_constraints_not_satisfied"] += 1
             return _telemetry(
                 started,
                 provider=provider,
                 outcome="denied",
                 admission_enabled=True,
                 reason_code="observation_not_recipe_safe",
+                diagnostic_counts=diagnostics,
             )
         persistent_status, observation_count, validation_count = self._record_persistent_experience(
             observation,
@@ -401,6 +482,7 @@ class ProviderRecipeShadowObserver:
         )
         if hit is None:
             self._cache.put(candidate)
+            diagnostics["cache_candidate_unavailable"] += 1
             return _telemetry(
                 started,
                 provider=provider,
@@ -411,6 +493,7 @@ class ProviderRecipeShadowObserver:
                 persistent_status=persistent_status,
                 persistent_observation_count=observation_count,
                 persistent_validation_count=validation_count,
+                diagnostic_counts=diagnostics,
             )
         return _telemetry(
             started,
@@ -422,6 +505,7 @@ class ProviderRecipeShadowObserver:
             persistent_status=persistent_status,
             persistent_observation_count=observation_count,
             persistent_validation_count=validation_count,
+            diagnostic_counts=diagnostics,
         )
 
     def _record_persistent_experience(
@@ -508,10 +592,13 @@ def observe_prepare_recipe_shadow(
             outcome="denied",
             admission_enabled=True,
             reason_code="fresh_browser_authority_unavailable",
+            diagnostic_counts={"fresh_browser_authority_unavailable": 1},
         )
 
 
 __all__ = [
+    "RECIPE_SHADOW_DIAGNOSTIC_CODES",
+    "RECIPE_SHADOW_DIAGNOSTIC_COUNT_LIMIT",
     "ProviderRecipeShadowObserver",
     "ProviderRecipeShadowTelemetry",
     "RecipeShadowOutcome",

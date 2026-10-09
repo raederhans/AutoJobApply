@@ -1779,7 +1779,7 @@ def test_internship_resume_assembly_prioritizes_education_and_omits_target_title
     assert assembled.index("\nEDUCATION\n") < assembled.index("\nTECHNICAL SKILLS\n")
 
 
-def test_resume_layout_validator_rejects_title_line_and_tiny_summary_sentence() -> None:
+def test_resume_layout_validator_rejects_title_line_and_warns_on_tiny_summary_sentence() -> None:
     text = (
         "Ryan Yu\nAI Intern\nryan@example.com\n\nSUMMARY\n"
         "Applied AI developer building grounded workflows. Strong fit.\n\n"
@@ -1800,7 +1800,8 @@ def test_resume_layout_validator_rejects_title_line_and_tiny_summary_sentence() 
     result = validate_tailored_resume(text, profile)
 
     assert any("contact line immediately after the name" in error for error in result["errors"])
-    assert any("undersized sentence" in error for error in result["errors"])
+    assert any("undersized sentence" in warning for warning in result["warnings"])
+    assert not any("undersized sentence" in error for error in result["errors"])
 
 
 def test_singapore_citizen_requirement_is_scored_not_hard_excluded() -> None:
@@ -2718,6 +2719,8 @@ def test_apply_prompt_hides_secrets_and_isolates_worker_attachments(
     assert "Browser upload boundary" in built
     assert "must not stop unrelated jobs in the batch" in built
     assert "File upload recovery and verification" in built
+    assert "All upload recovery below, including resume-text fallback, requires a known outcome" in built
+    assert "Any outcome_unknown or stopped host requires a coordinator handoff" in built
     assert "provider itself offers `Enter manually`" in built
     assert "optional and all automated paths fail, leave it blank and continue" in built
     assert "Embedded ATS iframe" in built
@@ -2780,6 +2783,20 @@ def test_apply_prompt_hides_secrets_and_isolates_worker_attachments(
     worker_attachment = tmp_path / "workers" / "worker-3" / "attachments" / "Taylor_Chen_Resume.pdf"
     assert worker_attachment.exists()
     assert not (tmp_path / "workers" / "current").exists()
+
+    bridged = prompt.build_prompt(
+        {**job, "_visual_bridge_enabled": True},
+        "Verified resume",
+        dry_run=False,
+        worker_id=3,
+        submission_phase="prepare",
+    )
+    assert "For any outcome_unknown, including click, chooser, setFiles or readback errors" in bridged
+    assert "do not retry or switch upload paths on your own" in bridged
+    assert "For a known failed result while the host remains active" in bridged
+    assert "file_selection_done with webpage_acceptance=unverified is selection only" in bridged
+    assert "field_key (or a host-reviewed legacy node_id, never both)" in bridged
+    assert "If an operation times out with outcome_unknown" not in bridged
 
     rebound_job = {
         **job,
@@ -5558,7 +5575,8 @@ Example University"""
         job_title="Data Analyst Intern",
     )
     assert rejected["passed"] is False
-    assert any("most recent experience" in error for error in rejected["errors"])
+    assert any("most recent experience" in warning for warning in rejected["warnings"])
+    assert not any("most recent experience" in error for error in rejected["errors"])
 
 
 def test_strict_tailoring_never_approves_failed_judge(monkeypatch) -> None:
@@ -5646,7 +5664,7 @@ def test_tailoring_retries_actual_layout_failure_before_judge(monkeypatch) -> No
     assert len(prompts) == 2
     assert "Rendered layout failed" in prompts[1]
     assert report["status"] == "machine_validated"
-    assert report["layout_validation"] == {"passed": True, "error": None}
+    assert report["layout_validation"] == {"passed": True, "error": None, "warnings": []}
 
 
 def test_no_project_source_does_not_gain_project_section() -> None:

@@ -19,6 +19,7 @@ from rich.console import Console
 from applypilot.apply.authorization import compute_job_fingerprint
 from applypilot.config import APP_DIR, DB_PATH
 from applypilot.eligibility import ELIGIBLE_SQL
+from applypilot.followup import followup_summary
 from applypilot.frontend.contracts import (
     build_discover_item,
     build_discover_summary,
@@ -47,6 +48,17 @@ ACTIVE_APPLICATION_SQL = (
     "(apply_status IS NULL OR apply_status NOT IN ('applied', 'submission_uncertain')) "
     "AND COALESCE(apply_retry_blocked, 0) = 0"
 )
+FOLLOWUP_DASHBOARD_LIMIT = 5
+
+
+def _empty_followup() -> dict[str, Any]:
+    return {
+        "pending_count": 0,
+        "open_action_count": 0,
+        "due_action_count": 0,
+        "due_actions": [],
+        "upcoming_interviews": [],
+    }
 
 
 def _system_state(
@@ -82,6 +94,7 @@ def _empty_dashboard(system: dict[str, Any]) -> dict[str, Any]:
         "jobs": [],
         "prepare": prepare,
         "verify": verify,
+        "followup": _empty_followup(),
     }
 
 
@@ -307,6 +320,52 @@ def _verify_data(conn: sqlite3.Connection) -> dict[str, Any]:
     return {"jobs": jobs, **summary}
 
 
+def _followup_data(conn: sqlite3.Connection, verify: dict[str, Any]) -> dict[str, Any]:
+    """Project bounded follow-up facts without mail text or evidence references."""
+    summary = followup_summary(conn, limit=FOLLOWUP_DASHBOARD_LIMIT)
+    jobs_by_url = {
+        str(job.get("url")): {
+            "company": str(job.get("company") or ""),
+            "title": str(job.get("title") or ""),
+        }
+        for job in verify.get("jobs", [])
+        if isinstance(job, dict) and job.get("url")
+    }
+    due_actions: list[dict[str, Any]] = []
+    for action in summary.get("due_actions", []):
+        if not isinstance(action, dict):
+            continue
+        job_url = action.get("job_url") if isinstance(action.get("job_url"), str) else ""
+        job = jobs_by_url.get(job_url, {})
+        due_actions.append({
+            "summary": action.get("summary") if isinstance(action.get("summary"), str) else "",
+            "due_at": action.get("due_at") if isinstance(action.get("due_at"), str) else "",
+            "job_url": job_url,
+            "company": job.get("company", ""),
+            "title": job.get("title", ""),
+        })
+    upcoming_interviews: list[dict[str, Any]] = []
+    for event in summary.get("upcoming_interviews", []):
+        if not isinstance(event, dict):
+            continue
+        job_url = event.get("job_url") if isinstance(event.get("job_url"), str) else ""
+        job = jobs_by_url.get(job_url, {})
+        upcoming_interviews.append({
+            "scheduled_at": event.get("scheduled_at") if isinstance(event.get("scheduled_at"), str) else "",
+            "job_url": job_url,
+            "company": job.get("company") or (event.get("company") if isinstance(event.get("company"), str) else ""),
+            "title": job.get("title") or (event.get("title") if isinstance(event.get("title"), str) else ""),
+            "round": event.get("round") if type(event.get("round")) is int else None,
+        })
+    return {
+        "pending_count": int(summary.get("pending_count", 0) or 0),
+        "open_action_count": int(summary.get("open_action_count", 0) or 0),
+        "due_action_count": int(summary.get("due_action_count", 0) or 0),
+        "due_actions": due_actions[:FOLLOWUP_DASHBOARD_LIMIT],
+        "upcoming_interviews": upcoming_interviews[:FOLLOWUP_DASHBOARD_LIMIT],
+    }
+
+
 def collect_dashboard_data(conn: sqlite3.Connection | None = None) -> dict[str, Any]:
     """Read existing opportunity contracts without changing workspace state."""
     owns_connection = conn is None
@@ -414,6 +473,7 @@ def collect_dashboard_data(conn: sqlite3.Connection | None = None) -> dict[str, 
         for job, contract_job in zip(jobs, contract_jobs, strict=True):
             job["prepare"] = build_prepare_job(contract_job, assignments.get(contract_job["url"]))
         verify = _verify_data(conn)
+        followup = _followup_data(conn, verify)
         discover = _discover_data(conn)
     finally:
         if owns_connection:
@@ -457,6 +517,7 @@ def collect_dashboard_data(conn: sqlite3.Connection | None = None) -> dict[str, 
         "jobs": jobs,
         "prepare": prepare,
         "verify": verify,
+        "followup": followup,
     }
 
 

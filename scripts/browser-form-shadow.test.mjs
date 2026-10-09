@@ -11,6 +11,8 @@ import { observeForm, operateObservedControl } from './browser-form-state.mjs';
 const fixture = fileURLToPath(new URL('../tests/fixtures/apply/ats_shadow.html', import.meta.url));
 
 function chromiumPath() {
+  const explicit = process.env.APPLYPILOT_TEST_CHROMIUM_EXECUTABLE;
+  if (explicit) return existsSync(explicit) ? explicit : undefined;
   const root = process.env.PLAYWRIGHT_BROWSERS_PATH || path.join(homedir(), 'AppData', 'Local', 'ms-playwright');
   const candidates = ['chromium-1234', 'chromium-1228', 'chromium-1223', 'chromium-1208'];
   const suffix = process.platform === 'win32' ? path.join('chrome-win64', 'chrome.exe') : path.join('chrome-linux', 'chrome');
@@ -74,7 +76,8 @@ async function launchFixture({ withSnapshot = true } = {}) {
     child.once('exit', code => { clearTimeout(timer); reject(Error(`Chromium exited before CDP startup (${code}): ${output}`)); });
   });
   const browser = new Cdp(devtoolsUrl);
-  const target = await browser.send('Target.createTarget', { url: `file:///${fixture.replaceAll('\\', '/')}` });
+  const fixtureUrl = new URL(`file:///${fixture.replaceAll('\\', '/')}`).href;
+  const target = await browser.send('Target.createTarget', { url: fixtureUrl });
   const attached = await browser.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
   const sessionId = attached.sessionId;
   await browser.send('Runtime.enable', {}, sessionId);
@@ -94,18 +97,27 @@ async function launchFixture({ withSnapshot = true } = {}) {
   if (withSnapshot) {
     tab.capabilities = { get: async name => name === 'cdp' ? { send: (method, params) => browser.send(method, params, sessionId) } : null };
   }
-  await evaluate('document.readyState === "complete" ? true : new Promise(resolve => addEventListener("load", () => resolve(true), { once: true }))');
+  // A new target can still be on about:blank with readyState complete.
+  const deadline = Date.now() + 10000;
+  while (!await evaluate(`location.href === ${JSON.stringify(fixtureUrl)} && document.readyState === "complete"`)) {
+    if (Date.now() >= deadline) throw Error('Synthetic fixture navigation did not complete');
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
   return { browser, child, userData, tab, evaluate };
 }
 
 async function closeFixture(runtime) {
+  // Graceful shutdown lets Chromium release its Crashpad files before cleanup.
+  await runtime.browser.send('Browser.close').catch(() => {});
   await runtime.browser.close();
-  if (!runtime.child.killed) runtime.child.kill();
   await new Promise(resolve => {
     if (runtime.child.exitCode !== null) resolve();
     else runtime.child.once('exit', resolve);
   });
   await new Promise(resolve => setTimeout(resolve, 100));
+  const tempRoot = path.resolve(process.env.TEMP || '/tmp');
+  assert.equal(path.dirname(path.resolve(runtime.userData)), tempRoot);
+  assert.ok(path.basename(runtime.userData).startsWith('applypilot-shadow-'));
   await rm(runtime.userData, { recursive: true, force: true });
 }
 
@@ -198,4 +210,165 @@ test('cross-shadow aria-controls resolves the unique visible ancestor-root list'
   assert.equal(country.control, 'combobox');
   // The input and linked list are in different open roots of the same widget.
   assert.deepEqual(country.options.map(option => option.label), ['Singapore', 'China']);
+});
+
+test('visible required markers stay bound to one unambiguous form-group control', async t => {
+  const runtime = await launchFixture({ withSnapshot: false });
+  t.after(() => closeFixture(runtime));
+  await runtime.evaluate(`document.body.innerHTML = ${JSON.stringify(`
+    <div class="form-group"><label for="">Full Name: <span>*</span></label><div><input id="name" placeholder="Full Name" name="922716"></div></div>
+    <div class="form-group"><label for="email">Email: <span>*</span></label><input id="email" type="email"></div>
+    <div class="form-group"><label for="">Resume: <span>*</span></label><div class="custom-file" style="width: fit-content; display: block; height: auto;"><input type="file" placeholder="Resume" name="922720" id="resume" class="custom-file-input"><label class="custom-file-label">Choose file</label><div></div></div></div>
+    <div class="form-group"><label>Phone: <span>＊</span></label><input id="phone" type="tel"></div>
+    <div class="form-group"><label>Optional city</label><input id="city"></div>
+    <label>Unrelated *</label><input id="outside">
+    <div class="form-group"><label for="different">Other field *</label><input id="wrong-target"></div>
+    <div class="form-group"><label>First *</label><input id="multiple-a"><input id="multiple-b"></div>
+    <div class="form-group"><label>First *</label><label>Second</label><input id="multiple-labels"></div>
+    <div class="form-group"><label>File *</label><div class="custom-file"><input id="ambiguous-file" type="file"><label>Unrelated</label></div></div>
+    <div class="form-group"><label>File *</label><div class="custom-file"><input id="wrong-file-label" type="file"><label class="custom-file-label" for="different-file">Choose file</label></div></div>
+    <div class="form-group"><label>Text *</label><div class="custom-file"><input id="text-file-label"><label class="custom-file-label">Choose file</label></div></div>
+    <div class="form-group"><label>Hidden marker <span style="display:none">*</span></label><input id="hidden-marker"></div>
+    <div class="form-group"><label>Hidden label *</label><input id="hidden-label"></div>
+    <div class="form-group"><label>Outer *</label><div class="form-group"><input id="nested"></div></div>
+    <div class="form-group"><label>Terms agreement *</label><input id="terms" type="checkbox" name="123"></div>
+    <input id="native" required><input id="aria" aria-required="true">
+  `)}; document.querySelector('#hidden-label').previousElementSibling.style.display = 'none';`);
+  const form = await observeForm(runtime.tab);
+  const byId = id => form.fields.find(field => field.selector === '[id="' + id + '"]');
+  for (const id of ['name', 'email', 'resume', 'phone']) {
+    assert.equal(byId(id).required, true, id);
+    assert.equal(byId(id).required_source, 'visible_label', id);
+  }
+  // Keep the existing field naming contract while adding required provenance.
+  assert.equal(byId('name').label, 'Full Name');
+  for (const id of ['city', 'outside', 'wrong-target', 'multiple-a', 'multiple-b', 'multiple-labels',
+    'ambiguous-file', 'wrong-file-label', 'text-file-label', 'hidden-marker', 'hidden-label', 'nested']) {
+    assert.equal(byId(id).required, false, id);
+    assert.equal(byId(id).required_source, 'not_asserted', id);
+  }
+  assert.equal(byId('native').required_source, 'native');
+  assert.equal(byId('aria').required_source, 'aria');
+  assert.equal(byId('terms'), undefined);
+  assert.equal(form.protected_count, 1);
+});
+
+test('isolated application questions expose their visible title and required marker', async t => {
+  const runtime = await launchFixture({ withSnapshot: false });
+  t.after(() => closeFixture(runtime));
+  await runtime.evaluate(`document.body.innerHTML = ${JSON.stringify(`
+    <ul>
+      <li class="application-question"><label><div class="application-label">Resume/CV <span class="required">✱</span></div><div class="application-field"><a><span>Attach</span><input id="question-file" type="file"></a><span style="display:none">Analyzing resume...</span></div></label></li>
+      <li class="application-question custom-question"><div><div class="application-label"><div class="text">Commitment period<span class="required">✱</span></div></div><div class="application-field"><div><select id="question-select" name="cards[fixture][field0]" required><option>Select...</option></select></div></div></div></li>
+      <li class="application-question"><div class="application-label">Unasserted field</div><div class="application-field"><input id="question-unasserted" placeholder="Type your response"></div></li>
+      <li class="application-question"><div class="application-label">Hidden marker<span style="display:none">✱</span></div><input id="question-hidden"></li>
+      <li class="application-question"><div class="application-label">Multiple controls ✱</div><input id="question-a"><input id="question-b"></li>
+      <li class="application-question"><div class="application-label">Title ✱</div><div class="application-label">Second title</div><input id="question-ambiguous"></li>
+      <li class="application-question"><div class="application-label">Terms agreement ✱</div><input id="question-protected" type="checkbox"></li>
+      <li class="application-question"><div class="application-label">Outer ✱</div><div class="application-question"><input id="question-nested"></div></li>
+    </ul>
+  `)};`);
+  const form = await observeForm(runtime.tab);
+  const byId = id => form.fields.find(field => field.selector === '[id="' + id + '"]');
+  assert.equal(byId('question-file').label, 'Resume/CV ✱');
+  assert.equal(byId('question-file').required_source, 'visible_label');
+  assert.equal(byId('question-select').label, 'Commitment period✱');
+  assert.equal(byId('question-select').required_source, 'native');
+  assert.equal(byId('question-unasserted').label, 'Unasserted field');
+  for (const id of ['question-unasserted', 'question-hidden', 'question-a', 'question-b', 'question-ambiguous', 'question-nested']) {
+    assert.equal(byId(id).required_source, 'not_asserted', id);
+  }
+  assert.equal(byId('question-protected'), undefined);
+  assert.equal(form.protected_count, 1);
+});
+
+test('required select helpers are excluded only beside one asserted primary combobox', async t => {
+  const runtime = await launchFixture({ withSnapshot: false });
+  t.after(() => closeFixture(runtime));
+  const helper = '<input required tabindex="-1" aria-hidden="true">';
+  const combo = '<input class="select__input" role="combobox" aria-label="Choice" aria-required="true">';
+  await runtime.evaluate(`document.body.innerHTML = ${JSON.stringify(`
+    <div class="select-shell" id="valid-shell">${combo}${helper}</div>
+    <div class="select-shell" id="unasserted-shell">${combo.replace('aria-required="true"', '')}${helper}</div>
+    <div class="select-shell" id="multi-shell">${combo}${combo}${helper}</div>
+    <div class="select-shell" id="named-shell">${combo}${helper.replace('<input ', '<input name="independent" ')}</div>
+    <div class="select-shell" id="visible-shell">${combo}${helper.replace('aria-hidden="true"', '')}</div>
+    <div class="select-shell" id="nested-helper-shell">${combo}<div>${helper}</div></div>
+    <div id="outside-shell">${combo}${helper}</div>
+  `)};`);
+  const form = await observeForm(runtime.tab);
+  assert.equal(form.fields.length, 14);
+  // Anonymous controls retain full document selectors; inspect their role/count.
+  assert.equal(form.fields.filter(field => field.control === 'combobox').length, 8);
+  assert.equal(form.fields.filter(field => field.control === 'text').length, 6);
+  assert.ok(form.fields.filter(field => field.control === 'text').every(field => field.required_source === 'native'));
+  assert.equal(form.protected_count, 0);
+});
+
+test('single file upload groups inherit their bound visible title and aria requirement', async t => {
+  const runtime = await launchFixture({ withSnapshot: false });
+  t.after(() => closeFixture(runtime));
+  const uploader = (id, title, required = '') => `<div class="file-upload" role="group" aria-labelledby="title-${id}" ${required}><div id="title-${id}" class="upload-label">${title}</div><div><button type="button">Attach</button><label for="${id}">Attach</label><input id="${id}" type="file"></div></div>`;
+  await runtime.evaluate(`document.body.innerHTML = ${JSON.stringify([
+    uploader('resume-fixture', 'Resume/CV*', 'aria-required="true"'),
+    uploader('cover-fixture', 'Cover Letter', 'aria-required="false"'),
+    uploader('transcript-fixture', 'Grade transcript*', 'aria-required="true"'),
+    uploader('unasserted-fixture', 'Supporting document'),
+    uploader('multi-fixture', 'Multiple *', 'aria-required="true"').replace('</div></div>', '<input id="second-file" type="file"></div></div>'),
+    uploader('outside-fixture', 'Outside *', 'aria-required="true"').replace('aria-labelledby="title-outside-fixture"', 'aria-labelledby="outside-title"'),
+    '<div id="outside-title">Other question *</div>',
+    uploader('duplicate-fixture', 'Duplicate *', 'aria-required="true"'),
+    '<div id="title-duplicate-fixture">Other title *</div>',
+    uploader('hidden-fixture', 'Hidden *', 'aria-required="true"').replace('class="upload-label"', 'class="upload-label" style="display:none"'),
+  ].join(''))};`);
+  const form = await observeForm(runtime.tab);
+  const byId = id => form.fields.find(field => field.selector === '[id="' + id + '"]');
+  for (const [id, label] of [['resume-fixture', 'Resume/CV*'], ['transcript-fixture', 'Grade transcript*']]) {
+    assert.equal(byId(id).label, label);
+    assert.equal(byId(id).group, label);
+    assert.equal(byId(id).required_source, 'group_aria');
+  }
+  assert.equal(byId('cover-fixture').label, 'Cover Letter');
+  for (const id of ['cover-fixture', 'unasserted-fixture', 'multi-fixture', 'outside-fixture', 'duplicate-fixture', 'hidden-fixture']) {
+    assert.equal(byId(id).required_source, 'not_asserted', id);
+  }
+  for (const id of ['multi-fixture', 'outside-fixture', 'duplicate-fixture', 'hidden-fixture']) assert.equal(byId(id).label, 'Attach', id);
+});
+
+test('clipped file inputs expose only a uniquely bound visible upload trigger', async t => {
+  const runtime = await launchFixture({ withSnapshot: false });
+  t.after(() => closeFixture(runtime));
+  const html = '<div class="file-upload" role="group" aria-labelledby="upload-title">' +
+    '<div id="upload-title">Resume/CV*</div><div><button id="attach" type="button">Attach</button>' +
+    '<label for="resume" style="position:absolute;width:1px;height:1px;overflow:hidden">Attach</label>' +
+    '<input id="resume" type="file" style="position:absolute;width:1px;height:1px;padding:0;border:0"></div></div>';
+  const cases = [
+    ['bound', html, true],
+    ['ordinary sized input', html.replace('width:1px;height:1px;padding', 'width:20px;height:20px;padding'), false],
+    ['submit type', html.replace('type="button"', 'type="submit"'), false],
+    ['submit name', html.replaceAll('Attach', 'Submit'), false],
+    ['apply name', html.replaceAll('Attach', 'Apply'), false],
+    ['confirm name', html.replaceAll('Attach', 'Confirm'), false],
+    ['consent name', html.replaceAll('Attach', 'Accept terms'), false],
+    ['label text mismatch', html.replace('>Attach</label>', '>Other</label>'), false],
+    ['wrong label target', html.replace('for="resume"', 'for="different"'), false],
+    ['multiple buttons', html.replace('</button>', '</button><button type="button">Attach</button>'), false],
+    ['multiple labels', html.replace('</label>', '</label><label for="resume">Attach</label>'), false],
+    ['nested button', html.replace('<button', '<span><button').replace('</button>', '</button></span>'), false],
+    ['hidden button', html.replace('id="attach"', 'id="attach" style="display:none"'), false],
+    ['missing file group', html.replace('class="file-upload"', 'class="other-group"'), false],
+    ['multiple file controls', html.replace('</div></div>', '<input type="file"></div></div>'), false],
+    ['duplicate input id', html + '<div id="resume"></div>', false],
+  ];
+  for (const [name, markup, allowed] of cases) {
+    await t.test(name, async () => {
+      await runtime.evaluate(`document.body.innerHTML = ${JSON.stringify(markup)};`);
+      const form = await observeForm(runtime.tab);
+      const field = form.fields.find(item => item.control === 'file');
+      assert.ok(field, name);
+      assert.deepEqual(field.upload_trigger, allowed ? { selector: '[id="attach"]', label: 'Attach', disabled: false } : null, name);
+    });
+  }
+  await runtime.evaluate(`document.body.innerHTML = ${JSON.stringify(html.replace('id="attach"', 'id="attach" disabled'))};`);
+  assert.equal((await observeForm(runtime.tab)).fields.find(item => item.control === 'file').upload_trigger.disabled, true);
 });

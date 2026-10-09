@@ -199,6 +199,7 @@ def test_default_registry_is_open_and_does_not_encode_tenants_or_versions() -> N
         "ashby",
         "smartrecruiters",
         "cornerstone",
+        "manatal",
         "workday",
         "generic",
     ]
@@ -208,6 +209,78 @@ def test_default_registry_is_open_and_does_not_encode_tenants_or_versions() -> N
         == "smartrecruiters"
     )
     assert registry.detect("https://example.wd5.myworkdayjobs.com/job/1").name == "workday"
+
+
+@pytest.mark.parametrize("host", ["careers-page.com", "www.careers-page.com"])
+@pytest.mark.parametrize("suffix", ["", "/", "/apply", "/apply/?source=linkedin"])
+def test_manatal_recognizes_only_hosted_exact_job_routes(host: str, suffix: str) -> None:
+    from applypilot.apply.provider_registry import provider_supports
+    from applypilot.apply.submission_surfaces import linkedin_target_verification
+
+    url = f"https://{host}/unravel-carbon-pte-ltd/job/8X595793{suffix}"
+    assert detect_ats_site(url) == "manatal"
+    assert linkedin_target_verification({"application_url": url}, {}) == (True, "recognized_ats")
+    assert build_form_ir(url, [{"id": "email", "label": "Email"}]).adapter == "manatal"
+    adapter = default_ats_registry().get("manatal")
+    assert adapter is not None and adapter.semantic_control_kinds() == frozenset()
+    for capability in ("semantic_upload", "control_write", "credential_relay", "application_episode"):
+        assert not provider_supports("manatal", capability)
+    assert any("Manatal" in item for item in adapter_prompt_guidance(url))
+
+
+@pytest.mark.parametrize("url", [
+    "https://careers-page.com/",
+    "https://www.careers-page.com/unravel-carbon-pte-ltd",
+    "https://www.careers-page.com/unravel-carbon-pte-ltd/apply",
+    "https://www.careers-page.com/unravel-carbon-pte-ltd/job/",
+    "https://www.careers-page.com/unravel-carbon-pte-ltd/job/8X595793/admin",
+    "https://www.careers-page.com/unravel-carbon-pte-ltd/job/8X595793/apply/next",
+    "https://www.careers-page.com/unravel-carbon-pte-ltd/jobs/8X595793/apply",
+    "https://www.careers-page.com/unravel-carbon-pte-ltd/job/%38X595793/apply",
+    "https://www.careers-page.com/unravel-carbon-pte-ltd/job/8X595793%2fapply",
+    "https://www.careers-page.com/unravel-carbon-pte-ltd/../job/8X595793/apply",
+    "https://www.careers-page.com//unravel-carbon-pte-ltd/job/8X595793/apply",
+    "https://careers-page.com.evil.test/unravel-carbon-pte-ltd/job/8X595793/apply",
+    "https://fakecareers-page.com/unravel-carbon-pte-ltd/job/8X595793/apply",
+    "https://other.careers-page.com/unravel-carbon-pte-ltd/job/8X595793/apply",
+    "https://www.careers-page.com./unravel-carbon-pte-ltd/job/8X595793/apply",
+    "http://www.careers-page.com/unravel-carbon-pte-ltd/job/8X595793/apply",
+    "https://user@www.careers-page.com/unravel-carbon-pte-ltd/job/8X595793/apply",
+    "https://www.careers-page.com:444/unravel-carbon-pte-ltd/job/8X595793/apply",
+    "https://www.careers-page.com:invalid/unravel-carbon-pte-ltd/job/8X595793/apply",
+])
+def test_manatal_does_not_admit_homepages_ambiguous_routes_or_spoofed_hosts(url: str) -> None:
+    from applypilot.apply.submission_surfaces import linkedin_target_verification
+
+    assert detect_ats_site(url) == "generic"
+    assert linkedin_target_verification({"application_url": url}, {}) == (
+        False, "unverified_linkedin_external_target"
+    )
+
+
+def test_manatal_recognition_does_not_require_an_unavailable_recipe_or_fast_path() -> None:
+    from applypilot.apply.prepare_fast_path import run_prepare_fast_path
+    from applypilot.apply.provider_recipe_shadow import observe_prepare_recipe_shadow
+
+    url = "https://www.careers-page.com/unravel-carbon-pte-ltd/job/8X595793/apply"
+
+    def unexpected(*args):
+        pytest.fail("Manatal recognition must not dispatch specialized browser execution")
+
+    result = run_prepare_fast_path(
+        {"_attempt_id": "fixture-attempt"}, {}, mode="canary", phase="prepare",
+        resume_existing_page=False, dry_run=False, route="browser", provider=detect_ats_site(url),
+        host_audit=unexpected, prepare_plan=unexpected, execute_batch=unexpected,
+    )
+    assert result.disposition == "continue_agent"
+    assert result.reason_code == "preconditions_not_admitted"
+    shadow = observe_prepare_recipe_shadow(
+        job={"application_url": url}, page_url=url, surface_url=url, surface_is_main_frame=True,
+        snapshot={}, enabled_providers={"manatal"},
+    )
+    assert shadow.outcome == "not_applicable"
+    assert shadow.agent_fallback_required is True
+    assert shadow.as_dict()["submit_authority"] is False
 
 
 def test_smartrecruiters_guidance_targets_required_resume_not_autocomplete_upload() -> None:

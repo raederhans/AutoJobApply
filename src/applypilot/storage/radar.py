@@ -9,7 +9,7 @@ import uuid
 from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, timedelta
 
-from applypilot.storage import job_identity
+from applypilot.storage import job_identity, posting_lifecycle
 from applypilot.storage.transactions import execute_transactional_script
 
 canonicalize_job_url = job_identity.canonicalize_job_url
@@ -227,6 +227,7 @@ def ensure_radar_schema(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_radar_runs_source_type_started "
         "ON radar_fetch_runs(source_id, source_type, started_at DESC)"
     )
+    posting_lifecycle.ensure_posting_lifecycle_schema(conn)
     if not was_in_transaction:
         conn.commit()
 
@@ -350,8 +351,10 @@ def record_radar_observation(
     conn: sqlite3.Connection,
     run_id: str,
     observation: dict,
-) -> str:
-    """Upsert one source observation and return its deterministic key."""
+    *,
+    return_created: bool = False,
+) -> str | tuple[str, bool]:
+    """Upsert a source observation; optionally return its atomic creation result."""
     source_id = str(observation.get("source_id") or "").strip()
     if not source_id:
         raise ValueError("radar observation requires source_id")
@@ -368,8 +371,7 @@ def record_radar_observation(
         f"{source_id}|{identity}".encode()
     ).hexdigest()
     now = datetime.now(UTC).isoformat()
-    conn.execute(
-        """
+    statement = """
         INSERT INTO radar_source_observations (
             observation_key, source_id, source_type, company_id, external_id,
             source_url, canonical_url, title, company_name, location,
@@ -395,31 +397,41 @@ def record_radar_observation(
             verification_status = excluded.verification_status,
             content_fingerprint = excluded.content_fingerprint,
             payload_json = excluded.payload_json
-        """,
-        (
-            observation_key,
-            source_id,
-            observation.get("source_type"),
-            observation.get("company_id"),
-            external_id or None,
-            source_url or None,
-            observation.get("canonical_url") or canonicalize_job_url(source_url) or None,
-            observation.get("title"),
-            observation.get("company_name") or observation.get("company"),
-            observation.get("location"),
-            observation.get("published_at"),
-            now,
-            now,
-            run_id,
-            observation.get("publisher_name"),
-            observation.get("publisher_type"),
-            observation.get("verification_status", "unverified"),
-            fingerprint,
-            _json_text(payload),
-        ),
+        """
+    values = (
+        observation_key,
+        source_id,
+        observation.get("source_type"),
+        observation.get("company_id"),
+        external_id or None,
+        source_url or None,
+        observation.get("canonical_url") or canonicalize_job_url(source_url) or None,
+        observation.get("title"),
+        observation.get("company_name") or observation.get("company"),
+        observation.get("location"),
+        observation.get("published_at"),
+        now,
+        now,
+        run_id,
+        observation.get("publisher_name"),
+        observation.get("publisher_type"),
+        observation.get("verification_status", "unverified"),
+        fingerprint,
+        _json_text(payload),
     )
+    # The uniqueness constraint, rather than a pre-read, decides who created
+    # this observation. The following update shares the same write transaction.
+    created = False
+    if return_created:
+        inserted = conn.execute(
+            statement.split("ON CONFLICT", 1)[0] + "ON CONFLICT(observation_key) DO NOTHING",
+            values,
+        )
+        created = inserted.rowcount == 1
+    if not created:
+        conn.execute(statement, values)
     conn.commit()
-    return observation_key
+    return (observation_key, created) if return_created else observation_key
 
 
 def upsert_radar_lead(
@@ -630,12 +642,15 @@ def ingest_radar_leads(
     run_id: str,
     source: dict,
     leads: list[dict],
+    *,
+    return_evidence: bool = False,
 ) -> dict:
-    """Persist social/forum items as leads without creating job rows."""
+    """Persist leads; evidence optionally counts new/duplicate source observations."""
     source_id = str(source.get("source_id") or "").strip()
     if not source_id:
         raise ValueError("lead ingest requires source_id")
     inserted = 0
+    new_observations = 0
     for raw_lead in leads:
         lead = dict(raw_lead)
         observation = {
@@ -647,10 +662,20 @@ def ingest_radar_leads(
             "verification_status": lead.get("verification_status", "unverified"),
             "payload": raw_lead,
         }
-        observation_key = record_radar_observation(conn, run_id, observation)
+        if return_evidence:
+            observation_key, created = record_radar_observation(
+                conn, run_id, observation, return_created=True,
+            )
+            new_observations += int(created)
+        else:
+            observation_key = record_radar_observation(conn, run_id, observation)
         upsert_radar_lead(conn, observation_key, lead)
         inserted += 1
-    return {"leads": inserted}
+    counts = {"leads": inserted}
+    if return_evidence:
+        counts.update(new_observations=new_observations,
+                      duplicate_observations=inserted - new_observations)
+    return counts
 
 
 def _company_seed_key(seed: dict) -> str:
@@ -1157,6 +1182,8 @@ def get_radar_daily_snapshot(
     observations = []
     applied_exclusions = []
     for observation in observations_by_job.values():
+        observation.update(posting_lifecycle.get_posting_lifecycle(conn, observation["url"]))
+        observation["possible_repost_hints"] = posting_lifecycle.get_possible_repost_hints(conn, observation["url"])
         matched = _find_applied_exclusion(observation, applied_set)
         if matched is None:
             observations.append(observation)
@@ -1262,6 +1289,13 @@ def get_radar_daily_snapshot(
                 "source_urls": [item["source_url"] for item in lineage],
             }
         )
+    lifecycle_jobs = []
+    for row in conn.execute(
+        "SELECT j.url,j.title,j.company_name AS company,j.location FROM jobs j "
+        "WHERE EXISTS (SELECT 1 FROM posting_source_states p WHERE p.job_url=j.url) ORDER BY j.url"
+    ):
+        lifecycle_jobs.append({**dict(row), **posting_lifecycle.get_posting_lifecycle(conn, row["url"]),
+                               "possible_repost_hints": posting_lifecycle.get_possible_repost_hints(conn, row["url"])})
     return {
         "source_runs": runs,
         "observations": observations,
@@ -1269,4 +1303,5 @@ def get_radar_daily_snapshot(
         "company_seeds": company_seeds,
         "applied_exclusions": applied_exclusions,
         "applied_snapshot": applied_snapshot,
+        "posting_lifecycle": lifecycle_jobs,
     }
