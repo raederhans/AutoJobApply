@@ -84,3 +84,11 @@ def test_attended_complex_controls_chromium() -> None:
         ("scripts/browser-form-shadow.test.mjs",),
         {"APPLYPILOT_TEST_CHROMIUM_EXECUTABLE": executable},
     )
+
+
+@pytest.mark.browser
+def test_attended_application_questions_chromium() -> None:
+    _run_node(
+        ("scripts/browser-application-questions.test.mjs",),
+        {"APPLYPILOT_TEST_PYTHON": sys.executable},
+    )

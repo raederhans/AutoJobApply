@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "provenance": "synthetic_hand_authored_examples_not_model_evaluation",
+  "contexts": {
+    "calibration": {
+      "schema_version": 1,
+      "sources": [
+        {
+          "id": "project",
+          "kind": "project_evidence",
+          "text": "Built keyboard focus order and error states for a student React dashboard prototype. Documented remaining keyboard checks. Translated a simulated client brief into acceptance checks and a handover guide. Keyboard access was a design constraint for the dashboard prototype.",
+          "boundaries": [
+            "Student prototypes and simulated briefs only; no production deployment, measured performance gain, or paying-client work."
+          ]
+        },
+        {
+          "id": "jd",
+          "kind": "jd",
+          "text": "Frontend intern at Fictional Petalforge Studio. Build usable React interfaces and turn requirements into acceptance checks. Explain tradeoffs and work with teammates."
+        }
+      ],
+      "candidate_evidence": [
+        {
+          "id": "frontend",
+          "source_id": "project",
+          "quote": "Built keyboard focus order and error states for a student React dashboard prototype.",
+          "status": "confirmed",
+          "tags": [
+            "React",
+            "frontend",
+            "keyboard"
+          ]
+        },
+        {
+          "id": "checks",
+          "source_id": "project",
+          "quote": "Documented remaining keyboard checks.",
+          "status": "confirmed",
+          "tags": [
+            "checks",
+            "validation"
+          ]
+        },
+        {
+          "id": "brief",
+          "source_id": "project",
+          "quote": "Translated a simulated client brief into acceptance checks and a handover guide.",
+          "status": "confirmed",
+          "tags": [
+            "requirements",
+            "acceptance",
+            "handover"
+          ]
+        },
+        {
+          "id": "constraint",
+          "source_id": "project",
+          "quote": "Keyboard access was a design constraint for the dashboard prototype.",
+          "status": "confirmed",
+          "tags": [
+            "React",
+            "constraints",
+            "keyboard"
+          ]
+        }
+      ],
+      "role": {
+        "job_id": "synthetic-editor-calibration",
+        "title": "Frontend Intern",
+        "company_name": "Fictional Petalforge Studio",
+        "jd_source_id": "jd",
+        "language": "en"
+      },
+      "company": null,
+      "voice_examples": []
+    }
+  },
+  "cases": [
+    {
+      "id": "complete-longer-answer",
+      "genre": "application_answer",
+      "split": "development",
+      "context_id": "calibration",
+      "question": {
+        "job_id": "synthetic-editor-calibration",
+        "page_id": "calibration",
+        "field_key": "complete",
+        "text": "What did you build in React, which constraints mattered, and how would that work help in this internship?",
+        "language": "en",
+        "required": true
+      }
+    },
+    {
+      "id": "specific-over-boilerplate",
+      "genre": "application_answer",
+      "split": "development",
+      "context_id": "calibration",
+      "question": {
+        "job_id": "synthetic-editor-calibration",
+        "page_id": "calibration",
+        "field_key": "specific",
+        "text": "What frontend contribution best demonstrates your suitability?",
+        "language": "en",
+        "required": true
+      }
+    },
+    {
+      "id": "natural-but-invented",
+      "genre": "application_answer",
+      "split": "development",
+      "context_id": "calibration",
+      "question": {
+        "job_id": "synthetic-editor-calibration",
+        "page_id": "calibration",
+        "field_key": "facts",
+        "text": "What was the outcome of your React project?",
+        "language": "en",
+        "required": true
+      }
+    },
+    {
+      "id": "legitimate-role-transfer",
+      "genre": "application_answer",
+      "split": "development",
+      "context_id": "calibration",
+      "question": {
+        "job_id": "synthetic-editor-calibration",
+        "page_id": "calibration",
+        "field_key": "transfer",
+        "text": "How would your simulated brief work transfer to this role?",
+        "language": "en",
+        "required": true
+      }
+    },
+    {
+      "id": "punctuation-is-weak-evidence",
+      "genre": "application_answer",
+      "split": "development",
+      "context_id": "calibration",
+      "question": {
+        "job_id": "synthetic-editor-calibration",
+        "page_id": "calibration",
+        "field_key": "punctuation",
+        "text": "Describe one concrete frontend contribution.",
+        "language": "en",
+        "required": true
+      }
+    }
+  ],
+  "pairs": [
+    {
+      "case_id": "complete-longer-answer",
+      "a": "I built keyboard focus order and error states for a student React dashboard prototype. Keeping keyboard interaction usable was one constraint; the work was a prototype, so I would not describe it as a production release. I also documented the remaining keyboard checks. That combination would help me approach this internship's interface work as both implementation and validation, while checking the team's real requirements before assuming my prototype covers them.",
+      "b": "I built a React prototype and would bring that experience to the role.",
+      "expected_result": "win",
+      "rationale": "The longer answer addresses the actual parts with useful sourced detail and clearly labelled transfer; length itself earns no preference."
+    },
+    {
+      "case_id": "specific-over-boilerplate",
+      "a": "I built keyboard focus order and error states for a student React dashboard prototype, and documented the remaining keyboard checks. This gives me a concrete starting point for the role's usable-interface work.",
+      "b": "I believe success in frontend development comes from combining dedication, attention to detail and a broad understanding of the many tools available. The role presents an opportunity to contribute to a dynamic team and apply a comprehensive approach to the wide range of responsibilities described. I would aim to make a positive impact through collaboration and continuous learning.",
+      "expected_result": "win",
+      "rationale": "A concise answer gives a concrete relevant contribution; abstract polish and tool-list framing do not replace evidence."
+    },
+    {
+      "case_id": "natural-but-invented",
+      "a": "The dashboard ended up being used by 60 paying customers. I cut task time by 41%, which made the team confident enough to launch it. That result showed me the value of keeping the interface simple.",
+      "b": "It remained a student prototype. I implemented keyboard focus order and error states, and documented checks still to do. I do not have a measured performance result or production adoption to report.",
+      "expected_result": "loss",
+      "rationale": "Natural phrasing cannot rescue invented adoption, metrics, a launch, or reflection; the honest scope is preferable."
+    },
+    {
+      "case_id": "legitimate-role-transfer",
+      "a": "I translated a simulated client brief into acceptance checks and a handover guide. That practice would help me turn this role's interface requirements into conditions the team can check, while learning its actual workflow rather than assuming a student exercise is equivalent to client delivery.",
+      "b": "The sources do not explicitly say that my simulated brief experience transfers to this exact employer, so I cannot connect it to the internship.",
+      "expected_result": "win",
+      "rationale": "A modest forward-looking inference from confirmed work to actual duties is legitimate; it does not claim unrecorded past employment."
+    },
+    {
+      "case_id": "punctuation-is-weak-evidence",
+      "a": "I built keyboard focus order and error states for a student React dashboard prototype—I documented the remaining checks.",
+      "b": "I built keyboard focus order and error states for a student React dashboard prototype. I documented the remaining checks.",
+      "expected_result": "tie",
+      "rationale": "Words and word order are identical; only an em dash versus a sentence break differs. A tie is a comparable-quality calibration target, not a mandatory judge outcome. Punctuation alone must not cause a hard failure; a slight stylistic preference does not establish a factual or ownership error."
+    }
+  ]
+}
