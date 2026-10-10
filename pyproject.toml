@@ -86,6 +86,8 @@ only-include = [
     "docs/json-resume.md",
     "docs/browser-observation-adapter.md",
     "docs/quality-evaluation.md",
+    "docs/application-writing.md",
+    "docs/application-writing-evaluation.md",
     ".env.example",
     "CHANGELOG.md",
     "CONTRIBUTING.md",

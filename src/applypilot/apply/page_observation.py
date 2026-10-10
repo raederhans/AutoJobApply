@@ -1808,12 +1808,98 @@ def _audit_live_pre_submit_page(
                   el.placeholder || el.name || el.id || ''
                 ).replace(/\s+/g, ' ').trim().slice(0, 240);
               };
+              const visibleQuestionText = element => {
+                if (element.nodeType === 3) return element.textContent || '';
+                if (element.nodeType !== 1 || element.matches('input,textarea,select,[role="combobox"]')) return '';
+                if ((element.tagName !== 'SLOT' && !element.getClientRects().length) || getComputedStyle(element).visibility === 'hidden') return '';
+                const assigned = element.tagName === 'SLOT' ? element.assignedNodes({ flatten: true }) : [];
+                return [...(assigned.length ? assigned : element.childNodes)].map(visibleQuestionText).join('');
+              };
+              const questionFieldKey = element => {
+                const root = element.getRootNode();
+                const prefix = root.host ? questionFieldKey(root.host) + ' shadow ' : '';
+                if (element.id && [...root.querySelectorAll('[id]')].filter(node => node.id === element.id).length === 1) {
+                  return prefix + 'id:' + element.id;
+                }
+                const parts = [];
+                for (let node = element; node && node.nodeType === 1; node = node.parentElement) {
+                  const siblings = [...(node.parentElement?.children || root.children || [node])]
+                    .filter(peer => peer.tagName === node.tagName);
+                  parts.unshift(`${node.tagName.toLowerCase()}:nth-of-type(${siblings.indexOf(node) + 1})`);
+                }
+                return prefix + parts.join(' > ');
+              };
+              // Writing metadata is lossless and independent of the bounded fill identity.
+              const rawQuestionText = element => {
+                if (element.nodeType === 3) return element.textContent || '';
+                if (element.nodeType !== 1 || element.matches('input,textarea,select,[role="combobox"]')) return '';
+                const assigned = element.tagName === 'SLOT' ? element.assignedNodes({ flatten: true }) : [];
+                return [...(assigned.length ? assigned : element.childNodes)].map(rawQuestionText).join('');
+              };
+              const questionMetadata = (el, fieldKey) => {
+                const root = el.getRootNode();
+                const sources = [];
+                let complete = true;
+                const add = (source, text) => { if (text) sources.push({ source, text: String(text) }); };
+                const references = attribute => (el.getAttribute(attribute) || '').split(/\s+/).filter(Boolean).map(id => {
+                  const matches = [...root.querySelectorAll('[id]')].filter(node => node.id === id);
+                  if (matches.length !== 1) { complete = false; sources.push({ source: `${attribute}:${id}`, text: '' }); return ''; }
+                  const text = rawQuestionText(matches[0]);
+                  add(`${attribute}:${id}`, text);
+                  return text;
+                });
+                add('aria-label', el.getAttribute('aria-label'));
+                const named = references('aria-labelledby');
+                for (const label of el.labels || []) add('label', rawQuestionText(label));
+                const question = el.closest('.application-question, .form-group, [data-qa*="field"], [class*="form-item"]');
+                if (question && question.querySelectorAll('input,textarea,select,[role="combobox"]').length === 1) {
+                  for (const label of question.querySelectorAll('.application-label,label')) add('scoped_label', visibleQuestionText(label));
+                }
+                const text = el.getAttribute('aria-label') || named.filter(Boolean).join(' ') ||
+                  sources.find(item => ['label', 'scoped_label'].includes(item.source))?.text || '';
+                const described = references('aria-describedby');
+                const hints = question && question.querySelectorAll('input,textarea,select,[role="combobox"]').length === 1
+                  ? [...question.querySelectorAll('[class*="help"],[class*="hint"],[class*="description"],.application-instructions')]
+                    .map(node => visibleQuestionText(node)).filter(Boolean) : [];
+                const help = [...new Set([...described.filter(Boolean), ...hints])];
+                for (const hint of hints) add('visible_instruction', hint);
+                const sections = [];
+                for (let owner = el.parentElement; owner; owner = owner.parentElement) {
+                  if (!owner.matches('fieldset,[role="group"],section')) continue;
+                  const legend = [...owner.children].find(node => node.matches('legend,h1,h2,h3,h4,h5,h6'));
+                  const ownerRoot = owner.getRootNode();
+                  const named = (owner.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean)
+                    .map(id => [...ownerRoot.querySelectorAll('[id]')].filter(node => node.id === id))
+                    .filter(matches => matches.length === 1).map(matches => rawQuestionText(matches[0])).join(' ');
+                  const value = owner.getAttribute('aria-label') || named || (legend ? rawQuestionText(legend) : '');
+                  if (value) sections.unshift(String(value));
+                }
+                const constraints = [];
+                if (el.matches('textarea,input:not([type]),input[type="text"],input[type="search"],input[type="url"],input[type="tel"],input[type="email"],input[type="password"]')) {
+                  for (const [attribute, kind] of [['maxlength', 'max'], ['minlength', 'min']]) {
+                    const value = el.getAttribute(attribute);
+                    const nativeValue = attribute === 'maxlength' ? el.maxLength : el.minLength;
+                    if (value !== null && /^\d+$/.test(value) && Number.isSafeInteger(nativeValue) && nativeValue >= 0) {
+                      constraints.push({ kind, unit: 'utf16', value: nativeValue, source: `native:${attribute}` });
+                    }
+                  }
+                }
+                return { field_key: fieldKey, text: text || String(el.placeholder || el.name || el.id || ''),
+                  help_text: help.join('\n'), text_sources: sources, constraints, section_path: sections,
+                  language: el.closest('[lang]')?.getAttribute('lang') || document.documentElement.lang || 'unknown',
+                  completeness: complete && !!text ? 'known' : 'partial',
+                  ...(el.tagName === 'SELECT' ? { options: [...el.options].map(option => ({ value: option.value,
+                    label: option.label, disabled: option.disabled || option.parentElement?.disabled === true })) } : {}) };
+              };
+              const questionControls = deepAll('input,textarea,select,[role="combobox"]')
+                .filter((el) => visible(el) && el.type !== 'hidden' && !el.matches(responseSelector));
               const structuralFields = deepAll('input,textarea,select,[role="combobox"]')
                 .filter((el) => visible(el) && el.type !== 'hidden' && !el.matches(responseSelector))
                 .slice(0, 200)
                 .map((el, index) => ({
                   field_key: String(el.id || el.name || `field-${index + 1}`).slice(0, 160),
                   label: structuralLabel(el),
+                  application_question: questionMetadata(el, questionFieldKey(el)),
                   control: el.tagName === 'SELECT'
                     ? 'select'
                     : el.getAttribute('role') === 'combobox'
@@ -1908,6 +1994,9 @@ def _audit_live_pre_submit_page(
                 captcha_token_present: responseFields.some((el) => (el.value || '').trim().length > 0),
                 job_reference_urls: jobReferenceUrls,
                 form_fields: structuralFields,
+                question_coverage: { scope: 'visible_selected_document_open_shadow', page_only: true,
+                  whole_form: 'unknown', iframe_count: deepAll('iframe').length,
+                  fields_truncated: questionControls.length > 200 },
                 workday_observation: workdayObservation
               };
             }""",

@@ -1,0 +1,3025 @@
+{
+  "schema_version": 1,
+  "contexts": {
+    "frontend": {
+      "schema_version": 1,
+      "sources": [
+        {
+          "id": "candidate",
+          "kind": "project_evidence",
+          "text": "Implemented keyboard navigation and error states for a React dashboard prototype.\nBuilt a Python retrieval prototype and documented a validation checklist.\nInterviewed synthetic project testers and grouped observations into a prioritized backlog.\nRan a controlled prototype trial with six invited classmates and collected usability feedback.\nOwned frontend screens within a student team; another teammate implemented authentication.\nTranslated a simulated client brief into acceptance checks and a handover guide.\nDeployment approval remains unconfirmed.",
+          "boundaries": [
+            "All work described here is synthetic student-project evidence."
+          ]
+        },
+        {
+          "id": "resume",
+          "kind": "resume",
+          "text": "Positioning: frontend, applied AI, product discovery, and simulated delivery."
+        },
+        {
+          "id": "jd",
+          "kind": "jd",
+          "text": "Frontend Intern. Build React interfaces. Improve accessibility and reliability. Collaborate across functions."
+        },
+        {
+          "id": "company",
+          "kind": "company",
+          "text": "Fictional Oriole Systems is a wholly fictional benchmark employer. Its recorded scale is large. Its recorded stage is established. Its delivery model is product. It maintains workflow tools for fictional organizations."
+        },
+        {
+          "id": "voice",
+          "kind": "voice",
+          "text": "I usually explain the constraint first, then what I tried and what I would check next.\nThe practical part of this work interests me: making a small system clear enough for someone else to use."
+        }
+      ],
+      "candidate_evidence": [
+        {
+          "id": "react",
+          "source_id": "candidate",
+          "quote": "Implemented keyboard navigation and error states for a React dashboard prototype.",
+          "status": "confirmed",
+          "tags": [
+            "React",
+            "frontend",
+            "accessibility"
+          ],
+          "boundaries": [
+            "Prototype only; no production deployment or performance measurement."
+          ]
+        },
+        {
+          "id": "python",
+          "source_id": "candidate",
+          "quote": "Built a Python retrieval prototype and documented a validation checklist.",
+          "status": "confirmed",
+          "tags": [
+            "Python",
+            "retrieval",
+            "validation"
+          ],
+          "boundaries": [
+            "A prototype, not a deployed AI service."
+          ]
+        },
+        {
+          "id": "research",
+          "source_id": "candidate",
+          "quote": "Interviewed synthetic project testers and grouped observations into a prioritized backlog.",
+          "status": "confirmed",
+          "tags": [
+            "research",
+            "product",
+            "prioritization"
+          ],
+          "boundaries": [
+            "Testers were classmates, not paying customers."
+          ]
+        },
+        {
+          "id": "trial",
+          "source_id": "candidate",
+          "quote": "Ran a controlled prototype trial with six invited classmates and collected usability feedback.",
+          "status": "confirmed",
+          "tags": [
+            "trial",
+            "feedback",
+            "validation"
+          ],
+          "boundaries": [
+            "Controlled trial is not adoption, retention, revenue, or customer growth."
+          ]
+        },
+        {
+          "id": "team",
+          "source_id": "candidate",
+          "quote": "Owned frontend screens within a student team; another teammate implemented authentication.",
+          "status": "confirmed",
+          "tags": [
+            "ownership",
+            "frontend",
+            "collaboration"
+          ],
+          "boundaries": [
+            "Do not claim the authentication work or sole ownership of the whole system."
+          ]
+        },
+        {
+          "id": "client",
+          "source_id": "candidate",
+          "quote": "Translated a simulated client brief into acceptance checks and a handover guide.",
+          "status": "confirmed",
+          "tags": [
+            "client",
+            "acceptance",
+            "handover"
+          ],
+          "boundaries": [
+            "Simulated brief, not paid consultancy or real client deployment."
+          ]
+        },
+        {
+          "id": "approval",
+          "source_id": "candidate",
+          "quote": "Deployment approval remains unconfirmed.",
+          "status": "conditional",
+          "tags": [
+            "deployment"
+          ]
+        }
+      ],
+      "role": {
+        "job_id": "synthetic-frontend",
+        "title": "Frontend Intern",
+        "company_name": "Fictional Oriole Systems",
+        "jd_source_id": "jd",
+        "language": "en",
+        "requirements": [
+          {
+            "id": "requirements",
+            "source_id": "jd",
+            "quote": "Build React interfaces. Improve accessibility and reliability. Collaborate across functions."
+          }
+        ]
+      },
+      "company": {
+        "name": "Fictional Oriole Systems",
+        "facts": [
+          {
+            "id": "scale",
+            "source_id": "company",
+            "quote": "Its recorded scale is large.",
+            "verification_status": "verified"
+          },
+          {
+            "id": "stage",
+            "source_id": "company",
+            "quote": "Its recorded stage is established.",
+            "verification_status": "verified"
+          },
+          {
+            "id": "delivery",
+            "source_id": "company",
+            "quote": "Its delivery model is product.",
+            "verification_status": "verified"
+          },
+          {
+            "id": "workflow",
+            "source_id": "company",
+            "quote": "It maintains workflow tools for fictional organizations.",
+            "verification_status": "verified"
+          }
+        ],
+        "scale": {
+          "value": "large",
+          "evidence_ids": [
+            "scale"
+          ]
+        },
+        "stage": {
+          "value": "established",
+          "evidence_ids": [
+            "stage"
+          ]
+        },
+        "delivery_model": {
+          "value": "product",
+          "evidence_ids": [
+            "delivery"
+          ]
+        }
+      },
+      "voice_examples": [
+        {
+          "id": "v-answer",
+          "source_id": "voice",
+          "quote": "I usually explain the constraint first, then what I tried and what I would check next.",
+          "language": "en",
+          "genre": "application_answer",
+          "authorship": "user",
+          "user_approved": false
+        },
+        {
+          "id": "v-cover",
+          "source_id": "voice",
+          "quote": "The practical part of this work interests me: making a small system clear enough for someone else to use.",
+          "language": "en",
+          "genre": "cover_letter",
+          "authorship": "user",
+          "user_approved": false
+        }
+      ]
+    },
+    "applied_ai": {
+      "schema_version": 1,
+      "sources": [
+        {
+          "id": "candidate",
+          "kind": "project_evidence",
+          "text": "Implemented keyboard navigation and error states for a React dashboard prototype.\nBuilt a Python retrieval prototype and documented a validation checklist.\nInterviewed synthetic project testers and grouped observations into a prioritized backlog.\nRan a controlled prototype trial with six invited classmates and collected usability feedback.\nOwned frontend screens within a student team; another teammate implemented authentication.\nTranslated a simulated client brief into acceptance checks and a handover guide.\nDeployment approval remains unconfirmed.",
+          "boundaries": [
+            "All work described here is synthetic student-project evidence."
+          ]
+        },
+        {
+          "id": "resume",
+          "kind": "resume",
+          "text": "Positioning: frontend, applied AI, product discovery, and simulated delivery."
+        },
+        {
+          "id": "jd",
+          "kind": "jd",
+          "text": "Applied AI Intern. Build Python retrieval prototypes. Evaluate AI output with validation checklists. Iterate after user feedback."
+        },
+        {
+          "id": "company",
+          "kind": "company",
+          "text": "Fictional Emberseed Lab is a wholly fictional benchmark employer. Its recorded scale is small. Its recorded stage is early. Its delivery model is product. It maintains workflow tools for fictional organizations."
+        },
+        {
+          "id": "voice",
+          "kind": "voice",
+          "text": "I usually explain the constraint first, then what I tried and what I would check next.\nThe practical part of this work interests me: making a small system clear enough for someone else to use."
+        }
+      ],
+      "candidate_evidence": [
+        {
+          "id": "react",
+          "source_id": "candidate",
+          "quote": "Implemented keyboard navigation and error states for a React dashboard prototype.",
+          "status": "confirmed",
+          "tags": [
+            "React",
+            "frontend",
+            "accessibility"
+          ],
+          "boundaries": [
+            "Prototype only; no production deployment or performance measurement."
+          ]
+        },
+        {
+          "id": "python",
+          "source_id": "candidate",
+          "quote": "Built a Python retrieval prototype and documented a validation checklist.",
+          "status": "confirmed",
+          "tags": [
+            "Python",
+            "retrieval",
+            "validation"
+          ],
+          "boundaries": [
+            "A prototype, not a deployed AI service."
+          ]
+        },
+        {
+          "id": "research",
+          "source_id": "candidate",
+          "quote": "Interviewed synthetic project testers and grouped observations into a prioritized backlog.",
+          "status": "confirmed",
+          "tags": [
+            "research",
+            "product",
+            "prioritization"
+          ],
+          "boundaries": [
+            "Testers were classmates, not paying customers."
+          ]
+        },
+        {
+          "id": "trial",
+          "source_id": "candidate",
+          "quote": "Ran a controlled prototype trial with six invited classmates and collected usability feedback.",
+          "status": "confirmed",
+          "tags": [
+            "trial",
+            "feedback",
+            "validation"
+          ],
+          "boundaries": [
+            "Controlled trial is not adoption, retention, revenue, or customer growth."
+          ]
+        },
+        {
+          "id": "team",
+          "source_id": "candidate",
+          "quote": "Owned frontend screens within a student team; another teammate implemented authentication.",
+          "status": "confirmed",
+          "tags": [
+            "ownership",
+            "frontend",
+            "collaboration"
+          ],
+          "boundaries": [
+            "Do not claim the authentication work or sole ownership of the whole system."
+          ]
+        },
+        {
+          "id": "client",
+          "source_id": "candidate",
+          "quote": "Translated a simulated client brief into acceptance checks and a handover guide.",
+          "status": "confirmed",
+          "tags": [
+            "client",
+            "acceptance",
+            "handover"
+          ],
+          "boundaries": [
+            "Simulated brief, not paid consultancy or real client deployment."
+          ]
+        },
+        {
+          "id": "approval",
+          "source_id": "candidate",
+          "quote": "Deployment approval remains unconfirmed.",
+          "status": "conditional",
+          "tags": [
+            "deployment"
+          ]
+        }
+      ],
+      "role": {
+        "job_id": "synthetic-applied_ai",
+        "title": "Applied AI Intern",
+        "company_name": "Fictional Emberseed Lab",
+        "jd_source_id": "jd",
+        "language": "en",
+        "requirements": [
+          {
+            "id": "requirements",
+            "source_id": "jd",
+            "quote": "Build Python retrieval prototypes. Evaluate AI output with validation checklists. Iterate after user feedback."
+          }
+        ]
+      },
+      "company": {
+        "name": "Fictional Emberseed Lab",
+        "facts": [
+          {
+            "id": "scale",
+            "source_id": "company",
+            "quote": "Its recorded scale is small.",
+            "verification_status": "verified"
+          },
+          {
+            "id": "stage",
+            "source_id": "company",
+            "quote": "Its recorded stage is early.",
+            "verification_status": "verified"
+          },
+          {
+            "id": "delivery",
+            "source_id": "company",
+            "quote": "Its delivery model is product.",
+            "verification_status": "verified"
+          },
+          {
+            "id": "workflow",
+            "source_id": "company",
+            "quote": "It maintains workflow tools for fictional organizations.",
+            "verification_status": "verified"
+          }
+        ],
+        "scale": {
+          "value": "small",
+          "evidence_ids": [
+            "scale"
+          ]
+        },
+        "stage": {
+          "value": "early",
+          "evidence_ids": [
+            "stage"
+          ]
+        },
+        "delivery_model": {
+          "value": "product",
+          "evidence_ids": [
+            "delivery"
+          ]
+        }
+      },
+      "voice_examples": [
+        {
+          "id": "v-answer",
+          "source_id": "voice",
+          "quote": "I usually explain the constraint first, then what I tried and what I would check next.",
+          "language": "en",
+          "genre": "application_answer",
+          "authorship": "user",
+          "user_approved": false
+        },
+        {
+          "id": "v-cover",
+          "source_id": "voice",
+          "quote": "The practical part of this work interests me: making a small system clear enough for someone else to use.",
+          "language": "en",
+          "genre": "cover_letter",
+          "authorship": "user",
+          "user_approved": false
+        }
+      ]
+    },
+    "product": {
+      "schema_version": 1,
+      "sources": [
+        {
+          "id": "candidate",
+          "kind": "project_evidence",
+          "text": "Implemented keyboard navigation and error states for a React dashboard prototype.\nBuilt a Python retrieval prototype and documented a validation checklist.\nInterviewed synthetic project testers and grouped observations into a prioritized backlog.\nRan a controlled prototype trial with six invited classmates and collected usability feedback.\nOwned frontend screens within a student team; another teammate implemented authentication.\nTranslated a simulated client brief into acceptance checks and a handover guide.\nDeployment approval remains unconfirmed.",
+          "boundaries": [
+            "All work described here is synthetic student-project evidence."
+          ]
+        },
+        {
+          "id": "resume",
+          "kind": "resume",
+          "text": "Positioning: frontend, applied AI, product discovery, and simulated delivery."
+        },
+        {
+          "id": "jd",
+          "kind": "jd",
+          "text": "Product Intern. Research users and prioritize a product backlog. Define acceptance checks. Communicate tradeoffs and prototype feedback."
+        },
+        {
+          "id": "company",
+          "kind": "company",
+          "text": "Fictional Fernpath Tools is a wholly fictional benchmark employer. Its recorded scale is midsize. Its recorded stage is growth. Its delivery model is product. It maintains workflow tools for fictional organizations."
+        },
+        {
+          "id": "voice",
+          "kind": "voice",
+          "text": "I usually explain the constraint first, then what I tried and what I would check next.\nThe practical part of this work interests me: making a small system clear enough for someone else to use."
+        }
+      ],
+      "candidate_evidence": [
+        {
+          "id": "react",
+          "source_id": "candidate",
+          "quote": "Implemented keyboard navigation and error states for a React dashboard prototype.",
+          "status": "confirmed",
+          "tags": [
+            "React",
+            "frontend",
+            "accessibility"
+          ],
+          "boundaries": [
+            "Prototype only; no production deployment or performance measurement."
+          ]
+        },
+        {
+          "id": "python",
+          "source_id": "candidate",
+          "quote": "Built a Python retrieval prototype and documented a validation checklist.",
+          "status": "confirmed",
+          "tags": [
+            "Python",
+            "retrieval",
+            "validation"
+          ],
+          "boundaries": [
+            "A prototype, not a deployed AI service."
+          ]
+        },
+        {
+          "id": "research",
+          "source_id": "candidate",
+          "quote": "Interviewed synthetic project testers and grouped observations into a prioritized backlog.",
+          "status": "confirmed",
+          "tags": [
+            "research",
+            "product",
+            "prioritization"
+          ],
+          "boundaries": [
+            "Testers were classmates, not paying customers."
+          ]
+        },
+        {
+          "id": "trial",
+          "source_id": "candidate",
+          "quote": "Ran a controlled prototype trial with six invited classmates and collected usability feedback.",
+          "status": "confirmed",
+          "tags": [
+            "trial",
+            "feedback",
+            "validation"
+          ],
+          "boundaries": [
+            "Controlled trial is not adoption, retention, revenue, or customer growth."
+          ]
+        },
+        {
+          "id": "team",
+          "source_id": "candidate",
+          "quote": "Owned frontend screens within a student team; another teammate implemented authentication.",
+          "status": "confirmed",
+          "tags": [
+            "ownership",
+            "frontend",
+            "collaboration"
+          ],
+          "boundaries": [
+            "Do not claim the authentication work or sole ownership of the whole system."
+          ]
+        },
+        {
+          "id": "client",
+          "source_id": "candidate",
+          "quote": "Translated a simulated client brief into acceptance checks and a handover guide.",
+          "status": "confirmed",
+          "tags": [
+            "client",
+            "acceptance",
+            "handover"
+          ],
+          "boundaries": [
+            "Simulated brief, not paid consultancy or real client deployment."
+          ]
+        },
+        {
+          "id": "approval",
+          "source_id": "candidate",
+          "quote": "Deployment approval remains unconfirmed.",
+          "status": "conditional",
+          "tags": [
+            "deployment"
+          ]
+        }
+      ],
+      "role": {
+        "job_id": "synthetic-product",
+        "title": "Product Intern",
+        "company_name": "Fictional Fernpath Tools",
+        "jd_source_id": "jd",
+        "language": "en",
+        "requirements": [
+          {
+            "id": "requirements",
+            "source_id": "jd",
+            "quote": "Research users and prioritize a product backlog. Define acceptance checks. Communicate tradeoffs and prototype feedback."
+          }
+        ]
+      },
+      "company": {
+        "name": "Fictional Fernpath Tools",
+        "facts": [
+          {
+            "id": "scale",
+            "source_id": "company",
+            "quote": "Its recorded scale is midsize.",
+            "verification_status": "verified"
+          },
+          {
+            "id": "stage",
+            "source_id": "company",
+            "quote": "Its recorded stage is growth.",
+            "verification_status": "verified"
+          },
+          {
+            "id": "delivery",
+            "source_id": "company",
+            "quote": "Its delivery model is product.",
+            "verification_status": "verified"
+          },
+          {
+            "id": "workflow",
+            "source_id": "company",
+            "quote": "It maintains workflow tools for fictional organizations.",
+            "verification_status": "verified"
+          }
+        ],
+        "scale": {
+          "value": "midsize",
+          "evidence_ids": [
+            "scale"
+          ]
+        },
+        "stage": {
+          "value": "growth",
+          "evidence_ids": [
+            "stage"
+          ]
+        },
+        "delivery_model": {
+          "value": "product",
+          "evidence_ids": [
+            "delivery"
+          ]
+        }
+      },
+      "voice_examples": [
+        {
+          "id": "v-answer",
+          "source_id": "voice",
+          "quote": "I usually explain the constraint first, then what I tried and what I would check next.",
+          "language": "en",
+          "genre": "application_answer",
+          "authorship": "user",
+          "user_approved": false
+        },
+        {
+          "id": "v-cover",
+          "source_id": "voice",
+          "quote": "The practical part of this work interests me: making a small system clear enough for someone else to use.",
+          "language": "en",
+          "genre": "cover_letter",
+          "authorship": "user",
+          "user_approved": false
+        }
+      ]
+    },
+    "client_delivery": {
+      "schema_version": 1,
+      "sources": [
+        {
+          "id": "candidate",
+          "kind": "project_evidence",
+          "text": "Implemented keyboard navigation and error states for a React dashboard prototype.\nBuilt a Python retrieval prototype and documented a validation checklist.\nInterviewed synthetic project testers and grouped observations into a prioritized backlog.\nRan a controlled prototype trial with six invited classmates and collected usability feedback.\nOwned frontend screens within a student team; another teammate implemented authentication.\nTranslated a simulated client brief into acceptance checks and a handover guide.\nDeployment approval remains unconfirmed.",
+          "boundaries": [
+            "All work described here is synthetic student-project evidence."
+          ]
+        },
+        {
+          "id": "resume",
+          "kind": "resume",
+          "text": "Positioning: frontend, applied AI, product discovery, and simulated delivery."
+        },
+        {
+          "id": "jd",
+          "kind": "jd",
+          "text": "Client Delivery Intern. Translate client requirements into acceptance checks. Validate data integrations. Prepare a clear handover guide."
+        },
+        {
+          "id": "company",
+          "kind": "company",
+          "text": "Fictional Tidefolio Studio is a wholly fictional benchmark employer. Its recorded scale is midsize. Its recorded stage is established. Its delivery model is client_projects. It maintains workflow tools for fictional organizations."
+        },
+        {
+          "id": "voice",
+          "kind": "voice",
+          "text": "I usually explain the constraint first, then what I tried and what I would check next.\nThe practical part of this work interests me: making a small system clear enough for someone else to use."
+        }
+      ],
+      "candidate_evidence": [
+        {
+          "id": "react",
+          "source_id": "candidate",
+          "quote": "Implemented keyboard navigation and error states for a React dashboard prototype.",
+          "status": "confirmed",
+          "tags": [
+            "React",
+            "frontend",
+            "accessibility"
+          ],
+          "boundaries": [
+            "Prototype only; no production deployment or performance measurement."
+          ]
+        },
+        {
+          "id": "python",
+          "source_id": "candidate",
+          "quote": "Built a Python retrieval prototype and documented a validation checklist.",
+          "status": "confirmed",
+          "tags": [
+            "Python",
+            "retrieval",
+            "validation"
+          ],
+          "boundaries": [
+            "A prototype, not a deployed AI service."
+          ]
+        },
+        {
+          "id": "research",
+          "source_id": "candidate",
+          "quote": "Interviewed synthetic project testers and grouped observations into a prioritized backlog.",
+          "status": "confirmed",
+          "tags": [
+            "research",
+            "product",
+            "prioritization"
+          ],
+          "boundaries": [
+            "Testers were classmates, not paying customers."
+          ]
+        },
+        {
+          "id": "trial",
+          "source_id": "candidate",
+          "quote": "Ran a controlled prototype trial with six invited classmates and collected usability feedback.",
+          "status": "confirmed",
+          "tags": [
+            "trial",
+            "feedback",
+            "validation"
+          ],
+          "boundaries": [
+            "Controlled trial is not adoption, retention, revenue, or customer growth."
+          ]
+        },
+        {
+          "id": "team",
+          "source_id": "candidate",
+          "quote": "Owned frontend screens within a student team; another teammate implemented authentication.",
+          "status": "confirmed",
+          "tags": [
+            "ownership",
+            "frontend",
+            "collaboration"
+          ],
+          "boundaries": [
+            "Do not claim the authentication work or sole ownership of the whole system."
+          ]
+        },
+        {
+          "id": "client",
+          "source_id": "candidate",
+          "quote": "Translated a simulated client brief into acceptance checks and a handover guide.",
+          "status": "confirmed",
+          "tags": [
+            "client",
+            "acceptance",
+            "handover"
+          ],
+          "boundaries": [
+            "Simulated brief, not paid consultancy or real client deployment."
+          ]
+        },
+        {
+          "id": "approval",
+          "source_id": "candidate",
+          "quote": "Deployment approval remains unconfirmed.",
+          "status": "conditional",
+          "tags": [
+            "deployment"
+          ]
+        }
+      ],
+      "role": {
+        "job_id": "synthetic-client_delivery",
+        "title": "Client Delivery Intern",
+        "company_name": "Fictional Tidefolio Studio",
+        "jd_source_id": "jd",
+        "language": "en",
+        "requirements": [
+          {
+            "id": "requirements",
+            "source_id": "jd",
+            "quote": "Translate client requirements into acceptance checks. Validate data integrations. Prepare a clear handover guide."
+          }
+        ]
+      },
+      "company": {
+        "name": "Fictional Tidefolio Studio",
+        "facts": [
+          {
+            "id": "scale",
+            "source_id": "company",
+            "quote": "Its recorded scale is midsize.",
+            "verification_status": "verified"
+          },
+          {
+            "id": "stage",
+            "source_id": "company",
+            "quote": "Its recorded stage is established.",
+            "verification_status": "verified"
+          },
+          {
+            "id": "delivery",
+            "source_id": "company",
+            "quote": "Its delivery model is client_projects.",
+            "verification_status": "verified"
+          },
+          {
+            "id": "workflow",
+            "source_id": "company",
+            "quote": "It maintains workflow tools for fictional organizations.",
+            "verification_status": "verified"
+          }
+        ],
+        "scale": {
+          "value": "midsize",
+          "evidence_ids": [
+            "scale"
+          ]
+        },
+        "stage": {
+          "value": "established",
+          "evidence_ids": [
+            "stage"
+          ]
+        },
+        "delivery_model": {
+          "value": "client_projects",
+          "evidence_ids": [
+            "delivery"
+          ]
+        }
+      },
+      "voice_examples": [
+        {
+          "id": "v-answer",
+          "source_id": "voice",
+          "quote": "I usually explain the constraint first, then what I tried and what I would check next.",
+          "language": "en",
+          "genre": "application_answer",
+          "authorship": "user",
+          "user_approved": false
+        },
+        {
+          "id": "v-cover",
+          "source_id": "voice",
+          "quote": "The practical part of this work interests me: making a small system clear enough for someone else to use.",
+          "language": "en",
+          "genre": "cover_letter",
+          "authorship": "user",
+          "user_approved": false
+        }
+      ]
+    },
+    "no_company": {
+      "schema_version": 1,
+      "sources": [
+        {
+          "id": "candidate",
+          "kind": "project_evidence",
+          "text": "Implemented keyboard navigation and error states for a React dashboard prototype.\nBuilt a Python retrieval prototype and documented a validation checklist.\nInterviewed synthetic project testers and grouped observations into a prioritized backlog.\nRan a controlled prototype trial with six invited classmates and collected usability feedback.\nOwned frontend screens within a student team; another teammate implemented authentication.\nTranslated a simulated client brief into acceptance checks and a handover guide.\nDeployment approval remains unconfirmed.",
+          "boundaries": [
+            "All work described here is synthetic student-project evidence."
+          ]
+        },
+        {
+          "id": "resume",
+          "kind": "resume",
+          "text": "Positioning: frontend, applied AI, product discovery, and simulated delivery."
+        },
+        {
+          "id": "jd",
+          "kind": "jd",
+          "text": "Frontend Intern. Build React interfaces. Improve accessibility and reliability. Collaborate across functions."
+        },
+        {
+          "id": "company",
+          "kind": "company",
+          "text": "Fictional Oriole Systems is a wholly fictional benchmark employer. Its recorded scale is large. Its recorded stage is established. Its delivery model is product. It maintains workflow tools for fictional organizations."
+        },
+        {
+          "id": "voice",
+          "kind": "voice",
+          "text": "I usually explain the constraint first, then what I tried and what I would check next.\nThe practical part of this work interests me: making a small system clear enough for someone else to use."
+        }
+      ],
+      "candidate_evidence": [
+        {
+          "id": "react",
+          "source_id": "candidate",
+          "quote": "Implemented keyboard navigation and error states for a React dashboard prototype.",
+          "status": "confirmed",
+          "tags": [
+            "React",
+            "frontend",
+            "accessibility"
+          ],
+          "boundaries": [
+            "Prototype only; no production deployment or performance measurement."
+          ]
+        },
+        {
+          "id": "python",
+          "source_id": "candidate",
+          "quote": "Built a Python retrieval prototype and documented a validation checklist.",
+          "status": "confirmed",
+          "tags": [
+            "Python",
+            "retrieval",
+            "validation"
+          ],
+          "boundaries": [
+            "A prototype, not a deployed AI service."
+          ]
+        },
+        {
+          "id": "research",
+          "source_id": "candidate",
+          "quote": "Interviewed synthetic project testers and grouped observations into a prioritized backlog.",
+          "status": "confirmed",
+          "tags": [
+            "research",
+            "product",
+            "prioritization"
+          ],
+          "boundaries": [
+            "Testers were classmates, not paying customers."
+          ]
+        },
+        {
+          "id": "trial",
+          "source_id": "candidate",
+          "quote": "Ran a controlled prototype trial with six invited classmates and collected usability feedback.",
+          "status": "confirmed",
+          "tags": [
+            "trial",
+            "feedback",
+            "validation"
+          ],
+          "boundaries": [
+            "Controlled trial is not adoption, retention, revenue, or customer growth."
+          ]
+        },
+        {
+          "id": "team",
+          "source_id": "candidate",
+          "quote": "Owned frontend screens within a student team; another teammate implemented authentication.",
+          "status": "confirmed",
+          "tags": [
+            "ownership",
+            "frontend",
+            "collaboration"
+          ],
+          "boundaries": [
+            "Do not claim the authentication work or sole ownership of the whole system."
+          ]
+        },
+        {
+          "id": "client",
+          "source_id": "candidate",
+          "quote": "Translated a simulated client brief into acceptance checks and a handover guide.",
+          "status": "confirmed",
+          "tags": [
+            "client",
+            "acceptance",
+            "handover"
+          ],
+          "boundaries": [
+            "Simulated brief, not paid consultancy or real client deployment."
+          ]
+        },
+        {
+          "id": "approval",
+          "source_id": "candidate",
+          "quote": "Deployment approval remains unconfirmed.",
+          "status": "conditional",
+          "tags": [
+            "deployment"
+          ]
+        }
+      ],
+      "role": {
+        "job_id": "synthetic-no-company",
+        "title": "Frontend Intern",
+        "company_name": "Fictional Oriole Systems",
+        "jd_source_id": "jd",
+        "language": "en",
+        "requirements": [
+          {
+            "id": "requirements",
+            "source_id": "jd",
+            "quote": "Build React interfaces. Improve accessibility and reliability. Collaborate across functions."
+          }
+        ]
+      },
+      "company": null,
+      "voice_examples": [
+        {
+          "id": "v-answer",
+          "source_id": "voice",
+          "quote": "I usually explain the constraint first, then what I tried and what I would check next.",
+          "language": "en",
+          "genre": "application_answer",
+          "authorship": "user",
+          "user_approved": false
+        },
+        {
+          "id": "v-cover",
+          "source_id": "voice",
+          "quote": "The practical part of this work interests me: making a small system clear enough for someone else to use.",
+          "language": "en",
+          "genre": "cover_letter",
+          "authorship": "user",
+          "user_approved": false
+        }
+      ]
+    },
+    "mismatched_voice": {
+      "schema_version": 1,
+      "sources": [
+        {
+          "id": "candidate",
+          "kind": "project_evidence",
+          "text": "Implemented keyboard navigation and error states for a React dashboard prototype.\nBuilt a Python retrieval prototype and documented a validation checklist.\nInterviewed synthetic project testers and grouped observations into a prioritized backlog.\nRan a controlled prototype trial with six invited classmates and collected usability feedback.\nOwned frontend screens within a student team; another teammate implemented authentication.\nTranslated a simulated client brief into acceptance checks and a handover guide.\nDeployment approval remains unconfirmed.",
+          "boundaries": [
+            "All work described here is synthetic student-project evidence."
+          ]
+        },
+        {
+          "id": "resume",
+          "kind": "resume",
+          "text": "Positioning: frontend, applied AI, product discovery, and simulated delivery."
+        },
+        {
+          "id": "jd",
+          "kind": "jd",
+          "text": "Product Intern. Research users and prioritize a product backlog. Define acceptance checks. Communicate tradeoffs and prototype feedback."
+        },
+        {
+          "id": "company",
+          "kind": "company",
+          "text": "Fictional Fernpath Tools is a wholly fictional benchmark employer. Its recorded scale is midsize. Its recorded stage is growth. Its delivery model is product. It maintains workflow tools for fictional organizations."
+        },
+        {
+          "id": "voice",
+          "kind": "voice",
+          "text": "I usually explain the constraint first, then what I tried and what I would check next.\nThe practical part of this work interests me: making a small system clear enough for someone else to use."
+        }
+      ],
+      "candidate_evidence": [
+        {
+          "id": "react",
+          "source_id": "candidate",
+          "quote": "Implemented keyboard navigation and error states for a React dashboard prototype.",
+          "status": "confirmed",
+          "tags": [
+            "React",
+            "frontend",
+            "accessibility"
+          ],
+          "boundaries": [
+            "Prototype only; no production deployment or performance measurement."
+          ]
+        },
+        {
+          "id": "python",
+          "source_id": "candidate",
+          "quote": "Built a Python retrieval prototype and documented a validation checklist.",
+          "status": "confirmed",
+          "tags": [
+            "Python",
+            "retrieval",
+            "validation"
+          ],
+          "boundaries": [
+            "A prototype, not a deployed AI service."
+          ]
+        },
+        {
+          "id": "research",
+          "source_id": "candidate",
+          "quote": "Interviewed synthetic project testers and grouped observations into a prioritized backlog.",
+          "status": "confirmed",
+          "tags": [
+            "research",
+            "product",
+            "prioritization"
+          ],
+          "boundaries": [
+            "Testers were classmates, not paying customers."
+          ]
+        },
+        {
+          "id": "trial",
+          "source_id": "candidate",
+          "quote": "Ran a controlled prototype trial with six invited classmates and collected usability feedback.",
+          "status": "confirmed",
+          "tags": [
+            "trial",
+            "feedback",
+            "validation"
+          ],
+          "boundaries": [
+            "Controlled trial is not adoption, retention, revenue, or customer growth."
+          ]
+        },
+        {
+          "id": "team",
+          "source_id": "candidate",
+          "quote": "Owned frontend screens within a student team; another teammate implemented authentication.",
+          "status": "confirmed",
+          "tags": [
+            "ownership",
+            "frontend",
+            "collaboration"
+          ],
+          "boundaries": [
+            "Do not claim the authentication work or sole ownership of the whole system."
+          ]
+        },
+        {
+          "id": "client",
+          "source_id": "candidate",
+          "quote": "Translated a simulated client brief into acceptance checks and a handover guide.",
+          "status": "confirmed",
+          "tags": [
+            "client",
+            "acceptance",
+            "handover"
+          ],
+          "boundaries": [
+            "Simulated brief, not paid consultancy or real client deployment."
+          ]
+        },
+        {
+          "id": "approval",
+          "source_id": "candidate",
+          "quote": "Deployment approval remains unconfirmed.",
+          "status": "conditional",
+          "tags": [
+            "deployment"
+          ]
+        }
+      ],
+      "role": {
+        "job_id": "synthetic-mismatched-voice",
+        "title": "Product Intern",
+        "company_name": "Fictional Fernpath Tools",
+        "jd_source_id": "jd",
+        "language": "en",
+        "requirements": [
+          {
+            "id": "requirements",
+            "source_id": "jd",
+            "quote": "Research users and prioritize a product backlog. Define acceptance checks. Communicate tradeoffs and prototype feedback."
+          }
+        ]
+      },
+      "company": {
+        "name": "Fictional Fernpath Tools",
+        "facts": [
+          {
+            "id": "scale",
+            "source_id": "company",
+            "quote": "Its recorded scale is midsize.",
+            "verification_status": "verified"
+          },
+          {
+            "id": "stage",
+            "source_id": "company",
+            "quote": "Its recorded stage is growth.",
+            "verification_status": "verified"
+          },
+          {
+            "id": "delivery",
+            "source_id": "company",
+            "quote": "Its delivery model is product.",
+            "verification_status": "verified"
+          },
+          {
+            "id": "workflow",
+            "source_id": "company",
+            "quote": "It maintains workflow tools for fictional organizations.",
+            "verification_status": "verified"
+          }
+        ],
+        "scale": {
+          "value": "midsize",
+          "evidence_ids": [
+            "scale"
+          ]
+        },
+        "stage": {
+          "value": "growth",
+          "evidence_ids": [
+            "stage"
+          ]
+        },
+        "delivery_model": {
+          "value": "product",
+          "evidence_ids": [
+            "delivery"
+          ]
+        }
+      },
+      "voice_examples": [
+        {
+          "id": "v-answer",
+          "source_id": "voice",
+          "quote": "I usually explain the constraint first, then what I tried and what I would check next.",
+          "language": "en",
+          "genre": "application_answer",
+          "authorship": "user",
+          "user_approved": false
+        },
+        {
+          "id": "v-cover",
+          "source_id": "voice",
+          "quote": "The practical part of this work interests me: making a small system clear enough for someone else to use.",
+          "language": "en",
+          "genre": "cover_letter",
+          "authorship": "user",
+          "user_approved": false
+        }
+      ]
+    },
+    "voice_absent": {
+      "schema_version": 1,
+      "sources": [
+        {
+          "id": "candidate",
+          "kind": "project_evidence",
+          "text": "Implemented keyboard navigation and error states for a React dashboard prototype.\nBuilt a Python retrieval prototype and documented a validation checklist.\nInterviewed synthetic project testers and grouped observations into a prioritized backlog.\nRan a controlled prototype trial with six invited classmates and collected usability feedback.\nOwned frontend screens within a student team; another teammate implemented authentication.\nTranslated a simulated client brief into acceptance checks and a handover guide.\nDeployment approval remains unconfirmed.",
+          "boundaries": [
+            "All work described here is synthetic student-project evidence."
+          ]
+        },
+        {
+          "id": "resume",
+          "kind": "resume",
+          "text": "Positioning: frontend, applied AI, product discovery, and simulated delivery."
+        },
+        {
+          "id": "jd",
+          "kind": "jd",
+          "text": "Product Intern. Research users and prioritize a product backlog. Define acceptance checks. Communicate tradeoffs and prototype feedback."
+        },
+        {
+          "id": "company",
+          "kind": "company",
+          "text": "Fictional Fernpath Tools is a wholly fictional benchmark employer. Its recorded scale is midsize. Its recorded stage is growth. Its delivery model is product. It maintains workflow tools for fictional organizations."
+        },
+        {
+          "id": "voice",
+          "kind": "voice",
+          "text": "I usually explain the constraint first, then what I tried and what I would check next.\nThe practical part of this work interests me: making a small system clear enough for someone else to use."
+        }
+      ],
+      "candidate_evidence": [
+        {
+          "id": "react",
+          "source_id": "candidate",
+          "quote": "Implemented keyboard navigation and error states for a React dashboard prototype.",
+          "status": "confirmed",
+          "tags": [
+            "React",
+            "frontend",
+            "accessibility"
+          ],
+          "boundaries": [
+            "Prototype only; no production deployment or performance measurement."
+          ]
+        },
+        {
+          "id": "python",
+          "source_id": "candidate",
+          "quote": "Built a Python retrieval prototype and documented a validation checklist.",
+          "status": "confirmed",
+          "tags": [
+            "Python",
+            "retrieval",
+            "validation"
+          ],
+          "boundaries": [
+            "A prototype, not a deployed AI service."
+          ]
+        },
+        {
+          "id": "research",
+          "source_id": "candidate",
+          "quote": "Interviewed synthetic project testers and grouped observations into a prioritized backlog.",
+          "status": "confirmed",
+          "tags": [
+            "research",
+            "product",
+            "prioritization"
+          ],
+          "boundaries": [
+            "Testers were classmates, not paying customers."
+          ]
+        },
+        {
+          "id": "trial",
+          "source_id": "candidate",
+          "quote": "Ran a controlled prototype trial with six invited classmates and collected usability feedback.",
+          "status": "confirmed",
+          "tags": [
+            "trial",
+            "feedback",
+            "validation"
+          ],
+          "boundaries": [
+            "Controlled trial is not adoption, retention, revenue, or customer growth."
+          ]
+        },
+        {
+          "id": "team",
+          "source_id": "candidate",
+          "quote": "Owned frontend screens within a student team; another teammate implemented authentication.",
+          "status": "confirmed",
+          "tags": [
+            "ownership",
+            "frontend",
+            "collaboration"
+          ],
+          "boundaries": [
+            "Do not claim the authentication work or sole ownership of the whole system."
+          ]
+        },
+        {
+          "id": "client",
+          "source_id": "candidate",
+          "quote": "Translated a simulated client brief into acceptance checks and a handover guide.",
+          "status": "confirmed",
+          "tags": [
+            "client",
+            "acceptance",
+            "handover"
+          ],
+          "boundaries": [
+            "Simulated brief, not paid consultancy or real client deployment."
+          ]
+        },
+        {
+          "id": "approval",
+          "source_id": "candidate",
+          "quote": "Deployment approval remains unconfirmed.",
+          "status": "conditional",
+          "tags": [
+            "deployment"
+          ]
+        }
+      ],
+      "role": {
+        "job_id": "synthetic-voice-absent",
+        "title": "Product Intern",
+        "company_name": "Fictional Fernpath Tools",
+        "jd_source_id": "jd",
+        "language": "en",
+        "requirements": [
+          {
+            "id": "requirements",
+            "source_id": "jd",
+            "quote": "Research users and prioritize a product backlog. Define acceptance checks. Communicate tradeoffs and prototype feedback."
+          }
+        ]
+      },
+      "company": {
+        "name": "Fictional Fernpath Tools",
+        "facts": [
+          {
+            "id": "scale",
+            "source_id": "company",
+            "quote": "Its recorded scale is midsize.",
+            "verification_status": "verified"
+          },
+          {
+            "id": "stage",
+            "source_id": "company",
+            "quote": "Its recorded stage is growth.",
+            "verification_status": "verified"
+          },
+          {
+            "id": "delivery",
+            "source_id": "company",
+            "quote": "Its delivery model is product.",
+            "verification_status": "verified"
+          },
+          {
+            "id": "workflow",
+            "source_id": "company",
+            "quote": "It maintains workflow tools for fictional organizations.",
+            "verification_status": "verified"
+          }
+        ],
+        "scale": {
+          "value": "midsize",
+          "evidence_ids": [
+            "scale"
+          ]
+        },
+        "stage": {
+          "value": "growth",
+          "evidence_ids": [
+            "stage"
+          ]
+        },
+        "delivery_model": {
+          "value": "product",
+          "evidence_ids": [
+            "delivery"
+          ]
+        }
+      },
+      "voice_examples": []
+    }
+  },
+  "cases": [
+    {
+      "id": "q-frontend-why-fit",
+      "genre": "application_answer",
+      "split": "development",
+      "context_id": "frontend",
+      "question": {
+        "job_id": "synthetic-frontend",
+        "page_id": "synthetic-questions",
+        "field_key": "why-fit",
+        "text": "Why do you want to join this company, and how does your React experience fit this frontend role?",
+        "help_text": "",
+        "language": "en",
+        "required": true,
+        "constraints": []
+      },
+      "expectations": {
+        "required_parts": [
+          "company connection",
+          "frontend fit"
+        ],
+        "critical_boundaries": [
+          "No invented facts or metrics.",
+          "Style and company sources are not personal evidence."
+        ]
+      }
+    },
+    {
+      "id": "q-frontend-ownership",
+      "genre": "application_answer",
+      "split": "development",
+      "context_id": "frontend",
+      "question": {
+        "job_id": "synthetic-frontend",
+        "page_id": "synthetic-questions",
+        "field_key": "ownership",
+        "text": "What was your individual ownership in the frontend project, and what did teammates do?",
+        "help_text": "Avoid repeating your previous motivation answer; use another facet of the same story if useful.",
+        "language": "en",
+        "required": true,
+        "constraints": []
+      },
+      "expectations": {
+        "required_parts": [
+          "individual work",
+          "team boundary"
+        ],
+        "critical_boundaries": [
+          "No invented facts or metrics.",
+          "Style and company sources are not personal evidence."
+        ]
+      },
+      "sibling_case_ids": [
+        "q-frontend-why-fit"
+      ]
+    },
+    {
+      "id": "q-frontend-technical",
+      "genre": "application_answer",
+      "split": "holdout",
+      "context_id": "frontend",
+      "question": {
+        "job_id": "synthetic-frontend",
+        "page_id": "synthetic-questions",
+        "field_key": "technical",
+        "text": "Explain one technical tradeoff in the React prototype and what you would test next.",
+        "help_text": "A proposed check may be hypothetical; do not invent measured performance.",
+        "language": "en",
+        "required": true,
+        "constraints": [
+          {
+            "kind": "max",
+            "unit": "words",
+            "value": 70,
+            "source": "explicit question instruction"
+          }
+        ]
+      },
+      "expectations": {
+        "required_parts": [
+          "tradeoff",
+          "next check"
+        ],
+        "critical_boundaries": [
+          "No invented facts or metrics.",
+          "Style and company sources are not personal evidence."
+        ]
+      }
+    },
+    {
+      "id": "q-frontend-failure",
+      "genre": "application_answer",
+      "split": "holdout",
+      "context_id": "frontend",
+      "question": {
+        "job_id": "synthetic-frontend",
+        "page_id": "synthetic-questions",
+        "field_key": "failure",
+        "text": "Tell us about a real frontend release failure, your action, and what you learned.",
+        "help_text": "A project summary is not a real failure episode.",
+        "language": "en",
+        "required": true,
+        "constraints": []
+      },
+      "expectations": {
+        "required_parts": [
+          "real episode",
+          "action",
+          "reflection"
+        ],
+        "critical_boundaries": [
+          "No invented facts or metrics.",
+          "Style and company sources are not personal evidence."
+        ]
+      }
+    },
+    {
+      "id": "q-applied_ai-fit",
+      "genre": "application_answer",
+      "split": "development",
+      "context_id": "applied_ai",
+      "question": {
+        "job_id": "synthetic-applied_ai",
+        "page_id": "synthetic-questions",
+        "field_key": "fit",
+        "text": "How does your Python retrieval prototype prepare you for applied AI validation?",
+        "help_text": "",
+        "language": "en",
+        "required": true,
+        "constraints": []
+      },
+      "expectations": {
+        "required_parts": [
+          "prototype evidence",
+          "validation relevance"
+        ],
+        "critical_boundaries": [
+          "No invented facts or metrics.",
+          "Style and company sources are not personal evidence."
+        ]
+      }
+    },
+    {
+      "id": "q-applied_ai-trial",
+      "genre": "application_answer",
+      "split": "development",
+      "context_id": "applied_ai",
+      "question": {
+        "job_id": "synthetic-applied_ai",
+        "page_id": "synthetic-questions",
+        "field_key": "trial",
+        "text": "What impact did the controlled prototype trial have, and what does it demonstrate?",
+        "help_text": "Do not turn invited classmates into paying customers or adoption.",
+        "language": "en",
+        "required": true,
+        "constraints": []
+      },
+      "expectations": {
+        "required_parts": [
+          "supported scope",
+          "honest impact"
+        ],
+        "critical_boundaries": [
+          "No invented facts or metrics.",
+          "Style and company sources are not personal evidence."
+        ]
+      }
+    },
+    {
+      "id": "q-applied_ai-scenario",
+      "genre": "application_answer",
+      "split": "holdout",
+      "context_id": "applied_ai",
+      "question": {
+        "job_id": "synthetic-applied_ai",
+        "page_id": "synthetic-questions",
+        "field_key": "scenario",
+        "text": "How would you evaluate a retrieval prototype when product requirements are ambiguous?",
+        "help_text": "Separate a proposed approach from experience you already have.",
+        "language": "en",
+        "required": true,
+        "constraints": [
+          {
+            "kind": "max",
+            "unit": "words",
+            "value": 90,
+            "source": "explicit question instruction"
+          }
+        ]
+      },
+      "expectations": {
+        "required_parts": [
+          "assumptions",
+          "evaluation approach"
+        ],
+        "critical_boundaries": [
+          "No invented facts or metrics.",
+          "Style and company sources are not personal evidence."
+        ]
+      }
+    },
+    {
+      "id": "q-applied_ai-failure",
+      "genre": "application_answer",
+      "split": "holdout",
+      "context_id": "applied_ai",
+      "question": {
+        "job_id": "synthetic-applied_ai",
+        "page_id": "synthetic-questions",
+        "field_key": "failure",
+        "text": "Describe a real AI production failure and the corrective action you personally took.",
+        "help_text": "",
+        "language": "en",
+        "required": true,
+        "constraints": []
+      },
+      "expectations": {
+        "required_parts": [
+          "real episode",
+          "corrective action"
+        ],
+        "critical_boundaries": [
+          "No invented facts or metrics.",
+          "Style and company sources are not personal evidence."
+        ]
+      }
+    },
+    {
+      "id": "q-product-why-fit",
+      "genre": "application_answer",
+      "split": "development",
+      "context_id": "product",
+      "question": {
+        "job_id": "synthetic-product",
+        "page_id": "synthetic-questions",
+        "field_key": "why-fit",
+        "text": "Why this company, and which product research experience would you bring?",
+        "help_text": "",
+        "language": "en",
+        "required": true,
+        "constraints": []
+      },
+      "expectations": {
+        "required_parts": [
+          "company connection",
+          "research evidence"
+        ],
+        "critical_boundaries": [
+          "No invented facts or metrics.",
+          "Style and company sources are not personal evidence."
+        ]
+      }
+    },
+    {
+      "id": "q-product-ambiguity",
+      "genre": "application_answer",
+      "split": "development",
+      "context_id": "product",
+      "question": {
+        "job_id": "synthetic-product",
+        "page_id": "synthetic-questions",
+        "field_key": "ambiguity",
+        "text": "How would you prioritize a product backlog with uncertain user feedback?",
+        "help_text": "",
+        "language": "en",
+        "required": true,
+        "constraints": []
+      },
+      "expectations": {
+        "required_parts": [
+          "prioritization approach",
+          "uncertainty"
+        ],
+        "critical_boundaries": [
+          "No invented facts or metrics.",
+          "Style and company sources are not personal evidence."
+        ]
+      }
+    },
+    {
+      "id": "q-product-ownership",
+      "genre": "application_answer",
+      "split": "holdout",
+      "context_id": "product",
+      "question": {
+        "job_id": "synthetic-product",
+        "page_id": "synthetic-questions",
+        "field_key": "ownership",
+        "text": "Describe your own contribution and the team boundary in the product prototype.",
+        "help_text": "",
+        "language": "en",
+        "required": true,
+        "constraints": []
+      },
+      "expectations": {
+        "required_parts": [
+          "personal work",
+          "team work"
+        ],
+        "critical_boundaries": [
+          "No invented facts or metrics.",
+          "Style and company sources are not personal evidence."
+        ]
+      }
+    },
+    {
+      "id": "q-product-research",
+      "genre": "application_answer",
+      "split": "holdout",
+      "context_id": "product",
+      "question": {
+        "job_id": "synthetic-product",
+        "page_id": "synthetic-questions",
+        "field_key": "research",
+        "text": "What did your synthetic tester interviews contribute, and what would you validate next?",
+        "help_text": "",
+        "language": "en",
+        "required": true,
+        "constraints": [
+          {
+            "kind": "max",
+            "unit": "words",
+            "value": 85,
+            "source": "explicit question instruction"
+          }
+        ]
+      },
+      "expectations": {
+        "required_parts": [
+          "research result",
+          "next validation"
+        ],
+        "critical_boundaries": [
+          "No invented facts or metrics.",
+          "Style and company sources are not personal evidence."
+        ]
+      }
+    },
+    {
+      "id": "q-client_delivery-fit",
+      "genre": "application_answer",
+      "split": "development",
+      "context_id": "client_delivery",
+      "question": {
+        "job_id": "synthetic-client_delivery",
+        "page_id": "synthetic-questions",
+        "field_key": "fit",
+        "text": "How would your simulated client brief work transfer to requirements and acceptance checks?",
+        "help_text": "",
+        "language": "en",
+        "required": true,
+        "constraints": []
+      },
+      "expectations": {
+        "required_parts": [
+          "transferability",
+          "simulation boundary"
+        ],
+        "critical_boundaries": [
+          "No invented facts or metrics.",
+          "Style and company sources are not personal evidence."
+        ]
+      }
+    },
+    {
+      "id": "q-client_delivery-conflict",
+      "genre": "application_answer",
+      "split": "development",
+      "context_id": "client_delivery",
+      "question": {
+        "job_id": "synthetic-client_delivery",
+        "page_id": "synthetic-questions",
+        "field_key": "conflict",
+        "text": "Describe a real disagreement with a paying client and how you resolved it.",
+        "help_text": "Do not manufacture a paying-client episode from a simulated brief.",
+        "language": "en",
+        "required": true,
+        "constraints": []
+      },
+      "expectations": {
+        "required_parts": [
+          "real conflict",
+          "resolution"
+        ],
+        "critical_boundaries": [
+          "No invented facts or metrics.",
+          "Style and company sources are not personal evidence."
+        ]
+      }
+    },
+    {
+      "id": "q-client_delivery-handover",
+      "genre": "application_answer",
+      "split": "holdout",
+      "context_id": "client_delivery",
+      "question": {
+        "job_id": "synthetic-client_delivery",
+        "page_id": "synthetic-questions",
+        "field_key": "handover",
+        "text": "Explain how you prepared a handover guide and why that matters for client delivery.",
+        "help_text": "",
+        "language": "en",
+        "required": true,
+        "constraints": []
+      },
+      "expectations": {
+        "required_parts": [
+          "known contribution",
+          "role connection"
+        ],
+        "critical_boundaries": [
+          "No invented facts or metrics.",
+          "Style and company sources are not personal evidence."
+        ]
+      }
+    },
+    {
+      "id": "q-client_delivery-short",
+      "genre": "application_answer",
+      "split": "holdout",
+      "context_id": "client_delivery",
+      "question": {
+        "job_id": "synthetic-client_delivery",
+        "page_id": "synthetic-questions",
+        "field_key": "short",
+        "text": "What is your most relevant contribution to acceptance checks?",
+        "help_text": "The HTML field has maxlength=420 in UTF-16 code units.",
+        "language": "en",
+        "required": true,
+        "constraints": [
+          {
+            "kind": "max",
+            "unit": "utf16",
+            "value": 420,
+            "source": "HTML maxlength"
+          }
+        ]
+      },
+      "expectations": {
+        "required_parts": [
+          "direct contribution"
+        ],
+        "critical_boundaries": [
+          "No invented facts or metrics.",
+          "Style and company sources are not personal evidence."
+        ]
+      }
+    },
+    {
+      "id": "q-no_company-why",
+      "genre": "application_answer",
+      "split": "development",
+      "context_id": "no_company",
+      "question": {
+        "job_id": "synthetic-no-company",
+        "page_id": "synthetic-questions",
+        "field_key": "why",
+        "text": "Why do you want to join this company?",
+        "help_text": "No verified company background is provided; use the actual JD if relevant and acknowledge missing specifics.",
+        "language": "en",
+        "required": true,
+        "constraints": []
+      },
+      "expectations": {
+        "required_parts": [
+          "honest company limitation"
+        ],
+        "critical_boundaries": [
+          "No invented facts or metrics.",
+          "Style and company sources are not personal evidence."
+        ]
+      }
+    },
+    {
+      "id": "q-no_company-fit",
+      "genre": "application_answer",
+      "split": "development",
+      "context_id": "no_company",
+      "question": {
+        "job_id": "synthetic-no-company",
+        "page_id": "synthetic-questions",
+        "field_key": "fit",
+        "text": "How does your React prototype experience fit this role?",
+        "help_text": "",
+        "language": "en",
+        "required": true,
+        "constraints": []
+      },
+      "expectations": {
+        "required_parts": [
+          "frontend fit"
+        ],
+        "critical_boundaries": [
+          "No invented facts or metrics.",
+          "Style and company sources are not personal evidence."
+        ]
+      }
+    },
+    {
+      "id": "q-no_company-values",
+      "genre": "application_answer",
+      "split": "holdout",
+      "context_id": "no_company",
+      "question": {
+        "job_id": "synthetic-no-company",
+        "page_id": "synthetic-questions",
+        "field_key": "values",
+        "text": "What personal value drew you to this employer?",
+        "help_text": "No confirmed personal-values statement is supplied.",
+        "language": "en",
+        "required": true,
+        "constraints": []
+      },
+      "expectations": {
+        "required_parts": [
+          "confirmed personal value"
+        ],
+        "critical_boundaries": [
+          "No invented facts or metrics.",
+          "Style and company sources are not personal evidence."
+        ]
+      }
+    },
+    {
+      "id": "q-no_company-additional",
+      "genre": "application_answer",
+      "split": "holdout",
+      "context_id": "no_company",
+      "question": {
+        "job_id": "synthetic-no-company",
+        "page_id": "synthetic-questions",
+        "field_key": "additional",
+        "text": "Is there anything else relevant about your frontend work?",
+        "help_text": "This question is optional. Do not pad it.",
+        "language": "en",
+        "required": false,
+        "constraints": [
+          {
+            "kind": "max",
+            "unit": "words",
+            "value": 45,
+            "source": "explicit question instruction"
+          }
+        ]
+      },
+      "expectations": {
+        "required_parts": [
+          "useful additional detail"
+        ],
+        "critical_boundaries": [
+          "No invented facts or metrics.",
+          "Style and company sources are not personal evidence."
+        ]
+      }
+    },
+    {
+      "id": "q-mismatched_voice-why-zh",
+      "genre": "application_answer",
+      "split": "development",
+      "context_id": "mismatched_voice",
+      "question": {
+        "job_id": "synthetic-mismatched-voice",
+        "page_id": "synthetic-questions",
+        "field_key": "why-zh",
+        "text": "为什么想加入这家公司，你的产品研究经历如何与岗位匹配？",
+        "help_text": "用中文回答。现有语气样本是英文，不应声称已校准中文个人风格。",
+        "language": "zh",
+        "required": true,
+        "constraints": [
+          {
+            "kind": "max",
+            "unit": "utf16",
+            "value": 300,
+            "source": "HTML maxlength"
+          }
+        ]
+      },
+      "expectations": {
+        "required_parts": [
+          "公司联系",
+          "岗位匹配"
+        ],
+        "critical_boundaries": [
+          "No invented facts or metrics.",
+          "Style and company sources are not personal evidence."
+        ]
+      }
+    },
+    {
+      "id": "q-mismatched_voice-fit-no-voice",
+      "genre": "application_answer",
+      "split": "development",
+      "context_id": "voice_absent",
+      "question": {
+        "job_id": "synthetic-voice-absent",
+        "page_id": "synthetic-questions",
+        "field_key": "fit-no-voice",
+        "text": "How does your product backlog work fit the role?",
+        "help_text": "This case explicitly omits voice calibration samples.",
+        "language": "en",
+        "required": true,
+        "constraints": [
+          {
+            "kind": "max",
+            "unit": "words",
+            "value": 75,
+            "source": "explicit question instruction"
+          }
+        ]
+      },
+      "expectations": {
+        "required_parts": [
+          "product evidence"
+        ],
+        "critical_boundaries": [
+          "No invented facts or metrics.",
+          "Style and company sources are not personal evidence."
+        ]
+      }
+    },
+    {
+      "id": "q-mismatched_voice-failure-zh",
+      "genre": "application_answer",
+      "split": "holdout",
+      "context_id": "mismatched_voice",
+      "question": {
+        "job_id": "synthetic-mismatched-voice",
+        "page_id": "synthetic-questions",
+        "field_key": "failure-zh",
+        "text": "请描述一次真实的产品上线失败，包括你的行动和反思。",
+        "help_text": "资料中没有真实失败事件，不要把原型介绍改写成失败经历。",
+        "language": "zh",
+        "required": true,
+        "constraints": []
+      },
+      "expectations": {
+        "required_parts": [
+          "真实事件",
+          "行动",
+          "反思"
+        ],
+        "critical_boundaries": [
+          "No invented facts or metrics.",
+          "Style and company sources are not personal evidence."
+        ]
+      }
+    },
+    {
+      "id": "q-mismatched_voice-scenario-zh",
+      "genre": "application_answer",
+      "split": "holdout",
+      "context_id": "mismatched_voice",
+      "question": {
+        "job_id": "synthetic-mismatched-voice",
+        "page_id": "synthetic-questions",
+        "field_key": "scenario-zh",
+        "text": "如果用户反馈相互矛盾，你会如何决定下一轮原型测试的优先级？",
+        "help_text": "区分建议方案与过去已完成的工作。",
+        "language": "zh",
+        "required": true,
+        "constraints": [
+          {
+            "kind": "max",
+            "unit": "utf16",
+            "value": 320,
+            "source": "HTML maxlength"
+          }
+        ]
+      },
+      "expectations": {
+        "required_parts": [
+          "假设",
+          "优先级方案"
+        ],
+        "critical_boundaries": [
+          "No invented facts or metrics.",
+          "Style and company sources are not personal evidence."
+        ]
+      }
+    },
+    {
+      "id": "cover-frontend-initial",
+      "genre": "cover_letter",
+      "split": "development",
+      "context_id": "frontend",
+      "request": {
+        "brief": "Write a specific letter for this role using one main relevant project and at most one complementary experience.",
+        "language": "en",
+        "surface": "formal",
+        "constraints": [
+          {
+            "kind": "max",
+            "unit": "words",
+            "value": 240,
+            "source": "benchmark caller limit"
+          }
+        ]
+      },
+      "expectations": {
+        "required_parts": [
+          "specific role connection",
+          "main evidence thread",
+          "honest ownership"
+        ],
+        "critical_boundaries": [
+          "Company scale, stage, and delivery model are independent.",
+          "No invented personal passion, commercial adoption, or production authority."
+        ]
+      }
+    },
+    {
+      "id": "cover-frontend-revision",
+      "genre": "cover_letter",
+      "split": "holdout",
+      "context_id": "frontend",
+      "request": {
+        "brief": "Write a specific letter for this role using one main relevant project and at most one complementary experience.",
+        "language": "en",
+        "surface": "formal",
+        "constraints": [
+          {
+            "kind": "max",
+            "unit": "words",
+            "value": 240,
+            "source": "benchmark caller limit"
+          }
+        ],
+        "revision_request": "Make the opening direct and reduce generic praise; retain supported ownership and trial boundaries. Keep the strongest role connection.",
+        "initial_brief": "Write a specific letter for this role using one main relevant project and at most one complementary experience."
+      },
+      "expectations": {
+        "required_parts": [
+          "specific role connection",
+          "main evidence thread",
+          "honest ownership"
+        ],
+        "critical_boundaries": [
+          "Company scale, stage, and delivery model are independent.",
+          "No invented personal passion, commercial adoption, or production authority."
+        ]
+      }
+    },
+    {
+      "id": "cover-applied_ai-initial",
+      "genre": "cover_letter",
+      "split": "development",
+      "context_id": "applied_ai",
+      "request": {
+        "brief": "Write a specific letter for this role using one main relevant project and at most one complementary experience.",
+        "language": "en",
+        "surface": "body",
+        "constraints": [
+          {
+            "kind": "max",
+            "unit": "words",
+            "value": 240,
+            "source": "benchmark caller limit"
+          }
+        ]
+      },
+      "expectations": {
+        "required_parts": [
+          "specific role connection",
+          "main evidence thread",
+          "honest ownership"
+        ],
+        "critical_boundaries": [
+          "Company scale, stage, and delivery model are independent.",
+          "No invented personal passion, commercial adoption, or production authority."
+        ]
+      }
+    },
+    {
+      "id": "cover-applied_ai-revision",
+      "genre": "cover_letter",
+      "split": "holdout",
+      "context_id": "applied_ai",
+      "request": {
+        "brief": "Write a specific letter for this role using one main relevant project and at most one complementary experience.",
+        "language": "en",
+        "surface": "body",
+        "constraints": [
+          {
+            "kind": "max",
+            "unit": "words",
+            "value": 240,
+            "source": "benchmark caller limit"
+          }
+        ],
+        "revision_request": "Make the opening direct and reduce generic praise; retain supported ownership and trial boundaries. Keep the strongest role connection.",
+        "initial_brief": "Write a specific letter for this role using one main relevant project and at most one complementary experience."
+      },
+      "expectations": {
+        "required_parts": [
+          "specific role connection",
+          "main evidence thread",
+          "honest ownership"
+        ],
+        "critical_boundaries": [
+          "Company scale, stage, and delivery model are independent.",
+          "No invented personal passion, commercial adoption, or production authority."
+        ]
+      }
+    },
+    {
+      "id": "cover-product-initial",
+      "genre": "cover_letter",
+      "split": "development",
+      "context_id": "product",
+      "request": {
+        "brief": "Write a specific letter for this role using one main relevant project and at most one complementary experience.",
+        "language": "en",
+        "surface": "body",
+        "constraints": [
+          {
+            "kind": "max",
+            "unit": "words",
+            "value": 240,
+            "source": "benchmark caller limit"
+          }
+        ]
+      },
+      "expectations": {
+        "required_parts": [
+          "specific role connection",
+          "main evidence thread",
+          "honest ownership"
+        ],
+        "critical_boundaries": [
+          "Company scale, stage, and delivery model are independent.",
+          "No invented personal passion, commercial adoption, or production authority."
+        ]
+      }
+    },
+    {
+      "id": "cover-product-revision",
+      "genre": "cover_letter",
+      "split": "holdout",
+      "context_id": "product",
+      "request": {
+        "brief": "Write a specific letter for this role using one main relevant project and at most one complementary experience.",
+        "language": "en",
+        "surface": "body",
+        "constraints": [
+          {
+            "kind": "max",
+            "unit": "words",
+            "value": 240,
+            "source": "benchmark caller limit"
+          }
+        ],
+        "revision_request": "Make the opening direct and reduce generic praise; retain supported ownership and trial boundaries. Keep the strongest role connection.",
+        "initial_brief": "Write a specific letter for this role using one main relevant project and at most one complementary experience."
+      },
+      "expectations": {
+        "required_parts": [
+          "specific role connection",
+          "main evidence thread",
+          "honest ownership"
+        ],
+        "critical_boundaries": [
+          "Company scale, stage, and delivery model are independent.",
+          "No invented personal passion, commercial adoption, or production authority."
+        ]
+      }
+    },
+    {
+      "id": "cover-client_delivery-initial",
+      "genre": "cover_letter",
+      "split": "development",
+      "context_id": "client_delivery",
+      "request": {
+        "brief": "Write a specific letter for this role using one main relevant project and at most one complementary experience.",
+        "language": "en",
+        "surface": "body",
+        "constraints": [
+          {
+            "kind": "max",
+            "unit": "words",
+            "value": 240,
+            "source": "benchmark caller limit"
+          }
+        ]
+      },
+      "expectations": {
+        "required_parts": [
+          "specific role connection",
+          "main evidence thread",
+          "honest ownership"
+        ],
+        "critical_boundaries": [
+          "Company scale, stage, and delivery model are independent.",
+          "No invented personal passion, commercial adoption, or production authority."
+        ]
+      }
+    },
+    {
+      "id": "cover-client_delivery-revision",
+      "genre": "cover_letter",
+      "split": "holdout",
+      "context_id": "client_delivery",
+      "request": {
+        "brief": "Write a specific letter for this role using one main relevant project and at most one complementary experience.",
+        "language": "en",
+        "surface": "body",
+        "constraints": [
+          {
+            "kind": "max",
+            "unit": "words",
+            "value": 240,
+            "source": "benchmark caller limit"
+          }
+        ],
+        "revision_request": "Make the opening direct and reduce generic praise; retain supported ownership and trial boundaries. Keep the strongest role connection.",
+        "initial_brief": "Write a specific letter for this role using one main relevant project and at most one complementary experience."
+      },
+      "expectations": {
+        "required_parts": [
+          "specific role connection",
+          "main evidence thread",
+          "honest ownership"
+        ],
+        "critical_boundaries": [
+          "Company scale, stage, and delivery model are independent.",
+          "No invented personal passion, commercial adoption, or production authority."
+        ]
+      }
+    }
+  ],
+  "recorded_negatives": [
+    {
+      "case_id": "q-frontend-why-fit",
+      "variant": "new",
+      "context_input_digest": "f2d05d98081d8fbddea8403bd01f5d1553d0c199206282db6dc8eddc449b9a2d",
+      "task_input_digest": "71a475dbbadb1e7dbdff02bf536cfa040ad05aad0f11fafb7b55f41410caa29e",
+      "artifact": {
+        "schema_version": 1,
+        "genre": "application_answer",
+        "revision_id": "00000000-0000-4000-8000-000000000001",
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "previous_revision": null,
+        "text": "I improved React dashboard performance by 47%.",
+        "text_digest": "8aba9886de1cf07e8b1509cc3cb693b83bc2ce783c7d1350ebc09aef6444a168",
+        "task": {
+          "job_id": "synthetic-frontend",
+          "question_id": "q_f8ec417fdfee5fbdaf17d11ab124c16055c756d66a4281333e8f282eae14fc87",
+          "question_revision": "367db7af7a716b402372700019927e450b07132e87fc369a6b0478d23c680a25",
+          "question": {
+            "schema_version": 1,
+            "job_id": "synthetic-frontend",
+            "page_id": "synthetic-questions",
+            "field_key": "why-fit",
+            "text": "Why do you want to join this company, and how does your React experience fit this frontend role?",
+            "help_text": "",
+            "language": "en",
+            "required": true,
+            "options": [],
+            "constraints": [],
+            "section_path": [],
+            "unresolved_instructions": [],
+            "text_sources": [],
+            "completeness": "partial",
+            "coverage": {
+              "scope": "unknown",
+              "page_only": true,
+              "whole_form": "unknown"
+            },
+            "question_id": "q_f8ec417fdfee5fbdaf17d11ab124c16055c756d66a4281333e8f282eae14fc87",
+            "revision": "367db7af7a716b402372700019927e450b07132e87fc369a6b0478d23c680a25"
+          },
+          "route": "application_answer",
+          "intents": [
+            "company_motivation",
+            "role_fit"
+          ],
+          "parts": [
+            "Why do you want to join this company,",
+            "how does your React experience fit this frontend role?"
+          ],
+          "language": "en",
+          "constraints": [],
+          "recipes": [
+            "Connect one relevant, sourced company/JD detail to a real professional connection; do not invent fandom or product use.",
+            "Map the most relevant requirement to direct evidence; label transferable experience honestly."
+          ],
+          "role_signals": [
+            "quality_and_collaboration"
+          ],
+          "company_context_rule": "Company scale, stage and delivery model are separate, sourced context. Actual question and JD signals decide emphasis; no size-based stereotypes.",
+          "selected_evidence_ids": [
+            "react",
+            "team"
+          ],
+          "siblings": []
+        },
+        "context_snapshot": {
+          "schema_version": 1,
+          "snapshot_digest": "f2d05d98081d8fbddea8403bd01f5d1553d0c199206282db6dc8eddc449b9a2d",
+          "sources": [
+            {
+              "id": "candidate",
+              "kind": "project_evidence",
+              "text": "Implemented keyboard navigation and error states for a React dashboard prototype.\nBuilt a Python retrieval prototype and documented a validation checklist.\nInterviewed synthetic project testers and grouped observations into a prioritized backlog.\nRan a controlled prototype trial with six invited classmates and collected usability feedback.\nOwned frontend screens within a student team; another teammate implemented authentication.\nTranslated a simulated client brief into acceptance checks and a handover guide.\nDeployment approval remains unconfirmed.",
+              "boundaries": [
+                "All work described here is synthetic student-project evidence."
+              ]
+            },
+            {
+              "id": "jd",
+              "kind": "jd",
+              "text": "Frontend Intern. Build React interfaces. Improve accessibility and reliability. Collaborate across functions.",
+              "boundaries": []
+            },
+            {
+              "id": "company",
+              "kind": "company",
+              "text": "Fictional Oriole Systems is a wholly fictional benchmark employer. Its recorded scale is large. Its recorded stage is established. Its delivery model is product. It maintains workflow tools for fictional organizations.",
+              "boundaries": []
+            },
+            {
+              "id": "voice",
+              "kind": "voice",
+              "text": "I usually explain the constraint first, then what I tried and what I would check next.\nThe practical part of this work interests me: making a small system clear enough for someone else to use.",
+              "boundaries": []
+            }
+          ],
+          "candidate_evidence": [
+            {
+              "id": "react",
+              "source_id": "candidate",
+              "quote": "Implemented keyboard navigation and error states for a React dashboard prototype.",
+              "status": "confirmed",
+              "tags": [
+                "React",
+                "frontend",
+                "accessibility"
+              ],
+              "boundaries": [
+                "All work described here is synthetic student-project evidence.",
+                "Prototype only; no production deployment or performance measurement."
+              ]
+            },
+            {
+              "id": "team",
+              "source_id": "candidate",
+              "quote": "Owned frontend screens within a student team; another teammate implemented authentication.",
+              "status": "confirmed",
+              "tags": [
+                "ownership",
+                "frontend",
+                "collaboration"
+              ],
+              "boundaries": [
+                "All work described here is synthetic student-project evidence.",
+                "Do not claim the authentication work or sole ownership of the whole system."
+              ]
+            }
+          ],
+          "role": {
+            "job_id": "synthetic-frontend",
+            "title": "Frontend Intern",
+            "company_name": "Fictional Oriole Systems",
+            "jd_source_id": "jd",
+            "language": "en",
+            "requirements": [
+              {
+                "id": "requirements",
+                "source_id": "jd",
+                "quote": "Build React interfaces. Improve accessibility and reliability. Collaborate across functions."
+              }
+            ],
+            "responsibilities": []
+          },
+          "company": {
+            "name": "Fictional Oriole Systems",
+            "facts": [
+              {
+                "id": "scale",
+                "source_id": "company",
+                "quote": "Its recorded scale is large.",
+                "verification_status": "verified"
+              },
+              {
+                "id": "stage",
+                "source_id": "company",
+                "quote": "Its recorded stage is established.",
+                "verification_status": "verified"
+              },
+              {
+                "id": "delivery",
+                "source_id": "company",
+                "quote": "Its delivery model is product.",
+                "verification_status": "verified"
+              },
+              {
+                "id": "workflow",
+                "source_id": "company",
+                "quote": "It maintains workflow tools for fictional organizations.",
+                "verification_status": "verified"
+              }
+            ],
+            "scale": {
+              "value": "large",
+              "evidence_ids": [
+                "scale"
+              ]
+            },
+            "stage": {
+              "value": "established",
+              "evidence_ids": [
+                "stage"
+              ]
+            },
+            "delivery_model": {
+              "value": "product",
+              "evidence_ids": [
+                "delivery"
+              ]
+            }
+          },
+          "voice_examples": [
+            {
+              "id": "v-answer",
+              "source_id": "voice",
+              "quote": "I usually explain the constraint first, then what I tried and what I would check next.",
+              "language": "en",
+              "genre": "application_answer",
+              "authorship": "user",
+              "user_approved": false,
+              "usage": "style_only"
+            }
+          ],
+          "resume_positioning": [
+            {
+              "source_id": "resume",
+              "text": "Positioning: frontend, applied AI, product discovery, and simulated delivery.",
+              "usage": "positioning_only"
+            }
+          ],
+          "diagnostics": {
+            "excluded_candidate_evidence": [
+              {
+                "evidence": {
+                  "id": "python",
+                  "source_id": "candidate",
+                  "quote": "Built a Python retrieval prototype and documented a validation checklist.",
+                  "status": "confirmed",
+                  "tags": [
+                    "Python",
+                    "retrieval",
+                    "validation"
+                  ],
+                  "boundaries": [
+                    "All work described here is synthetic student-project evidence.",
+                    "A prototype, not a deployed AI service."
+                  ]
+                },
+                "reason": "no_direct_relevance"
+              },
+              {
+                "evidence": {
+                  "id": "research",
+                  "source_id": "candidate",
+                  "quote": "Interviewed synthetic project testers and grouped observations into a prioritized backlog.",
+                  "status": "confirmed",
+                  "tags": [
+                    "research",
+                    "product",
+                    "prioritization"
+                  ],
+                  "boundaries": [
+                    "All work described here is synthetic student-project evidence.",
+                    "Testers were classmates, not paying customers."
+                  ]
+                },
+                "reason": "no_direct_relevance"
+              },
+              {
+                "evidence": {
+                  "id": "trial",
+                  "source_id": "candidate",
+                  "quote": "Ran a controlled prototype trial with six invited classmates and collected usability feedback.",
+                  "status": "confirmed",
+                  "tags": [
+                    "trial",
+                    "feedback",
+                    "validation"
+                  ],
+                  "boundaries": [
+                    "All work described here is synthetic student-project evidence.",
+                    "Controlled trial is not adoption, retention, revenue, or customer growth."
+                  ]
+                },
+                "reason": "no_direct_relevance"
+              },
+              {
+                "evidence": {
+                  "id": "client",
+                  "source_id": "candidate",
+                  "quote": "Translated a simulated client brief into acceptance checks and a handover guide.",
+                  "status": "confirmed",
+                  "tags": [
+                    "client",
+                    "acceptance",
+                    "handover"
+                  ],
+                  "boundaries": [
+                    "All work described here is synthetic student-project evidence.",
+                    "Simulated brief, not paid consultancy or real client deployment."
+                  ]
+                },
+                "reason": "no_direct_relevance"
+              },
+              {
+                "evidence": {
+                  "id": "approval",
+                  "source_id": "candidate",
+                  "quote": "Deployment approval remains unconfirmed.",
+                  "status": "conditional",
+                  "tags": [
+                    "deployment"
+                  ],
+                  "boundaries": [
+                    "All work described here is synthetic student-project evidence."
+                  ]
+                },
+                "reason": "status_conditional"
+              }
+            ],
+            "excluded_voice_examples": [
+              {
+                "example": {
+                  "id": "v-cover",
+                  "source_id": "voice",
+                  "quote": "The practical part of this work interests me: making a small system clear enough for someone else to use.",
+                  "language": "en",
+                  "genre": "cover_letter",
+                  "authorship": "user",
+                  "user_approved": false
+                },
+                "reason": "genre_mismatch"
+              }
+            ],
+            "unverified_company_facts": [],
+            "unverified_company_attributes": [],
+            "missing": [],
+            "voice_status": "calibrated"
+          }
+        },
+        "context_digest": "9535a5e0eb36185476910dfeac234c205668690c5565b6a32a61fe8fd6fdf2de",
+        "draft": {
+          "text": "I improved React dashboard performance by 47%.",
+          "claims": [
+            {
+              "text": "I improved React dashboard performance by 47%.",
+              "kind": "candidate",
+              "evidence_ids": [
+                "react"
+              ]
+            }
+          ],
+          "missing_facts": []
+        },
+        "validation": {
+          "passed": true,
+          "errors": []
+        },
+        "review": null,
+        "status": "reviewed_draft",
+        "authority": "none",
+        "submission_ready": false,
+        "review_scope": "model_semantics_and_deterministic_contracts_not_submission_admission"
+      },
+      "provenance": {
+        "kind": "synthetic_adversarial_fixture",
+        "model": "none"
+      }
+    },
+    {
+      "case_id": "q-applied_ai-fit",
+      "variant": "new",
+      "context_input_digest": "04355117c559d108a8464fd3913500d95a753848b4912b6ee3e1051acc0121bf",
+      "task_input_digest": "ff5aba1e5a76332265e3dd695fc2a575f91515d806cb3492ba35f07b2c9ed7b2",
+      "artifact": {
+        "schema_version": 1,
+        "genre": "application_answer",
+        "revision_id": "00000000-0000-4000-8000-000000000002",
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "previous_revision": null,
+        "text": "I usually explain the constraint first, then what I tried and what I would check next.",
+        "text_digest": "0590b540c9a7fe9f7db756ee9db8569d1cd4edac2bf5f13bceadfce821dfa9e2",
+        "task": {
+          "job_id": "synthetic-applied_ai",
+          "question_id": "q_0640268011ba5e5889a3a8b1b5ddcd34a5d4a4526fc3e290d62f53fb5f53612a",
+          "question_revision": "a6e957456ea9e9bd9e191288853cb06cb8e47541878ce097b90539bb91c71149",
+          "question": {
+            "schema_version": 1,
+            "job_id": "synthetic-applied_ai",
+            "page_id": "synthetic-questions",
+            "field_key": "fit",
+            "text": "How does your Python retrieval prototype prepare you for applied AI validation?",
+            "help_text": "",
+            "language": "en",
+            "required": true,
+            "options": [],
+            "constraints": [],
+            "section_path": [],
+            "unresolved_instructions": [],
+            "text_sources": [],
+            "completeness": "partial",
+            "coverage": {
+              "scope": "unknown",
+              "page_only": true,
+              "whole_form": "unknown"
+            },
+            "question_id": "q_0640268011ba5e5889a3a8b1b5ddcd34a5d4a4526fc3e290d62f53fb5f53612a",
+            "revision": "a6e957456ea9e9bd9e191288853cb06cb8e47541878ce097b90539bb91c71149"
+          },
+          "route": "application_answer",
+          "intents": [
+            "technical"
+          ],
+          "parts": [
+            "How does your Python retrieval prototype prepare you for applied AI validation?"
+          ],
+          "language": "en",
+          "constraints": [],
+          "recipes": [
+            "Explain the relevant decisions, constraints and tradeoffs at the depth requested, retaining ownership boundaries."
+          ],
+          "role_signals": [
+            "early_delivery_and_iteration"
+          ],
+          "company_context_rule": "Company scale, stage and delivery model are separate, sourced context. Actual question and JD signals decide emphasis; no size-based stereotypes.",
+          "selected_evidence_ids": [
+            "python",
+            "trial",
+            "react"
+          ],
+          "siblings": []
+        },
+        "context_snapshot": {
+          "schema_version": 1,
+          "snapshot_digest": "04355117c559d108a8464fd3913500d95a753848b4912b6ee3e1051acc0121bf",
+          "sources": [
+            {
+              "id": "candidate",
+              "kind": "project_evidence",
+              "text": "Implemented keyboard navigation and error states for a React dashboard prototype.\nBuilt a Python retrieval prototype and documented a validation checklist.\nInterviewed synthetic project testers and grouped observations into a prioritized backlog.\nRan a controlled prototype trial with six invited classmates and collected usability feedback.\nOwned frontend screens within a student team; another teammate implemented authentication.\nTranslated a simulated client brief into acceptance checks and a handover guide.\nDeployment approval remains unconfirmed.",
+              "boundaries": [
+                "All work described here is synthetic student-project evidence."
+              ]
+            },
+            {
+              "id": "jd",
+              "kind": "jd",
+              "text": "Applied AI Intern. Build Python retrieval prototypes. Evaluate AI output with validation checklists. Iterate after user feedback.",
+              "boundaries": []
+            },
+            {
+              "id": "company",
+              "kind": "company",
+              "text": "Fictional Emberseed Lab is a wholly fictional benchmark employer. Its recorded scale is small. Its recorded stage is early. Its delivery model is product. It maintains workflow tools for fictional organizations.",
+              "boundaries": []
+            },
+            {
+              "id": "voice",
+              "kind": "voice",
+              "text": "I usually explain the constraint first, then what I tried and what I would check next.\nThe practical part of this work interests me: making a small system clear enough for someone else to use.",
+              "boundaries": []
+            }
+          ],
+          "candidate_evidence": [
+            {
+              "id": "python",
+              "source_id": "candidate",
+              "quote": "Built a Python retrieval prototype and documented a validation checklist.",
+              "status": "confirmed",
+              "tags": [
+                "Python",
+                "retrieval",
+                "validation"
+              ],
+              "boundaries": [
+                "All work described here is synthetic student-project evidence.",
+                "A prototype, not a deployed AI service."
+              ]
+            },
+            {
+              "id": "trial",
+              "source_id": "candidate",
+              "quote": "Ran a controlled prototype trial with six invited classmates and collected usability feedback.",
+              "status": "confirmed",
+              "tags": [
+                "trial",
+                "feedback",
+                "validation"
+              ],
+              "boundaries": [
+                "All work described here is synthetic student-project evidence.",
+                "Controlled trial is not adoption, retention, revenue, or customer growth."
+              ]
+            },
+            {
+              "id": "react",
+              "source_id": "candidate",
+              "quote": "Implemented keyboard navigation and error states for a React dashboard prototype.",
+              "status": "confirmed",
+              "tags": [
+                "React",
+                "frontend",
+                "accessibility"
+              ],
+              "boundaries": [
+                "All work described here is synthetic student-project evidence.",
+                "Prototype only; no production deployment or performance measurement."
+              ]
+            }
+          ],
+          "role": {
+            "job_id": "synthetic-applied_ai",
+            "title": "Applied AI Intern",
+            "company_name": "Fictional Emberseed Lab",
+            "jd_source_id": "jd",
+            "language": "en",
+            "requirements": [
+              {
+                "id": "requirements",
+                "source_id": "jd",
+                "quote": "Build Python retrieval prototypes. Evaluate AI output with validation checklists. Iterate after user feedback."
+              }
+            ],
+            "responsibilities": []
+          },
+          "company": {
+            "name": "Fictional Emberseed Lab",
+            "facts": [
+              {
+                "id": "scale",
+                "source_id": "company",
+                "quote": "Its recorded scale is small.",
+                "verification_status": "verified"
+              },
+              {
+                "id": "stage",
+                "source_id": "company",
+                "quote": "Its recorded stage is early.",
+                "verification_status": "verified"
+              },
+              {
+                "id": "delivery",
+                "source_id": "company",
+                "quote": "Its delivery model is product.",
+                "verification_status": "verified"
+              },
+              {
+                "id": "workflow",
+                "source_id": "company",
+                "quote": "It maintains workflow tools for fictional organizations.",
+                "verification_status": "verified"
+              }
+            ],
+            "scale": {
+              "value": "small",
+              "evidence_ids": [
+                "scale"
+              ]
+            },
+            "stage": {
+              "value": "early",
+              "evidence_ids": [
+                "stage"
+              ]
+            },
+            "delivery_model": {
+              "value": "product",
+              "evidence_ids": [
+                "delivery"
+              ]
+            }
+          },
+          "voice_examples": [
+            {
+              "id": "v-answer",
+              "source_id": "voice",
+              "quote": "I usually explain the constraint first, then what I tried and what I would check next.",
+              "language": "en",
+              "genre": "application_answer",
+              "authorship": "user",
+              "user_approved": false,
+              "usage": "style_only"
+            }
+          ],
+          "resume_positioning": [
+            {
+              "source_id": "resume",
+              "text": "Positioning: frontend, applied AI, product discovery, and simulated delivery.",
+              "usage": "positioning_only"
+            }
+          ],
+          "diagnostics": {
+            "excluded_candidate_evidence": [
+              {
+                "evidence": {
+                  "id": "research",
+                  "source_id": "candidate",
+                  "quote": "Interviewed synthetic project testers and grouped observations into a prioritized backlog.",
+                  "status": "confirmed",
+                  "tags": [
+                    "research",
+                    "product",
+                    "prioritization"
+                  ],
+                  "boundaries": [
+                    "All work described here is synthetic student-project evidence.",
+                    "Testers were classmates, not paying customers."
+                  ]
+                },
+                "reason": "no_direct_relevance"
+              },
+              {
+                "evidence": {
+                  "id": "team",
+                  "source_id": "candidate",
+                  "quote": "Owned frontend screens within a student team; another teammate implemented authentication.",
+                  "status": "confirmed",
+                  "tags": [
+                    "ownership",
+                    "frontend",
+                    "collaboration"
+                  ],
+                  "boundaries": [
+                    "All work described here is synthetic student-project evidence.",
+                    "Do not claim the authentication work or sole ownership of the whole system."
+                  ]
+                },
+                "reason": "no_direct_relevance"
+              },
+              {
+                "evidence": {
+                  "id": "client",
+                  "source_id": "candidate",
+                  "quote": "Translated a simulated client brief into acceptance checks and a handover guide.",
+                  "status": "confirmed",
+                  "tags": [
+                    "client",
+                    "acceptance",
+                    "handover"
+                  ],
+                  "boundaries": [
+                    "All work described here is synthetic student-project evidence.",
+                    "Simulated brief, not paid consultancy or real client deployment."
+                  ]
+                },
+                "reason": "no_direct_relevance"
+              },
+              {
+                "evidence": {
+                  "id": "approval",
+                  "source_id": "candidate",
+                  "quote": "Deployment approval remains unconfirmed.",
+                  "status": "conditional",
+                  "tags": [
+                    "deployment"
+                  ],
+                  "boundaries": [
+                    "All work described here is synthetic student-project evidence."
+                  ]
+                },
+                "reason": "status_conditional"
+              }
+            ],
+            "excluded_voice_examples": [
+              {
+                "example": {
+                  "id": "v-cover",
+                  "source_id": "voice",
+                  "quote": "The practical part of this work interests me: making a small system clear enough for someone else to use.",
+                  "language": "en",
+                  "genre": "cover_letter",
+                  "authorship": "user",
+                  "user_approved": false
+                },
+                "reason": "genre_mismatch"
+              }
+            ],
+            "unverified_company_facts": [],
+            "unverified_company_attributes": [],
+            "missing": [],
+            "voice_status": "calibrated"
+          }
+        },
+        "context_digest": "32fd487977bbeaf2c05245722bb147d55d4974a8785941c25b8145c37b318ead",
+        "draft": {
+          "text": "I usually explain the constraint first, then what I tried and what I would check next.",
+          "claims": [
+            {
+              "text": "I usually explain the constraint first, then what I tried and what I would check next.",
+              "kind": "candidate",
+              "evidence_ids": [
+                "v-answer"
+              ]
+            }
+          ],
+          "missing_facts": []
+        },
+        "validation": {
+          "passed": true,
+          "errors": []
+        },
+        "review": null,
+        "status": "reviewed_draft",
+        "authority": "none",
+        "submission_ready": false,
+        "review_scope": "model_semantics_and_deterministic_contracts_not_submission_admission"
+      },
+      "provenance": {
+        "kind": "synthetic_adversarial_fixture",
+        "model": "none"
+      }
+    }
+  ]
+}

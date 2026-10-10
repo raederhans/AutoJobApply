@@ -130,6 +130,75 @@ export async function observeForm(tab) {
         disabled: button.disabled === true || button.getAttribute('aria-disabled') === 'true' };
     };
     const nodes = elements.filter(el => el.matches('input, textarea, select, [role="combobox"]'));
+    const visibleQuestionText = element => {
+      if (element.nodeType === 3) return element.textContent || '';
+      if (element.nodeType !== 1 || element.matches('input,textarea,select,[role="combobox"]')) return '';
+      if ((element.tagName !== 'SLOT' && !element.getClientRects().length) || getComputedStyle(element).visibility === 'hidden') return '';
+      const assigned = element.tagName === 'SLOT' ? element.assignedNodes({ flatten: true }) : [];
+      return [...(assigned.length ? assigned : element.childNodes)].map(visibleQuestionText).join('');
+    };
+    // Writing metadata is lossless and independent of the bounded fill identity.
+    const rawQuestionText = element => {
+      if (element.nodeType === 3) return element.textContent || '';
+      if (element.nodeType !== 1 || element.matches('input,textarea,select,[role="combobox"]')) return '';
+      const assigned = element.tagName === 'SLOT' ? element.assignedNodes({ flatten: true }) : [];
+      return [...(assigned.length ? assigned : element.childNodes)].map(rawQuestionText).join('');
+    };
+    const questionMetadata = (el, fieldKey) => {
+      const root = el.getRootNode();
+      const sources = [];
+      let complete = true;
+      const add = (source, text) => { if (text) sources.push({ source, text: String(text) }); };
+      const references = attribute => (el.getAttribute(attribute) || '').split(/\s+/).filter(Boolean).map(id => {
+        const matches = [...root.querySelectorAll('[id]')].filter(node => node.id === id);
+        if (matches.length !== 1) { complete = false; sources.push({ source: `${attribute}:${id}`, text: '' }); return ''; }
+        const text = rawQuestionText(matches[0]);
+        add(`${attribute}:${id}`, text);
+        return text;
+      });
+      add('aria-label', el.getAttribute('aria-label'));
+      const named = references('aria-labelledby');
+      for (const label of el.labels || []) add('label', rawQuestionText(label));
+      const question = el.closest('.application-question, .form-group, [data-qa*="field"], [class*="form-item"]');
+      if (question && question.querySelectorAll('input,textarea,select,[role="combobox"]').length === 1) {
+        for (const label of question.querySelectorAll('.application-label,label')) add('scoped_label', visibleQuestionText(label));
+      }
+      const text = el.getAttribute('aria-label') || named.filter(Boolean).join(' ') ||
+        sources.find(item => ['label', 'scoped_label'].includes(item.source))?.text || '';
+      const described = references('aria-describedby');
+      const hints = question && question.querySelectorAll('input,textarea,select,[role="combobox"]').length === 1
+        ? [...question.querySelectorAll('[class*="help"],[class*="hint"],[class*="description"],.application-instructions')]
+          .map(node => visibleQuestionText(node)).filter(Boolean) : [];
+      const help = [...new Set([...described.filter(Boolean), ...hints])];
+      for (const hint of hints) add('visible_instruction', hint);
+      const sections = [];
+      for (let owner = el.parentElement; owner; owner = owner.parentElement) {
+        if (!owner.matches('fieldset,[role="group"],section')) continue;
+        const legend = [...owner.children].find(node => node.matches('legend,h1,h2,h3,h4,h5,h6'));
+        const ownerRoot = owner.getRootNode();
+        const named = (owner.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean)
+          .map(id => [...ownerRoot.querySelectorAll('[id]')].filter(node => node.id === id))
+          .filter(matches => matches.length === 1).map(matches => rawQuestionText(matches[0])).join(' ');
+        const value = owner.getAttribute('aria-label') || named || (legend ? rawQuestionText(legend) : '');
+        if (value) sections.unshift(String(value));
+      }
+      const constraints = [];
+      if (el.matches('textarea,input:not([type]),input[type="text"],input[type="search"],input[type="url"],input[type="tel"],input[type="email"],input[type="password"]')) {
+        for (const [attribute, kind] of [['maxlength', 'max'], ['minlength', 'min']]) {
+          const value = el.getAttribute(attribute);
+          const nativeValue = attribute === 'maxlength' ? el.maxLength : el.minLength;
+          if (value !== null && /^\d+$/.test(value) && Number.isSafeInteger(nativeValue) && nativeValue >= 0) {
+            constraints.push({ kind, unit: 'utf16', value: nativeValue, source: `native:${attribute}` });
+          }
+        }
+      }
+      return { field_key: fieldKey, text: text || String(el.placeholder || el.name || el.id || ''),
+        help_text: help.join('\n'), text_sources: sources, constraints, section_path: sections,
+        language: el.closest('[lang]')?.getAttribute('lang') || document.documentElement.lang || 'unknown',
+        completeness: complete && !!text ? 'known' : 'partial',
+        ...(el.tagName === 'SELECT' ? { options: [...el.options].map(option => ({ value: option.value,
+          label: option.label, disabled: option.disabled || option.parentElement?.disabled === true })) } : {}) };
+    };
     const fields = [];
     let protectedCount = 0;
     for (const el of nodes) {
@@ -221,6 +290,7 @@ export async function observeForm(tab) {
       const peers = control === 'radio' ? elements.filter(peer => peer.matches('input[type="radio"]') &&
         rootFor.get(peer) === root && formOwner(peer) === owner && peer.name === el.name) : [];
       fields.push({ field_key: key, selector: key, label, group: groupLabel,
+        application_question: questionMetadata(el, key),
         group_key: group ? selectorFor(group) : '', control,
         native_tag: el.tagName.toLowerCase(), multiple: multiple ||
           (control === 'combobox' && !!el.closest('.select__value-container')?.querySelector('.select__multi-value')),
@@ -252,6 +322,8 @@ export async function observeForm(tab) {
         field.radio_group.peer_keys.every(key => fields.filter(f => f.field_key === key && f.control === 'radio').length === 1);
     }
     return { page_url: location.href, fields, protected_count: protectedCount,
+      question_coverage: { scope: 'visible_top_document_open_shadow', page_only: true, whole_form: 'unknown',
+        iframe_count: elements.filter(el => el.tagName === 'IFRAME').length, fields_truncated: false },
       coverage: { scope: 'visible_top_document_open_shadow', open_shadow_count: roots.length - 1,
         iframe_count: elements.filter(el => el.tagName === 'IFRAME').length } };
   });

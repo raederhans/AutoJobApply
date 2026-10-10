@@ -49,9 +49,10 @@ function domNode(tag, attributes = {}, children = [], text = '') {
 
 function observedDomTab(children) {
   const html = domNode('html', {}, [domNode('body', {}, children)]);
-  const document = { children: [html], querySelectorAll: selector => [
+  const document = { children: [html], documentElement: html, querySelectorAll: selector => [
     ...(html.matches(selector) ? [html] : []), ...html.querySelectorAll(selector),
   ], getElementById(id) { return this.querySelectorAll(`[id="${id}"]`)[0] || null; } };
+  for (const node of document.querySelectorAll('*')) node.getRootNode = () => document;
   const writes = [];
   return { writes, tab: { playwright: {
     evaluate: async fn => structuredClone(vm.runInNewContext(`(${fn.toString()})()`, {
