@@ -6,6 +6,7 @@ import json
 import sqlite3
 
 import pytest
+from rich.text import Text
 from test_career_evidence_model import evidence_registry
 from test_career_import import make_bundle
 from test_career_service import invoke
@@ -213,7 +214,7 @@ def test_mutation_cli_requires_expected_revision_before_opening_workspace(tmp_pa
         else:
             args += ["--review", str(review), "--review-key", "key"]
     error = invoke(workspace, command, *args, code=2)
-    assert "expected-revision" in error
+    assert "expected-revision" in Text.from_ansi(error).plain
     assert not workspace.exists()
 
 
