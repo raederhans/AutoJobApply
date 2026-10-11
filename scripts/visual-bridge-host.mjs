@@ -6,7 +6,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { observeForm, changedFields, structureChanges, operateObservedControl, ControlNotReady } from './browser-form-state.mjs';
-import { operateFieldBatch } from './browser-field-batch.mjs';
+import { operateFieldBatch, fieldBatchChanges } from './browser-field-batch.mjs';
 import { BridgeMetrics, canReuseActionReadback, observationCoverage, observationSizes,
   queueWaitMs } from './browser-observation-feedback.mjs';
 
@@ -303,15 +303,19 @@ export function browserAdapter(tab, { artifacts = {}, reuseFormObservations = fa
         }
         if (lastBatchResult?.status === 'verified' && lastBatchObservation) {
           const state = f => JSON.stringify([f?.selector, f?.label, f?.control, f?.dom_identity, f?.value, f?.options]);
-          const stable = lastBatchObservation.page_url === formSnapshot.page_url &&
-            !structureChanges(lastBatchObservation, formSnapshot).changed &&
+          // No active-field exemption after the batch: parsing, validation or
+          // record/coverage changes can invalidate any previous dependency.
+          const changes = fieldBatchChanges(lastBatchObservation, formSnapshot);
+          const stable = !changes.changed &&
             lastBatchResult.results.every(r => {
               const current = formSnapshot.fields.find(f => f.field_key === r.field_key);
               return current && current.value_source !== 'unavailable' &&
                 state(current) === state(lastBatchObservation.fields.find(f => f.field_key === r.field_key));
             });
           if (!stable) lastBatchResult = { ...lastBatchResult, status: 'parked',
-            reason: 'delayed_readback_changed', reobserve_required: true };
+            reason: 'delayed_readback_changed', reobserve_required: true,
+            structure_changes: changes.structure_changes,
+            dependency_changes: changes.dependency_changes };
         }
         content.push(text({ form_state: formSnapshot,
           changed_fields: changedFields(previous, formSnapshot),

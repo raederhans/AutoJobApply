@@ -49,6 +49,18 @@ function changedValues(before, after, activeFieldKey) {
     value(f) !== value(current.get(f.field_key) || {}));
 }
 
+/** Shared pre-input/readback/Host-refresh comparison; no observation or authority.
+ * activeFieldKey is used only around that control's own write. A later Host
+ * refresh supplies no active field: all previously verified dependencies count.
+ */
+export function fieldBatchChanges(before, after, activeFieldKey) {
+  const structural = structureChanges(before, after);
+  const dependencies = dependencyChanges(before, after, activeFieldKey);
+  return { changed: structural.changed || dependencies.changed ||
+      shape(before) !== shape(after) || changedValues(before, after, activeFieldKey),
+    structure_changes: structural, dependency_changes: dependencies };
+}
+
 export function validateFieldBatch(snapshot, steps) {
   if (!snapshot || !Array.isArray(steps) || steps.length < 1 || steps.length > 4) {
     throw new ControlNotReady('Field batch requires an observation and one to four routine fields');
@@ -84,11 +96,10 @@ export async function operateFieldBatch(tab, snapshot, steps, operate = operateO
     try {
       result = await operate(tab, current, step.operation,
         { field_key: step.field_key, value: step.value }, fresh => {
-          const dependencies = dependencyChanges(current, fresh);
-          if (dependencies.changed || structureChanges(current, fresh).changed ||
-              shape(current) !== shape(fresh) || changedValues(current, fresh)) {
+          const changes = fieldBatchChanges(current, fresh);
+          if (changes.changed) {
             rejectedObservation = fresh;
-            rejectedDependencies = dependencies;
+            rejectedDependencies = changes.dependency_changes;
             throw new ControlNotReady('Batch dependencies changed; observe again before input');
           }
         });
@@ -101,10 +112,8 @@ export async function operateFieldBatch(tab, snapshot, steps, operate = operateO
     }
     const { observation: after, ...report } = result;
     results.push(report);
-    const structural = structureChanges(current, after);
-    const dependencies = dependencyChanges(current, after, step.field_key);
-    const unexpectedChange = structural.changed || dependencies.changed ||
-      shape(current) !== shape(after) || changedValues(current, after, step.field_key);
+    const { changed: unexpectedChange, structure_changes: structural,
+      dependency_changes: dependencies } = fieldBatchChanges(current, after, step.field_key);
     current = after;
     if (report.persisted !== true || report.invalid === true || unexpectedChange) {
       return { observation: current, batch_result: { status: 'parked', completed: results.length,
