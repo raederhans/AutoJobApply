@@ -19,6 +19,7 @@ import sys
 import threading
 import time
 from collections import defaultdict
+from itertools import pairwise
 from pathlib import Path
 from uuid import uuid4
 
@@ -197,7 +198,7 @@ def model_decision(payload, timeout):
         raise RuntimeError("model driver unavailable")
     data = json.loads(result.stdout)
     if not isinstance(data, dict):
-        raise ValueError("invalid model envelope")
+        raise TypeError("invalid model envelope")
     return data
 
 
@@ -333,6 +334,8 @@ def run_trial(task, arm, cohort, config, memory, *, environment, decide=model_de
             finally:
                 record["decision_wall_ms"] = (time.monotonic() - started) * 1000
             usages.append(reply.get("usage"))
+            provider_ms = reply.get("provider_ms")
+            record["provider_ms"] = provider_ms if type(provider_ms) in {int, float} and math.isfinite(provider_ms) and provider_ms >= 0 else None
             if driver_mode == "live_model" and (reply.get("model") != config["model"] or reply.get("binding") != config["binding"]):
                 reason = "configuration_drift"
                 break
@@ -401,7 +404,8 @@ def run_trial(task, arm, cohort, config, memory, *, environment, decide=model_de
         raise RuntimeError("frozen memory changed during evaluation")
     elapsed_ms = (time.monotonic() - start) * 1000
     complete = oracle.get("complete") is True if oracle else False
-    correct_handoff = bool(oracle and oracle.get("expected_handoff") and terminal == oracle["expected_handoff"])
+    correct_handoff = bool(oracle and oracle.get("expected_handoff") and terminal == oracle["expected_handoff"]
+                           and oracle.get("substantive_errors") == 0 and not unknown)
     autonomous = bool(task["completable"] and terminal == "ready" and complete and not unknown and not assisted)
     false_ready = (not complete) if oracle and terminal == "ready" else None if terminal == "ready" else False
     if train_store and oracle and not unknown:
@@ -410,7 +414,7 @@ def run_trial(task, arm, cohort, config, memory, *, environment, decide=model_de
             duplicate_verified = report.get("reason") == "ambiguous_target_option" and oracle.get("expected_handoff") == "blocked" and not oracle.get("collateral_errors")
             checked = complete if report.get("status") == "verified" else bool(symptom_verified or duplicate_verified)
             try:
-                train_store.record_outcome(before, plan, report, run_ref=run_id, verify=lambda: checked)
+                train_store.record_outcome(before, plan, report, run_ref=run_id, verify=lambda checked=checked: checked)
             except (TypeError, ValueError):
                 pass  # Unsupported/ambiguous evidence is not a learnable procedure.
     return {"schema_version": "interactive-preparation-evaluation/v1", "run_id": run_id,
@@ -491,7 +495,7 @@ def paired_comparisons(results):
                     raise ValueError("non-equivalent paired " + key)
             if any(row["termination_reason"] == "configuration_drift" for row in pair.values()):
                 raise ValueError("model configuration drift invalidates comparison")
-        for left, right in zip(ARMS, ARMS[1:]):
+        for left, right in pairwise(ARMS):
             clusters = defaultdict(list)
             for pair in pairs.values():
                 a, b = pair[left], pair[right]
@@ -589,7 +593,7 @@ def main():
         return
     try:
         probe = model_decision({"config": config, "probe": True}, 15)
-    except (RuntimeError, TimeoutError, ValueError):
+    except (RuntimeError, TimeoutError, TypeError, ValueError):
         manifest.update(status="not_run", reason="configured_model_driver_unavailable")
         (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
         print(json.dumps({"status": "not_run", "reason": "configured_model_driver_unavailable", "model_calls": 0}))

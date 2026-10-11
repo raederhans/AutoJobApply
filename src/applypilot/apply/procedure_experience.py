@@ -67,7 +67,7 @@ def _parse(raw: str) -> ProcedureTemplate:
     if not isinstance(data, dict) or set(data) != set(ProcedureTemplate.__dataclass_fields__):
         raise ValueError("invalid procedure template")
     if not isinstance(data["controls"], list) or not isinstance(data["negative_conditions"], list):
-        raise ValueError("invalid procedure lists")
+        raise TypeError("invalid procedure lists")
     return ProcedureTemplate(**{**data, "controls": tuple(data["controls"]),
                                 "negative_conditions": tuple(data["negative_conditions"])})
 
@@ -125,7 +125,7 @@ class ProcedureExperienceStore(RecipeExperienceStore):
         A failed independent check invalidates an existing lesson; it never promotes.
         """
         if not isinstance(report, Mapping) or not callable(verify):
-            raise ValueError("host result and independent verifier required")
+            raise TypeError("host result and independent verifier required")
         if (not isinstance(run_ref, str) or not run_ref.strip() or len(run_ref) > 400
                 or type(report.get("actions")) is not int or not 0 <= report["actions"] <= 8):
             raise ValueError("bounded execution identity and action evidence required")

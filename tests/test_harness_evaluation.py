@@ -219,3 +219,14 @@ def test_cleanup_failure_retains_independently_scored_trial():
     assert result["cleanup_failed"] is True
     assert result["oracle_available"] is True
     assert summarize([result])[0]["trials"] == 1
+
+
+def test_a_handoff_after_wrong_writes_is_not_a_correct_handoff():
+    class WrongBeforeHandoff(Environment):
+        def call(self, method, **kwargs):
+            result = super().call(method, **kwargs)
+            if method == "oracle":
+                result.update(expected_handoff="blocked", substantive_errors=1)
+            return result
+    result = trial(WrongBeforeHandoff(), {"operation": "finish", "arguments": {"status": "blocked"}})
+    assert result["correct_handoff"] is False

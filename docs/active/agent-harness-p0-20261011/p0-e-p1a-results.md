@@ -131,7 +131,9 @@ employer, page-family and task splits are checked before execution.
 
 For production worker hints, the attending process can explicitly set the absolute
 `APPLYPILOT_PROCEDURE_MEMORY_DB` path to its validated private procedure database before
-starting the existing visual bridge MCP. With no setting, behavior is unchanged.
+starting the existing visual bridge MCP. Use a dedicated procedure database: the
+legacy routine-store writer retains its original eviction policy and must not share
+this live write destination. With no setting, behavior is unchanged.
 The MCP adds bounded procedure_advice to successful same-session/epoch IAB preparation
 observations only. It does not approve requests, select facts, change outcomes, write
 experience from worker claims or issue browser input. Corrupt/unavailable optional
@@ -152,7 +154,7 @@ Local command:
 
 ```text
 PYTHONPATH=src python -m pytest -q tests/test_procedure_experience.py tests/test_harness_evaluation.py -m 'not browser' -k 'not mcp'
-61 passed, 3 deselected
+62 passed, 3 deselected
 ```
 
 The three exclusions are the actual Chromium pipeline test and two full-repository
@@ -167,3 +169,16 @@ No model service is configured in this execution environment. Therefore **no liv
 ablation, real ATS completion improvement, time/cost saving or successful autonomous
 recovery rate is claimed**. E's runnable machinery and deterministic/DOM regression
 evidence are distinct from the still-required empirical live-model result.
+
+
+## Review corrections
+
+The first E/P1-A CI run (`38144884438`, head `6cd78a0`) stopped the core
+lane at five lint findings. Type exceptions, successive-pair iteration and
+loop-variable capture were corrected without changing lint configuration.
+A separately reproduced grading bug allowed a requested handoff after wrong
+final values to count as correct. Correct handoff now also requires no
+independently observed substantive error and no unknown effect. The added
+regression failed before correction and passes afterwards. Optional provider
+wall time is retained separately; unavailable cache usage keeps cost unknown.
+The final exact-head CI result is recorded in the PR conversation.
