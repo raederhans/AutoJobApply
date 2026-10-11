@@ -102,6 +102,7 @@ def _empty_dashboard(system: dict[str, Any]) -> dict[str, Any]:
         "followup": _empty_followup(),
         "progress": {"state": "unavailable" if system["state"] == "error" else "not_initialized",
                      "applications": [], "sources": [], "pending_count": 0},
+        "careerWorkbench": {"active": False},
     }
 
 
@@ -110,6 +111,31 @@ def _read_only_connection(path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(uri, uri=True)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def _career_workbench_entry(workspace: Path) -> dict[str, Any]:
+    """Expose only a validated active career server for this workspace."""
+    try:
+        from applypilot.career.server import active_instance
+
+        instance = active_instance(workspace)
+    except (ImportError, OSError, ValueError, TypeError, KeyError, RuntimeError):
+        return {"active": False}
+    if not instance:
+        return {"active": False}
+
+    instance_workspace = instance.get("workspace")
+    if not isinstance(instance_workspace, str) or Path(instance_workspace).resolve() != workspace.resolve():
+        return {"active": False}
+    url = instance.get("url")
+    if not isinstance(url, str):
+        return {"active": False}
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+        return {"active": False}
+    return {"active": True, "url": url}
 
 
 def _discover_data(conn: sqlite3.Connection) -> dict[str, Any]:
@@ -376,6 +402,7 @@ def _followup_data(conn: sqlite3.Connection, verify: dict[str, Any]) -> dict[str
 def collect_dashboard_data(conn: sqlite3.Connection | None = None, *, db_path: Path | None = None) -> dict[str, Any]:
     """Read existing opportunity contracts without changing workspace state."""
     owns_connection = conn is None
+    workspace_path = (db_path or DB_PATH).parent if conn is None else None
     if conn is None:
         source_path = db_path or DB_PATH
         if not source_path.is_file():
@@ -530,6 +557,7 @@ def collect_dashboard_data(conn: sqlite3.Connection | None = None, *, db_path: P
         "verify": verify,
         "followup": followup,
         "progress": progress,
+        "careerWorkbench": _career_workbench_entry(workspace_path) if workspace_path else {"active": False},
     }
 
 

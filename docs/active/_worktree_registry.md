@@ -6,6 +6,14 @@
 
 States: `in-progress`, `blocked`, `ready-for-review`, `ready-for-integration`, `integrated`, `abandoned`.
 
+## Career workbench delivery (2026-10-11)
+
+- Worktree: sibling `career-integration-20261011`; branch `codex/career-workbench-20261011`, based on owner `fork/main` at `357e805`.
+- Scope: M1–M4 catalog, evidence, diagnosis, learning/review and local workbench; private runtime materials excluded.
+- State: ready-for-integration after core/host review fixes and local validation; PR CI and remote merge remain the delivery gate.
+- Ownership: primary agent owns Git and integration. The original checkout at `48bec07` contains unrelated WIP and is preserved.
+- Retention: keep the isolated verified checkout after merging until the original checkout's unrelated work is reconciled. Record final remote delivery facts in the local registry without resetting or broadly copying that checkout.
+
 ## Delivery package
 
 - Summary: extracted preflight and submission authority, isolated Runtime Cell shadow ownership, unified compatible SQLite transactions, and introduced atomic ordered top-level migrations.

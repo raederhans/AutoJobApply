@@ -493,6 +493,11 @@
     .page-button:hover { border-color: var(--brand-primary); color: var(--brand-secondary); }
 
     .insights { min-width: 0; padding: 25px 22px; border-left: 1px solid var(--line); background: color-mix(in srgb, var(--surface-sand) 42%, var(--surface-raised)); }
+    .career-workbench-entry { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 20px; padding: 12px 16px; border: 1px solid var(--line-soft); border-radius: 8px; background: color-mix(in srgb, var(--surface-sand) 35%, var(--surface-raised)); }
+    .career-workbench-entry strong { color: var(--text); font-size: 12px; }
+    .career-workbench-entry p { margin: 0; color: var(--muted); font-size: 11px; }
+    .career-workbench-entry a { min-height: 36px; display: inline-flex; align-items: center; color: var(--link); font-size: 11px; font-weight: 650; }
+    .career-workbench-entry [hidden] { display: none !important; }
     .insight-block + .insight-block { margin-top: 34px; padding-top: 28px; border-top: 1px solid var(--line-soft); }
     .followup-board { margin: 18px 0 24px; padding: 16px 18px; border: 1px solid var(--line-soft); border-radius: 10px; background: color-mix(in srgb, var(--surface-sand) 35%, var(--surface-raised)); }
     .followup-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
@@ -817,6 +822,11 @@
         </section>
 
         <section id="decide-panel" role="tabpanel" aria-labelledby="decide-tab">
+          <section class="career-workbench-entry insight-block" data-career-workbench-entry aria-label="职业发展工作台">
+            <strong>职业发展工作台</strong>
+            <p data-career-workbench-message>双击本地的 职业发展工作台.vbs 启动</p>
+            <a data-career-workbench-link hidden target="_blank" rel="noopener noreferrer">打开职业发展工作台</a>
+          </section>
           <div class="metrics" aria-label="Pipeline summary">
             <div class="metric"><strong class="metric-value" id="stat-total">0</strong><span class="metric-label">Eligible roles</span></div>
             <div class="metric"><strong class="metric-value" id="stat-ready">0</strong><span class="metric-label">Ready to review</span></div>
@@ -861,6 +871,11 @@
         </section>
 
         <section id="prepare-panel" role="tabpanel" aria-labelledby="prepare-tab" hidden>
+          <section class="career-workbench-entry insight-block" data-career-workbench-entry aria-label="职业发展工作台">
+            <strong>职业发展工作台</strong>
+            <p data-career-workbench-message>双击本地的 职业发展工作台.vbs 启动</p>
+            <a data-career-workbench-link hidden target="_blank" rel="noopener noreferrer">打开职业发展工作台</a>
+          </section>
           <div class="metrics" aria-label="Preparation summary">
             <div class="metric"><strong class="metric-value" id="prepare-shortlisted">0</strong><span class="metric-label">Shortlisted roles</span></div>
             <div class="metric emphasis"><strong class="metric-value" id="prepare-ready">0</strong><span class="metric-label">Material-ready</span></div>
@@ -981,6 +996,24 @@
     (() => {
       "use strict";
       const data = JSON.parse(document.getElementById("dashboard-data").textContent);
+      const careerWorkbenchUrl = (() => {
+        if (data.careerWorkbench?.active !== true || typeof data.careerWorkbench.url !== "string") return null;
+        try {
+          const url = new URL(data.careerWorkbench.url);
+          return url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
+            ? url.href : null;
+        } catch { return null; }
+      })();
+      document.querySelectorAll("[data-career-workbench-entry]").forEach((entry) => {
+        const message = entry.querySelector("[data-career-workbench-message]");
+        const link = entry.querySelector("[data-career-workbench-link]");
+        if (careerWorkbenchUrl) {
+          message.hidden = true;
+          link.href = careerWorkbenchUrl;
+          link.hidden = false;
+          link.textContent = "Open local career workbench";
+        }
+      });
       const LOCALE_KEY = "applypilot.locale";
       const ZH = {
         "Skip to main content": "跳到主要内容",
@@ -1002,6 +1035,9 @@
         "Private by default": "默认保护隐私",
         "Generated from your local SQLite workspace. No analytics or remote UI assets.": "由本地 SQLite 工作区生成，不含分析追踪或远程界面资源。",
         "Opportunity workbench": "岗位工作台",
+        "Career workbench": "职业发展工作台",
+        "Open local career workbench": "打开职业发展工作台",
+        "Double-click the local Career Workbench.vbs to start.": "双击本地的 职业发展工作台.vbs 启动",
         "Let evidence guide the next step.": "让依据推动下一步。",
         "Review eligible roles, compare fit evidence, and open verified application paths without turning a preview into a submission claim.": "审核符合条件的岗位、比较匹配依据并打开已核验的申请入口，不把预览误报为已投递。",
         "LOCAL SNAPSHOT · NO SYNC": "本地快照 · 未同步",

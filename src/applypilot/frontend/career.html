@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1f3a">
+  <title>Job Apply Pilot · 职业工作台</title>
+  <link rel="stylesheet" href="/career.css">
+  <script src="/career.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到工作区</a>
+  <div class="shell">
+    <aside class="sidebar" aria-label="工作流程">
+      <a class="brand" href="/" aria-label="Job Apply Pilot 职业工作台"><span class="brand-mark" aria-hidden="true">J<span>↗</span></span><span>JOB APPLY PILOT<small>职业工作台</small></span></a>
+      <div class="sidebar-caption">从目标到可回源的产物</div>
+      <nav class="workflow">
+        <button type="button" data-stage="materials" aria-current="step"><span class="step">01</span><span>目标与材料<small>选择岗位，建立证据</small></span></button>
+        <button type="button" data-stage="diagnosis"><span class="step">02</span><span>差距诊断<small>核对条件与材料关联</small></span></button>
+        <button type="button" data-stage="route"><span class="step">03</span><span>学习路线<small>按优先级与前置项推进</small></span></button>
+        <button type="button" data-stage="review"><span class="step">04</span><span>产物与评审<small>逐项观察，保留原句</small></span></button>
+      </nav>
+      <div class="sidebar-bottom"><span class="local-dot"></span>本地工作空间<p id="workspace-label">正在连接…</p><small>书面证据 ≠ 实际能力测量</small></div>
+    </aside>
+    <div class="workspace">
+      <header class="topbar"><div><span class="eyebrow">CAREER WORKBENCH</span><h1 id="page-title">目标与材料</h1></div><button type="button" class="button subtle" id="refresh">刷新数据 <span aria-hidden="true">↻</span></button></header>
+      <main id="main" tabindex="-1">
+        <div id="feedback" role="status" aria-live="polite" hidden></div>
+        <section class="target-strip" aria-label="当前目标"><label for="current-target">当前目标</label><select id="current-target"><option value="">尚未选择目标</option></select><span id="target-context" class="muted">先选择岗位与材料</span></section>
+        <section id="run-region" aria-label="后台运行" hidden></section>
+        <section id="stage-materials" class="stage">
+          <div class="intro"><div><h2>把目标放在证据上。</h2><p>选择一个岗位样本，连接你的简历、项目产物或补充材料。</p></div><span class="section-number" aria-hidden="true">01</span></div>
+          <div class="materials-layout">
+            <section class="panel"><div class="panel-head"><h3>建立分析目标</h3><span class="tag">岗位样本</span></div>
+              <form id="target-form"><label for="company">公司</label><select id="company"><option value="">全部公司</option></select><label for="job">岗位</label><select id="job" required><option value="">请选择岗位</option></select><div id="job-context" class="sample-context"></div><label for="target-label">目标名称 <span class="muted">可选</span></label><input id="target-label" maxlength="160" placeholder="例如：数据分析方向 · 第一轮"><fieldset><legend>用于本次分析的材料</legend><div id="target-materials" class="material-picks"></div></fieldset><p class="hint">岗位记录仅用于条件分析；历史样本不代表当前开放或可投。</p><button type="submit" class="button primary">建立目标 <span aria-hidden="true">→</span></button></form>
+            </section>
+            <section class="panel"><div class="panel-head"><div><h3>材料库</h3><p class="muted">每项材料保留原文和贡献范围</p></div><span id="material-count" class="tag">0 项</span></div><div id="material-library"></div>
+              <details id="import-details" class="import-details"><summary>＋ 添加材料</summary><form id="material-form"><label for="material-file">从文件导入</label><input type="file" id="material-file" accept=".txt,.md,.pdf,text/plain,text/markdown,application/pdf"><p class="hint">支持 TXT、Markdown、PDF，最大 2 MB；也可直接粘贴原文。</p><label for="material-name">材料名称</label><input id="material-name" required maxlength="160" placeholder="项目说明 / 简历 / 任务产物"><label for="material-kind">材料类别</label><select id="material-kind"><option value="project_evidence">项目证据</option><option value="resume">简历</option><option value="generated">生成或练习产物</option></select><label for="material-text">材料原文</label><textarea id="material-text" rows="6" placeholder="粘贴可回源的原文；PDF 导入将由本地服务提取文本。"></textarea><label for="material-claim">这份材料说明了什么</label><input id="material-claim" required placeholder="具体事实或贡献，避免通用能力结论"><label for="material-ownership">本人、团队与工具的贡献</label><input id="material-ownership" required placeholder="说明本人完成的部分及 AI / 团队协助"><label for="material-quote">支持上述说明的原句</label><textarea id="material-quote" rows="3" required placeholder="从材料逐字摘录一段原文"></textarea><button class="button primary" type="submit">保存材料</button></form></details>
+            </section>
+          </div>
+          <section class="panel supplement" id="supplement-panel" hidden><div><h3>为当前目标补充材料</h3><p class="muted">选择本次新增材料，重新核对诊断并衔接路线。</p></div><form id="supplement-form"><fieldset><legend class="sr-only">新增材料</legend><div id="supplement-materials" class="material-picks"></div></fieldset><button type="submit" class="button secondary">补充材料并更新</button></form></section>
+        </section>
+        <section id="stage-diagnosis" class="stage" hidden><div class="intro"><div><h2>先看依据，再看差距。</h2><p>资格条件独立核对；有关联材料并不意味着任务已经通过。</p></div><span class="section-number" aria-hidden="true">02</span></div><div id="diagnosis-content"></div></section>
+        <section id="stage-route" class="stage" hidden><div class="intro"><div><h2>下一步，做一件可验收的事。</h2><p>路线按优先级和前置任务排序，未知时间预算只提供顺序。</p></div><span class="section-number" aria-hidden="true">03</span></div><div id="route-content"></div></section>
+        <section id="stage-review" class="stage" hidden><div class="intro"><div><h2>让每个结论都有原句。</h2><p>提交产物后逐条评审。观察只限当前任务、情境与实际协助。</p></div><span class="section-number" aria-hidden="true">04</span></div><div id="review-content"></div></section>
+        <footer>材料关联、任务观察与通用技能等级分别记录。此工作台不作录用判断。</footer>
+      </main>
+    </div>
+  </div>
+  <dialog id="source-dialog"><div class="dialog-head"><h2 id="source-title">材料原文</h2><button type="button" class="button subtle" data-close="source-dialog">关闭</button></div><pre id="source-text"></pre></dialog>
+  <dialog id="task-dialog"><div class="dialog-head"><h2 id="task-dialog-title">任务操作</h2><button type="button" class="button subtle" data-close="task-dialog">关闭</button></div><div id="task-dialog-content"></div></dialog>
+  <noscript><p class="notice">请启用 JavaScript 以使用本地工作台。</p></noscript>
+</body>
+</html>

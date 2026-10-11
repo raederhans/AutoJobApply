@@ -27,6 +27,9 @@ from applypilot.apply.contracts import (
 from applypilot.config import DB_PATH
 from applypilot.storage import agent_control as _agent_control
 from applypilot.storage import application_ledger as _application_ledger
+from applypilot.storage import career as _career
+from applypilot.storage import career_learning as _career_learning
+from applypilot.storage import career_workbench as _career_workbench
 from applypilot.storage import followup_schema as _followup_schema
 from applypilot.storage import job_identity as _job_identity
 from applypilot.storage import job_stats as _job_stats
@@ -373,6 +376,10 @@ _DATABASE_MIGRATIONS = (
     _establish_current_schema_baseline,
     _posting_lifecycle.ensure_posting_lifecycle_schema,
     _followup_schema.ensure_schema,
+    _career.ensure_schema,
+    _career_learning.ensure_schema,
+    _career_workbench.ensure_schema,
+    _career_workbench.ensure_publication_schema,
 )
 DATABASE_SCHEMA_VERSION = len(_DATABASE_MIGRATIONS)
 
