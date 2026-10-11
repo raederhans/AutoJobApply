@@ -69,14 +69,13 @@ def _profile_source(profile: Mapping, path: object) -> tuple[str, str]:
         kind = _RECORD_ROOTS[root]
     else:
         raise ValueError("unsupported consistency profile authority")
-    if any(isinstance(part, str) and re.search(r"password|secret|token|passport|nric|ssn|bank|salary|sponsor|visa", part, re.I)
+    if any(isinstance(part, str) and re.search(r"password|secret|token|passport|nric|ssn|bank|salary|sponsor|visa", part, re.IGNORECASE)
            for part in path):
         raise ValueError("protected consistency source")
     value = profile
     for part in path:
-        if type(part) is int and part >= 0 and isinstance(value, (list, tuple)) and part < len(value):
-            value = value[part]
-        elif isinstance(part, str) and isinstance(value, Mapping) and part in value:
+        if ((type(part) is int and part >= 0 and isinstance(value, (list, tuple)) and part < len(value))
+                or (isinstance(part, str) and isinstance(value, Mapping) and part in value)):
             value = value[part]
         else:
             raise ValueError("consistency profile source unavailable")
@@ -91,7 +90,7 @@ def _writing_source(source: Mapping, job: Mapping) -> tuple[str, str, dict]:
         raise ValueError("explicit bounded writing artifact.json required")
     artifact = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(artifact, dict):
-        raise ValueError("invalid writing artifact")
+        raise ValueError("invalid writing artifact")  # noqa: TRY004 - attended request validation uses ValueError
     if any(not isinstance(artifact.get(key), dict) for key in ("task", "draft", "validation", "context_snapshot", "review")):
         raise ValueError("invalid writing artifact components")
     task = artifact["task"]
@@ -117,14 +116,14 @@ def _writing_source(source: Mapping, job: Mapping) -> tuple[str, str, dict]:
 
 def resolve_source(source: Mapping, profile: Mapping, job: Mapping, materials: Mapping) -> tuple[str, str, dict]:
     if not isinstance(source, Mapping):
-        raise ValueError("consistency source must be a reference")
+        raise ValueError("consistency source must be a reference")  # noqa: TRY004 - attended request validation uses ValueError
     kind = source.get("kind")
     if kind == "profile" and set(source) == {"kind", "path"}:
         value, record = _profile_source(profile, source["path"])
         return value, record, {}
     if kind == "fact" and set(source) == {"kind", "fact_ref", "scope"}:
-        from applypilot.apply.application_facts import current_profile_facts, resolve_application_fact_ref
         from applypilot.apply.answer_provenance import _scope_token
+        from applypilot.apply.application_facts import current_profile_facts, resolve_application_fact_ref
 
         # Reuse existing scope encoding. Never manufacture a CDP lease for IAB.
         scopes = {"global:*"}

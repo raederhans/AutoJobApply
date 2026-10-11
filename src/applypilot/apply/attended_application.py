@@ -15,8 +15,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from applypilot.apply.application_jobs import revalidate_duplicate_before_submit
 from applypilot.apply.application_consistency import build_contract, check_contract
+from applypilot.apply.application_jobs import revalidate_duplicate_before_submit
 from applypilot.apply.attended_recovery import assess_recovery, episode_barrier, extract_form, summarize_feedback
 from applypilot.apply.authorization import (
     authorize_job,
@@ -109,7 +109,7 @@ def _check_consistency(req, state, job, profile, materials):
     snapshot = req.get("snapshot") or {}
     data = snapshot.get("consistency")
     if not isinstance(data, dict):
-        raise ValueError("bound consistency observation required")
+        raise ValueError("bound consistency observation required")  # noqa: TRY004 - keep the attended validation error contract
     form = data.get("form_state")
     if form is not None and form.get("page_url") != snapshot.get("url"):
         raise ValueError("consistency form is from a different page")

@@ -25,12 +25,12 @@ def json_blocks(content):
     total = 0
     for item in content:
         if not isinstance(item, Mapping):
-            raise ValueError("invalid Host content block")
+            raise ValueError("invalid Host content block")  # noqa: TRY004 - one attended validation error contract
         if item.get("type") != "text":
             continue
         text = item.get("text")
         if not isinstance(text, str):
-            raise ValueError("invalid Host text block")
+            raise ValueError("invalid Host text block")  # noqa: TRY004 - one attended validation error contract
         total += len(text)
         if total > 4_000_000:
             raise ValueError("Host observation is too large")
@@ -68,7 +68,7 @@ def extract_form(inspection, state):
 
 def summarize_feedback(feedback, state, token_epoch):
     if not isinstance(feedback, Mapping):
-        raise ValueError("original Host response required, not worker prose")
+        raise ValueError("original Host response required, not worker prose")  # noqa: TRY004 - one attended validation error contract
     try:
         request_id = str(UUID(feedback.get("request_id", "")))
     except (ValueError, TypeError, AttributeError) as exc:
