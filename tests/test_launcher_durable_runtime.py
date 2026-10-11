@@ -967,9 +967,13 @@ class _CanaryPool:
         assert adapter is self.adapter
         self.evictions += 1
 
+    def evict_worker_async(self, worker_id: int, adapter: object) -> None:
+        self.evict_worker(worker_id, adapter)
 
+
+@pytest.mark.parametrize("force_cleanup", [False, True])
 def test_run_job_canary_remains_observational_and_cli_owns_prepare_result(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, force_cleanup: bool
 ) -> None:
     events: list[str] = []
     _configure_launcher(monkeypatch, tmp_path, events)
@@ -988,7 +992,15 @@ def test_run_job_canary_remains_observational_and_cli_owns_prepare_result(
 
     monkeypatch.setattr(launcher, "_build_agent_command", capture_command)
     adapter = _CanaryAdapter()
-    monkeypatch.setattr(launcher, "_app_server_runtime_pool", _CanaryPool(adapter))
+    pool = _CanaryPool(adapter)
+    monkeypatch.setattr(launcher, "_app_server_runtime_pool", pool)
+    if force_cleanup:
+        original_is_alive = threading.Thread.is_alive
+        monkeypatch.setattr(
+            threading.Thread, "is_alive",
+            lambda thread: True if thread.name.startswith("applypilot-app-server-shadow-worker-")
+            else original_is_alive(thread),
+        )
     job = _job("attempt-app-server-canary")
 
     first_status, _ = launcher.run_job(
@@ -1017,6 +1029,8 @@ def test_run_job_canary_remains_observational_and_cli_owns_prepare_result(
     assert events.count("popen") == 2
     assert job["_runtime_cell"]["mode"] == "canary_observation"
     assert job["_runtime_cell"]["authoritative_backend"] == "codex-cli"
+    if force_cleanup:
+        assert pool.evictions == 1
 
 
 def test_run_job_canary_shadow_configuration_failure_does_not_block_cli(
