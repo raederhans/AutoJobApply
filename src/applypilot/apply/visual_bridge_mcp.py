@@ -8,6 +8,7 @@ import os
 import sys
 from pathlib import Path
 
+from applypilot.apply.procedure_experience import enrich_bridge_response
 from applypilot.apply.visual_bridge import (
     VisualBridgeError,
     request_visual_operation,
@@ -109,6 +110,7 @@ def _tool() -> dict[str, object]:
             "or parked is not success; retain partial progress and reobserve before a reviewed continuation. "
             "Reuse the returned observation; no redundant whole-page observation is needed without a new question. "
             "Verified is immediate and scoped, not proof of application readiness or later persistence. "
+            "Optional procedure_advice is value-free, non-authorizing guidance, not facts or a replay command. "
             "Passwords and OTPs must never be placed in this tool; request secure host authentication instead."
         ),
         "inputSchema": {
@@ -192,6 +194,7 @@ def _handle(message: dict[str, object]) -> dict[str, object] | None:
             _error_result(exc.code, str(exc), outcome=exc.outcome),
         )
 
+    response = enrich_bridge_response(response, Path(bridge_dir))
     content = response["content"]
     structured = {key: value for key, value in response.items() if key != "content"}
     return _result(

@@ -152,6 +152,13 @@ class RecipeExperience:
 class RecipeExperienceStore:
     """Bounded SQLite store for structural evidence with sticky invalidation."""
 
+    # Extension hooks retain one transaction, deduplication and eviction owner.
+    _template_type = RecipeExperienceTemplate
+    _minimum_validations = 1
+
+    def _decode_template(self, raw: str):
+        return _template_from_json(raw)
+
     def __init__(self, db_path: str | Path, *, capacity: int = 128) -> None:
         if isinstance(capacity, bool) or not isinstance(capacity, int) or capacity < 1:
             raise ValueError("capacity must be a positive integer")
@@ -187,7 +194,7 @@ class RecipeExperienceStore:
         """Return a validated template after a fresh check, with no authority."""
 
         if (
-            not isinstance(template, RecipeExperienceTemplate)
+            not isinstance(template, self._template_type)
             or tainted is not False
             or adapter_version != template.adapter_version
             or policy_version != template.policy_version
@@ -207,7 +214,7 @@ class RecipeExperienceStore:
         return experience.template
 
     def get(self, template: RecipeExperienceTemplate) -> RecipeExperience | None:
-        if not isinstance(template, RecipeExperienceTemplate) or not self._path.is_file():
+        if not isinstance(template, self._template_type) or not self._path.is_file():
             return None
         connection = self._connect_read_only()
         try:
@@ -223,7 +230,7 @@ class RecipeExperienceStore:
         if row is None:
             return None
         try:
-            stored = _template_from_json(row[0])
+            stored = self._decode_template(row[0])
         except (TypeError, ValueError, json.JSONDecodeError):
             return None
         if stored.content_key != template.content_key or stored != template:
@@ -237,7 +244,7 @@ class RecipeExperienceStore:
         event_id: str,
         event_kind: str,
     ) -> RecipeExperience:
-        if not isinstance(template, RecipeExperienceTemplate):
+        if not isinstance(template, self._template_type):
             raise TypeError("template must be a RecipeExperienceTemplate")
         event_digest = _event_digest(event_id)
         template_json = json.dumps(template.as_dict(), sort_keys=True, separators=(",", ":"), ensure_ascii=True)
@@ -279,9 +286,10 @@ class RecipeExperienceStore:
                 elif event_kind.startswith("validated:"):
                     connection.execute(
                         "UPDATE recipe_experiences SET validation_count=validation_count+1,"
-                        "state=CASE WHEN state='invalidated' THEN state ELSE 'validated' END,touched_ns=? "
+                        "state=CASE WHEN state='invalidated' THEN state "
+                        "WHEN validation_count+1>=? THEN 'validated' ELSE 'candidate' END,touched_ns=? "
                         "WHERE content_key=?",
-                        (now, template.content_key),
+                        (self._minimum_validations, now, template.content_key),
                     )
                 else:
                     connection.execute(
@@ -295,7 +303,9 @@ class RecipeExperienceStore:
             ).fetchone() is None:
                 # Once the deduplication ledger is full, preserve safety state
                 # transitions without allowing evidence rows or counters to grow.
-                if event_kind.startswith("validated:"):
+                if event_kind.startswith("validated:") and self._minimum_validations > 1:
+                    pass  # Saturated deduplication cannot establish independent new evidence.
+                elif event_kind.startswith("validated:"):
                     connection.execute(
                         "UPDATE recipe_experiences SET validation_count=CASE WHEN state='candidate' THEN "
                         "validation_count+1 ELSE validation_count END,"
