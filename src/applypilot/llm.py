@@ -111,7 +111,9 @@ class LLMClient:
         messages: list[dict],
         temperature: float,
         max_tokens: int,
-    ) -> str:
+        *,
+        include_metadata: bool = False,
+    ) -> str | tuple[str, dict]:
         """Call the native Gemini generateContent API.
 
         Used automatically when the OpenAI-compat endpoint returns 403,
@@ -153,7 +155,16 @@ class LLMClient:
         )
         resp.raise_for_status()
         data = resp.json()
-        return data["candidates"][0]["content"]["parts"][0]["text"]
+        content = data["candidates"][0]["content"]["parts"][0]["text"]
+        if include_metadata:
+            usage = data.get("usageMetadata")
+            meta = {
+                "request_id": data.get("responseId"),
+                "usage": usage if isinstance(usage, dict) else None,
+            }
+            self.last_response_meta = {**self.last_response_meta, **meta}
+            return content, meta
+        return content
 
     # -- OpenAI-compat API --------------------------------------------------
 
@@ -165,7 +176,9 @@ class LLMClient:
         response_format: dict | None = None,
         thinking: dict | None = None,
         reasoning_effort: str | None = None,
-    ) -> str:
+        *,
+        include_metadata: bool = False,
+    ) -> str | tuple[str, dict]:
         """Call the OpenAI-compatible endpoint."""
         headers: dict[str, str] = {"Content-Type": "application/json"}
         if self.api_key:
@@ -195,7 +208,18 @@ class LLMClient:
         if resp.status_code == 403 and self._is_gemini:
             raise _GeminiCompatForbidden(resp)
 
-        return self._handle_compat_response(resp)
+        content = self._handle_compat_response(resp)
+        if include_metadata:
+            data = resp.json()
+            headers = resp.headers
+            usage = data.get("usage")
+            meta = {
+                "request_id": headers.get("x-request-id") or headers.get("request-id") or data.get("id"),
+                "usage": usage if isinstance(usage, dict) else None,
+            }
+            self.last_response_meta = {**self.last_response_meta, **meta}
+            return content, meta
+        return content
 
     def _handle_compat_response(self, resp: httpx.Response) -> str:
         resp.raise_for_status()
@@ -307,6 +331,63 @@ class LLMClient:
                 raise
 
         raise RuntimeError("LLM request failed after all retries")
+
+    def chat_once(
+        self,
+        messages: list[dict],
+        temperature: float = 0.0,
+        max_tokens: int = 4096,
+        response_format: dict | None = None,
+        thinking: dict | None = None,
+        reasoning_effort: str | None = None,
+    ) -> dict:
+        """Send one chat request and return content with provider metadata.
+
+        This entry point deliberately makes a single HTTP request: it does not
+        retry rate limits/timeouts or switch from Gemini compat to native.
+        """
+        if "qwen" in self.model.lower() and messages:
+            first = messages[0]
+            if first.get("role") == "user" and not first["content"].startswith("/no_think"):
+                messages = [{"role": first["role"], "content": f"/no_think\n{first['content']}"}] + messages[1:]
+
+        if self._use_native_gemini:
+            content, meta = self._chat_native_gemini(
+                messages, temperature, max_tokens, include_metadata=True
+            )
+        else:
+            try:
+                content, meta = self._chat_compat(
+                    messages,
+                    temperature,
+                    max_tokens,
+                    response_format=response_format,
+                    thinking=thinking,
+                    reasoning_effort=reasoning_effort,
+                    include_metadata=True,
+                )
+            except _GeminiCompatForbidden as exc:
+                # Preserve the HTTP error contract without triggering chat()'s
+                # stateful switch to native Gemini.
+                exc.response.raise_for_status()
+
+        return {
+            "content": content,
+            "provider": self._provider_name(),
+            "model": self.model,
+            "request_id": meta["request_id"],
+            "usage": meta["usage"],
+        }
+
+    def _provider_name(self) -> str:
+        if self._is_gemini:
+            return "gemini"
+        lowered = self.base_url.casefold()
+        if "deepseek" in lowered:
+            return "deepseek"
+        if "openai.com" in lowered:
+            return "openai"
+        return "local" if "localhost" in lowered or "127.0.0.1" in lowered else "openai-compatible"
 
     def ask(self, prompt: str, **kwargs) -> str:
         """Convenience: single user prompt -> assistant response."""

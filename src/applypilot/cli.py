@@ -22,6 +22,7 @@ from rich.table import Table
 
 from applypilot import __version__
 from applypilot.commands.browser_prepare import app as browser_prepare_app
+from applypilot.commands.career import app as career_app
 from applypilot.commands.followup import app as followup_app
 from applypilot.commands.interview import app as interview_app
 from applypilot.commands.json_resume import app as json_resume_app
@@ -69,6 +70,7 @@ app.add_typer(json_resume_app, name="json-resume")
 app.add_typer(browser_prepare_app, name="browser-prepare")
 app.add_typer(quality_app, name="quality")
 app.add_typer(writing_app, name="writing")
+app.add_typer(career_app, name="career")
 console = Console()
 log = logging.getLogger(__name__)
 
