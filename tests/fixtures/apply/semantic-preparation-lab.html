@@ -1,0 +1,51 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Controlled semantic preparation</title>
+<body><form onsubmit="event.preventDefault(); throw new Error('No submission allowed')">
+<section id="education"><h2>Education</h2><fieldset id="edu1"><legend>Education 1</legend>
+<label for="school">School</label><select id="school"><option value="">Choose</option><option value="demo">Example University</option></select>
+<label for="eduDate">Start date</label><input id="eduDate" type="date">
+</fieldset><fieldset id="edu2"><legend>Education 2</legend>
+<label for="schoolSearch">University</label><div class="select__value-container"><input id="schoolSearch" type="search" role="combobox" aria-expanded="false" aria-controls="schools"><span class="select__single-value"></span></div>
+<div id="schools" role="listbox" hidden></div>
+<label for="eduDate2">Start date</label><input id="eduDate2" type="date">
+</fieldset></section>
+<section id="work"><h2>Employment</h2><fieldset id="job1"><legend>Employment 1</legend>
+<label for="company">Company</label><input id="company" required>
+<label for="title">Job title</label><input id="title" required>
+<label for="start">Start date</label><input id="start" type="date" required>
+<label for="end">End date</label><input id="end" type="date" required>
+</fieldset><fieldset id="job2"><legend>Employment 2</legend>
+<label for="company2">Company</label><input id="company2" value="Other company">
+<label for="title2">Job title</label><input id="title2" value="Other role">
+<label for="start2">Start date</label><input id="start2" type="date" value="2020-01-01">
+</fieldset></section>
+<section><h2>Attachments</h2><label for="resume">Resume</label><input id="resume" type="file">
+<label for="cover">Cover letter</label><input id="cover" type="file">
+<label for="generic">Additional document</label><input id="generic" type="file"></section>
+<label for="city">City</label><input id="city" value="Original city">
+</form>
+<script>
+window.events = [];
+document.addEventListener('input', e => events.push({ event: 'input', id: e.target.id }));
+document.addEventListener('change', e => events.push({ event: 'change', id: e.target.id }));
+window.scenario = new URL(location.href).searchParams.get('scenario');
+const search = document.querySelector('#schoolSearch'), menu = document.querySelector('#schools');
+function showOptions(labels) {
+  menu.replaceChildren(); menu.hidden = false; search.setAttribute('aria-expanded', 'true');
+  for (const label of labels) {
+    const node = document.createElement('div'); node.setAttribute('role', 'option'); node.textContent = label;
+    node.addEventListener('click', () => {
+      events.push({ event: 'option_click', id: 'schoolSearch' });
+      if (scenario !== 'no-commit') { document.querySelector('.select__single-value').textContent = label; search.value = ''; }
+      menu.hidden = true; search.setAttribute('aria-expanded', 'false');
+    });
+    menu.append(node);
+  }
+}
+search.addEventListener('click', () => showOptions(scenario === 'duplicate' ? ['Example University', 'Example University'] : ['Other University']));
+search.addEventListener('input', () => {
+  menu.replaceChildren();
+  if (scenario === 'waiting') return;
+  const update = () => showOptions(scenario === 'duplicate' ? ['Example University', 'Example University'] : ['Example University']);
+  if (scenario === 'async') setTimeout(update, 50); else update();
+});
+</script></body></html>

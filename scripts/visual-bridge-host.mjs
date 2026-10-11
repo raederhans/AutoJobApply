@@ -7,6 +7,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { observeForm, changedFields, structureChanges, operateObservedControl, ControlNotReady } from './browser-form-state.mjs';
 import { operateFieldBatch, fieldBatchChanges } from './browser-field-batch.mjs';
+import { operatePreparationSubgoal } from './browser-preparation-subgoals.mjs';
 import { BridgeMetrics, canReuseActionReadback, observationCoverage, observationSizes,
   queueWaitMs } from './browser-observation-feedback.mjs';
 
@@ -26,7 +27,7 @@ export async function createInAppBrowserHost({ directory, tab, phase = 'prepare'
   activeTabs.add(tab.id);
   try {
     const host = await createVisualHost({ directory,
-      adapter: browserAdapter(tab, { artifacts, observationMode, allowFieldBatch: phase === 'prepare', reuseFormObservations: phase === 'prepare' && reuseFormObservations }),
+      adapter: browserAdapter(tab, { artifacts, observationMode, allowFieldBatch: phase === 'prepare', allowPreparationSubgoals: phase === 'prepare', reuseFormObservations: phase === 'prepare' && reuseFormObservations }),
       phase, submission_authorized,
       target: { runtime: 'iab', tab_id: tab.id, application_url: await tab.url() } });
     const close = host.close;
@@ -144,7 +145,7 @@ export async function createVisualHost({ directory, adapter, target, phase = 'pr
           throw Error('Stale observation; observe again before input');
         }
         if (request.deadline_at <= Date.now() / 1000) throw Error('Expired before execution');
-        if (request.operation === 'fill_batch' && (phase !== 'prepare' || target.runtime !== 'iab')) {
+        if (['fill_batch', 'prepare_subgoal'].includes(request.operation) && (phase !== 'prepare' || target.runtime !== 'iab')) {
           throw new ControlNotReady('Field batch requires an IAB prepare host');
         }
         observationId = null;
@@ -156,7 +157,9 @@ export async function createVisualHost({ directory, adapter, target, phase = 'pr
           sample.outcome = 'outcome_unknown';
           const started = performance.now();
           try {
-            actionResult = await adapter.act(request.operation, request.arguments);
+            actionResult = request.operation === 'prepare_subgoal'
+              ? await adapter.act(request.operation, request.arguments, { deadlineAt: request.deadline_at })
+              : await adapter.act(request.operation, request.arguments);
             actionCompleted = true;
           }
           finally { sample.action_ms = performance.now() - started; }
@@ -212,6 +215,7 @@ export async function createVisualHost({ directory, adapter, target, phase = 'pr
 }
 
 export function browserAdapter(tab, { artifacts = {}, reuseFormObservations = false, allowFieldBatch = false,
+  allowPreparationSubgoals = false,
   observationMode = 'dom_cua' } = {}) {
   if (typeof reuseFormObservations !== 'boolean') throw new TypeError('reuseFormObservations must be boolean');
   if (!['dom_cua', 'playwright'].includes(observationMode)) throw new TypeError('Unsupported observationMode');
@@ -232,6 +236,7 @@ export function browserAdapter(tab, { artifacts = {}, reuseFormObservations = fa
   let lastBatchResult = null;
   let lastBatchObservation = null;
   let pendingReadback = null;
+  let lastSubgoal = null;
   return {
     surface: 'browser',
     tabId: tab.id,
@@ -317,6 +322,12 @@ export function browserAdapter(tab, { artifacts = {}, reuseFormObservations = fa
             structure_changes: changes.structure_changes,
             dependency_changes: changes.dependency_changes };
         }
+        if (lastSubgoal?.subgoal_result.status === 'verified') {
+          const changes = fieldBatchChanges(lastSubgoal.observation, formSnapshot);
+          if (changes.changed) lastSubgoal.subgoal_result = { ...lastSubgoal.subgoal_result,
+            status: 'parked', reason: 'delayed_readback_changed', reobserve_required: true,
+            dependency_changes: changes.dependency_changes };
+        }
         content.push(text({ form_state: formSnapshot,
           changed_fields: changedFields(previous, formSnapshot),
           structure_changes: structureChanges(previous, formSnapshot),
@@ -324,6 +335,7 @@ export function browserAdapter(tab, { artifacts = {}, reuseFormObservations = fa
           post_upload_structure_changes: structureChanges(uploadBaseline, formSnapshot),
           control_result: lastControlResult,
           batch_result: lastBatchResult,
+          ...(lastSubgoal ? { subgoal_result: lastSubgoal.subgoal_result } : {}),
           ...(reuseFormObservations ? { observation_feedback: {
             kind: reuse ? (observationMode === 'playwright' ? 'action_readback_with_playwright_snapshot' : 'action_readback_with_visible_dom') : 'full_dom', form_readback_reused: reuse,
             full_observation_available: true, coverage: observationCoverage(formSnapshot),
@@ -333,21 +345,31 @@ export function browserAdapter(tab, { artifacts = {}, reuseFormObservations = fa
         lastControlResult = null;
         lastBatchResult = null;
         lastBatchObservation = null;
+        lastSubgoal = null;
       }
       return content;
     },
-    async act(operation, args) {
+    async act(operation, args, context = {}) {
       // Any new input attempt ends attribution to the preceding upload, even if
       // rejected before input. Consecutive read-only observations keep it alive.
       uploadBaseline = null;
       if (observationMode === 'playwright' && args.mode !== undefined && args.mode !== 'dom') {
         throw new ControlNotReady('Playwright actions support DOM response mode only');
       }
-      if (observationMode === 'playwright' && !['fill_batch', 'fill_control', 'select_control', 'open_control', 'search_control', 'set_checked', 'upload_artifact'].includes(operation)) {
+      if (observationMode === 'playwright' && !['prepare_subgoal', 'fill_batch', 'fill_control', 'select_control', 'open_control', 'search_control', 'set_checked', 'upload_artifact'].includes(operation)) {
         throw new ControlNotReady('Playwright observation supports observed form controls only; host handles other actions');
       }
       pendingReadback = null;
       lastBatchResult = null;
+      lastSubgoal = null;
+      if (operation === 'prepare_subgoal') {
+        if (!allowPreparationSubgoals || (args.mode !== undefined && args.mode !== 'dom')) {
+          throw new ControlNotReady('Subgoals require an enabled prepare host and DOM feedback');
+        }
+        lastControlResult = null;
+        lastSubgoal = await operatePreparationSubgoal(tab, formSnapshot, args, context);
+        return;
+      }
       if (operation === 'fill_batch') {
         if (!allowFieldBatch) throw new ControlNotReady('Field batch is not enabled on this host');
         const result = await operateFieldBatch(tab, formSnapshot, args.steps);

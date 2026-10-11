@@ -1,6 +1,8 @@
 /** DOM-backed form observation and bounded, observed-control operations for IAB.
  * Values are transient host observations, not applicant facts or submit authority.
  */
+import { annotateFormSemantics } from './browser-form-semantics.mjs';
+
 export async function observeForm(tab) {
   const form = await tab.playwright.evaluate(() => {
     const clean = value => String(value || '').replace(/\s+/g, ' ').trim();
@@ -157,6 +159,8 @@ export async function observeForm(tab) {
         return text;
       });
       add('aria-label', el.getAttribute('aria-label'));
+      const fileLabel = scopedFileGroup(el, root)?.label;
+      if (fileLabel) add('scoped_label', fileLabel);
       const named = references('aria-labelledby');
       for (const label of el.labels || []) add('label', rawQuestionText(label));
       const question = el.closest('.application-question, .form-group, [data-qa*="field"], [class*="form-item"]');
@@ -198,6 +202,28 @@ export async function observeForm(tab) {
         completeness: complete && !!text ? 'known' : 'partial',
         ...(el.tagName === 'SELECT' ? { options: [...el.options].map(option => ({ value: option.value,
           label: option.label, disabled: option.disabled || option.parentElement?.disabled === true })) } : {}) };
+    };
+    // Explicit structural context only. Never infer a record from input values,
+    // CSS naming conventions or a descendant record's heading.
+    const recordPath = element => {
+      const result = [];
+      for (let owner = element.parentElement || hostFor.get(rootFor.get(element)); owner;
+        owner = owner.parentElement || hostFor.get(rootFor.get(owner))) {
+        if (!owner.matches('fieldset,[role="group"],section')) continue;
+        const root = owner.getRootNode();
+        const ids = (owner.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean);
+        const targets = ids.map(id => [...root.querySelectorAll('[id]')].filter(node => node.id === id));
+        const unique = targets.every(matches => matches.length === 1);
+        const heading = [...owner.children].find(node => node.matches('legend,h1,h2,h3,h4,h5,h6'));
+        const explicit = owner.getAttribute('aria-label');
+        const label = clean(explicit || (unique ? targets.map(matches => visibleQuestionText(matches[0])).join(' ') : '') ||
+          (heading ? visibleQuestionText(heading) : ''));
+        result.unshift({ key: selectorFor(owner), label,
+          label_status: label && (explicit || unique) ? 'identified' : 'ambiguous',
+          source: explicit ? 'aria-label' : ids.length ? 'aria-labelledby' : heading ? 'owned_heading' : 'unlabelled',
+          dom_identity: null });
+      }
+      return { record_path: result.slice(-8), record_path_truncated: result.length > 8 };
     };
     const fields = [];
     let protectedCount = 0;
@@ -291,6 +317,9 @@ export async function observeForm(tab) {
         rootFor.get(peer) === root && formOwner(peer) === owner && peer.name === el.name) : [];
       fields.push({ field_key: key, selector: key, label, group: groupLabel,
         application_question: questionMetadata(el, key),
+        ...recordPath(el),
+        expanded: control === 'combobox' ? (el.getAttribute('aria-expanded') === 'true' ? true
+          : el.getAttribute('aria-expanded') === 'false' ? false : null) : null,
         group_key: group ? selectorFor(group) : '', control,
         native_tag: el.tagName.toLowerCase(), multiple: multiple ||
           (control === 'combobox' && !!el.closest('.select__value-container')?.querySelector('.select__multi-value')),
@@ -334,7 +363,7 @@ export async function observeForm(tab) {
     const snapshot = await cdp.send('DOMSnapshot.captureSnapshot', { computedStyles: [] });
     enrichLiveValues(form, snapshot);
   }
-  return form;
+  return annotateFormSemantics(form);
 }
 
 export function enrichLiveValues(form, snapshot) {
@@ -343,7 +372,7 @@ export function enrichLiveValues(form, snapshot) {
   // This read may run after an input; never classify its failure as proven no-op.
   if (!doc) throw new Error('Live form document changed; observe again');
   const nodes = doc.nodes;
-  const attrs = (nodes.attributes || []).map(row => Object.fromEntries(Array.from({ length: row.length / 2 }, (_, i) => [strings[row[i * 2]], strings[row[i * 2 + 1]]])));
+  const attrs = (nodes.attributes || []).map(row => Object.fromEntries(Array.from({ length: row.length / 2 }, (_, i) => [strings[row[i * 2]], strings[row[i * 2 + 1]] ?? ''])));
   const quote = value => String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const selectors = new Map();
   const paths = [];
@@ -382,6 +411,10 @@ export function enrichLiveValues(form, snapshot) {
   for (const field of form.fields) {
     const index = selectors.get(field.selector);
     field.dom_identity = index === undefined ? null : nodes.backendNodeId?.[index] ?? null;
+    for (const record of field.record_path || []) {
+      const ownerIndex = selectors.get(record.key);
+      record.dom_identity = ownerIndex === undefined ? null : nodes.backendNodeId?.[ownerIndex] ?? null;
+    }
     if (field.control === 'file') continue;
     if (field.control === 'select') {
       const optionNodes = [];
@@ -443,7 +476,8 @@ export function enrichLiveValues(form, snapshot) {
 }
 
 const identity = field => JSON.stringify([field.selector, field.label, field.group_key, field.group, field.control,
-  field.native_tag, field.multiple, field.editable_combobox, field.radio_group, field.dom_identity]);
+  field.native_tag, field.multiple, field.editable_combobox, field.radio_group, field.dom_identity,
+  field.record_path, field.record_path_truncated]);
 const selectedDisplay = field => Array.isArray(field.selected_display) ? field.selected_display.filter(value => typeof value === 'string') : [];
 const stateValue = field => {
   if (field.control === 'select' && field.multiple) return field.selected_values;
@@ -606,6 +640,7 @@ export async function operateObservedControl(tab, snapshot, operation, args, val
           JSON.stringify(readyField.options) !== JSON.stringify(field.options)) {
         throw new ControlNotReady('Options changed before click; observe options again');
       }
+      if (validateFresh !== undefined) await validateFresh(ready);
       await input(() => optionLocator.click({ timeoutMs: 10000 }));
     }
   } else if (operation === 'set_checked') {
