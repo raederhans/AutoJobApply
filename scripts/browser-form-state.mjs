@@ -500,7 +500,12 @@ export function structureChanges(before, after) {
     truncated: Object.values(counts).some(count => count > limit) };
 }
 
-export async function operateObservedControl(tab, snapshot, operation, args) {
+export async function operateObservedControl(tab, snapshot, operation, args, validateFresh) {
+  // Trusted host callback, never part of worker-supplied args. Reuses the same
+  // live preflight so a batch can reject changed dependencies before any input.
+  if (validateFresh !== undefined && typeof validateFresh !== 'function') {
+    throw new ControlNotReady('Invalid host pre-input validator');
+  }
   if (!snapshot) throw new ControlNotReady('Observe form controls before input');
   const keys = Object.keys(args).filter(key => key !== 'mode').sort().join(',');
   const shapes = { fill_control: ['field_key,value'], select_control: ['field_key,value', 'field_key,values'],
@@ -514,6 +519,7 @@ export async function operateObservedControl(tab, snapshot, operation, args) {
   const field = fresh.fields.find(item => item.field_key === args.field_key);
   if (fresh.page_url !== snapshot.page_url || !field || identity(field) !== identity(old)) throw new ControlNotReady('Form control changed; observe again before input');
   if (structureChanges(snapshot, fresh).changed) throw new ControlNotReady('Options changed or form structure changed; observe again before input');
+  if (validateFresh !== undefined) await validateFresh(fresh);
   if (field.disabled || field.readonly) throw new ControlNotReady('Control is not writable');
   const locator = tab.playwright.locator(field.selector);
   if (await locator.count() !== 1) throw new ControlNotReady('Form control is ambiguous');
