@@ -627,3 +627,55 @@ For the integrated CLI + IAB queue, bounded routine field batches and read-only
 application state view, see [Attended runtime batch](attended-runtime-batch.md).
 Default preparation concurrency is two; the attending Codex task still reviews
 and services requests, and submission retains the existing single authority.
+
+## Opt-in same-attempt preparation continuity
+
+`createInAppBrowserHost({ directory, tab, phase: 'prepare', continuity: true })`
+adds explicit SQLite owner review to the existing queue. The default remains
+false. Use the observation mode supported by the actual tab. This seam admits
+DOM observations, source-bound `fill_control` / `select_control`, `fill_batch`
+(at most four fields), and the existing school/record preparation subgoals.
+Uploads, navigation and final submission remain outside this seam.
+
+Use the existing `attended-application --db <db> --request-file <file>` source
+entry with an explicit workspace. Every request has the existing exact
+`job_url`, `attempt_id`, `host_session_id`, `tab_id`, plus `bridge_directory`.
+The host/session/tab values come from the actual Host; begin the authorized
+attempt through the existing `begin` transition before attaching it.
+
+1. `action: "host-attach"` binds that attempt to the active prepare Host and its
+   token epoch. It cannot replace the Host, directory or attempt.
+2. For a pending worker request returned by `host.peek()`, the trusted attending
+   operator calls `host.review(request_id)`. This independently observes the
+   current page and records the exact queued request; it does not execute input.
+3. `action: "host-review"` plus the returned `review_id` validates that observation
+   through the existing recovery and consistency owner. Optional `bindings` use
+   the existing `bind-consistency` format: the full retained set of explicit
+   field/source bindings, never worker-provided expected answers. Each planned
+   input must match a current confirmed source. A missing binding may be added;
+   changing frozen applicant facts requires the existing new-attempt procedure.
+4. Only `next_action: "execute_exact_reviewed_request_once"` permits the operator
+   to call `host.execute(request_id)`. The Host consumes the committed permit
+   once, re-observes the page, rejects changes since review before input, and
+   records the original result plus a fresh independent inspection. It returns
+   `awaiting_owner: true`; the worker still has no response.
+5. `action: "host-complete"` plus `request_id` commits C/D evidence on the same
+   attempt before publishing the worker response. Review the returned recovery
+   and consistency status before planning another bounded request. A committed
+   completion whose acknowledgment was lost may be delivered again, including
+   from a restarted Python owner; this never repeats browser input.
+6. After interrupted transport, `action: "host-reconcile"` plus `request_id`
+   consumes an available original completion. If it is missing, it revokes the
+   unused permit and durably parks the attempt with an unknown-effect latch.
+   Inspect/reconcile manually; absence of evidence never grants retry permission.
+
+An outstanding request blocks checkpoint/claim and other competing transitions.
+Submit intent, unresolved Episode effects, changed materials, a claimed checkpoint
+and an unknown-effect latch retain their existing barriers. Expired requests or
+leases are not silently revived. There is no background execution pump.
+
+The bridge directory is private trusted-operator transport, including original
+page values. Keep it outside source control and retain only necessary evidence.
+File hashes bind envelopes; they do not authenticate an untrusted local process
+with filesystem write access. Preparation consistency is scoped to bound fields;
+it never proves whole-application readiness or replaces final review/receipts.

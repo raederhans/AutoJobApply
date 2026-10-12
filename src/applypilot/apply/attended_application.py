@@ -71,13 +71,23 @@ def execute(connection: sqlite3.Connection, request: dict, profile: dict) -> dic
     )
     connection.commit()
     connection.execute("BEGIN IMMEDIATE")
+    delivery = None
     try:
-        result = _execute(connection, request, profile)
+        if str(request.get("action", "")).startswith("host-"):
+            from applypilot.apply.attended_host import transition
+            result, delivery = transition(connection, request, profile)
+        else:
+            result = _execute(connection, request, profile)
         connection.commit()
-        return result
     except Exception:
         connection.rollback()
         raise
+    # Never expose a permit or acknowledge a Host reply before the same-attempt
+    # owner commits bindings, recovery evidence and irreversible barriers.
+    if delivery is not None:
+        from applypilot.apply.attended_host import publish
+        publish(connection, delivery, profile)
+    return result
 
 
 def _save(conn, state):
@@ -122,7 +132,7 @@ def _check_consistency(req, state, job, profile, materials):
     state["consistency_report"] = report
 
 
-def _execute(conn, req, profile):
+def _execute(conn, req, profile, *, host_transport=False):
     action = _required(req, "action")
     job_url = _required(req, "job_url")
     row = conn.execute("SELECT * FROM jobs WHERE url=?", (job_url,)).fetchone()
@@ -234,6 +244,9 @@ def _execute(conn, req, profile):
         raise ValueError("job ownership changed; cannot resume or mutate this attempt")
     if action in {"resume", "recover"} and submission_barrier:
         return dict(state, next_action="reconcile_receipt_only")
+    if (state.get("host_continuity", {}).get("pending") and action != "resume"
+            and not (action == "recover" and host_transport)):
+        raise ValueError("outstanding Host input must be completed or reconciled first")
     if attempt_row["status"] != "in_progress":
         raise ValueError("attempt terminal")
     if action == "fail":

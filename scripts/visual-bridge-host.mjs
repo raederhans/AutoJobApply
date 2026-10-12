@@ -5,6 +5,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { createAttendedHostJournal } from './attended-host-journal.mjs';
 import { observeForm, changedFields, structureChanges, operateObservedControl, ControlNotReady } from './browser-form-state.mjs';
 import { operateFieldBatch, fieldBatchChanges } from './browser-field-batch.mjs';
 import { operatePreparationSubgoal } from './browser-preparation-subgoals.mjs';
@@ -21,14 +22,14 @@ async function writeJson(file, value) {
 
 /** Attach directly to a returned IAB tab; callers do not invent CDP identities. */
 export async function createInAppBrowserHost({ directory, tab, phase = 'prepare', submission_authorized = false,
-  artifacts = {}, reuseFormObservations = true, observationMode = 'dom_cua' }) {
+  artifacts = {}, reuseFormObservations = true, observationMode = 'dom_cua', continuity = false }) {
   if (typeof reuseFormObservations !== 'boolean') throw new TypeError('reuseFormObservations must be boolean');
   if (activeTabs.has(tab.id)) throw Error('This tab already has an active owner');
   activeTabs.add(tab.id);
   try {
     const host = await createVisualHost({ directory,
       adapter: browserAdapter(tab, { artifacts, observationMode, allowFieldBatch: phase === 'prepare', allowPreparationSubgoals: phase === 'prepare', reuseFormObservations: phase === 'prepare' && reuseFormObservations }),
-      phase, submission_authorized,
+      phase, submission_authorized, continuity,
       target: { runtime: 'iab', tab_id: tab.id, application_url: await tab.url() } });
     const close = host.close;
     host.close = async () => { await close(); activeTabs.delete(tab.id); };
@@ -36,7 +37,11 @@ export async function createInAppBrowserHost({ directory, tab, phase = 'prepare'
   } catch (error) { activeTabs.delete(tab.id); throw error; }
 }
 
-export async function createVisualHost({ directory, adapter, target, phase = 'prepare', submission_authorized = false }) {
+export async function createVisualHost({ directory, adapter, target, phase = 'prepare', submission_authorized = false,
+  continuity = false }) {
+  if (typeof continuity !== 'boolean' || (continuity && (phase !== 'prepare' || target.runtime !== 'iab'))) {
+    throw Error('Attended continuity requires an IAB prepare host');
+  }
   if (!['discovery', 'prepare', 'submit'].includes(phase)) throw Error('Unsupported browser phase');
   if (phase === 'submit' && (submission_authorized !== true || target.runtime !== 'iab')) {
     throw Error('Submit requires an in-app browser target and explicit submission_authorized=true');
@@ -57,7 +62,9 @@ export async function createVisualHost({ directory, adapter, target, phase = 'pr
   const binding = {
     schema_version: 1, status: 'active', session_id: randomUUID(), token_epoch: randomUUID(),
     surface: adapter.surface, phase, submission_authorized, target: structuredClone(target),
+    ...(continuity ? { attended_continuity: 1 } : {}),
   };
+  const journal = continuity ? await createAttendedHostJournal({ root, binding, adapter, writeJson }) : null;
   const metrics = new BridgeMetrics();
   let observationId = null;
   let busy = false;
@@ -79,6 +86,13 @@ export async function createVisualHost({ directory, adapter, target, phase = 'pr
     get binding() { return structuredClone(binding); },
     heartbeat,
     metrics: () => metrics.snapshot(),
+    async review(requestId) {
+      if (!journal || busy || closed || paused) throw Error('Continuity review unavailable');
+      busy = true;
+      observationId = null;
+      try { await heartbeat(); return await journal.review(requestId); }
+      finally { busy = false; }
+    },
     invalidate() { observationId = null; },
     async pause(reason = 'operator_required') {
       if (busy || closed) throw Error('Host unavailable or already executing');
@@ -138,10 +152,12 @@ export async function createVisualHost({ directory, adapter, target, phase = 'pr
             JSON.stringify(request.target) !== JSON.stringify(binding.target)) throw Error('Target/session mismatch');
         if (request.deadline_at <= Date.now() / 1000) throw Error('Expired request; no input performed');
         sample.queue_wait_ms = queueWaitMs(request.created_at, Date.now() / 1000);
+        if (journal) await journal.check(requestId);
         // Cancellation and claiming compete for the same file: only one wins.
         await fs.rename(source, path.join(root, 'claimed', `${requestId}.json`));
         claimed = true;
-        if (request.operation !== 'observe' && request.observation_id !== observationId) {
+        if (journal) await journal.admit(request);
+        if (!journal && request.operation !== 'observe' && request.observation_id !== observationId) {
           throw Error('Stale observation; observe again before input');
         }
         if (request.deadline_at <= Date.now() / 1000) throw Error('Expired before execution');
@@ -177,10 +193,11 @@ export async function createVisualHost({ directory, adapter, target, phase = 'pr
           token_epoch: binding.token_epoch, ok: true, outcome: 'completed', observation_id: observationId,
           content: [text({ observation_id: observationId, surface: binding.surface }), ...content],
         };
-        await writeJson(path.join(root, 'responses', `${requestId}.json`), response);
         await heartbeat();
+        const delivery = journal ? await journal.complete(request, response)
+          : await writeJson(path.join(root, 'responses', `${requestId}.json`), response);
         sample.outcome = 'completed';
-        return response;
+        return journal ? delivery : response;
       } catch (error) {
         observationId = null;
         if (!claimed) throw error;
@@ -198,6 +215,7 @@ export async function createVisualHost({ directory, adapter, target, phase = 'pr
             host_state: closed ? 'stopped' : 'active', handoff_required: closed })],
         };
         sample.outcome = response.outcome;
+        if (journal) return await journal.complete(request, response, !closed);
         await writeJson(path.join(root, 'responses', `${requestId}.json`), response);
         return response;
       } finally {
