@@ -23,6 +23,12 @@ from itertools import pairwise
 from pathlib import Path
 from uuid import uuid4
 
+from applypilot.apply.harness_measurement import (
+    TrialMeasurement,
+    aggregate_measurements,
+    estimate_usage_cost,
+    normalize_usage,
+)
 from applypilot.apply.procedure_experience import FrozenProcedureMemory, ProcedureExperienceStore
 
 ARMS = ("basic_skill", "current_harness", "harness_plus_procedure")
@@ -228,31 +234,12 @@ def _known_sum(values):
 
 
 def token_usage(usage):
-    if not isinstance(usage, dict):
-        return {"input": None, "output": None, "cached": None}
-    return {"input": usage.get("prompt_tokens"), "output": usage.get("completion_tokens"),
-            "cached": (usage.get("prompt_tokens_details") or {}).get("cached_tokens")}
+    data = normalize_usage(usage)
+    return {"input": data["input"], "output": data["output"], "cached": data["cached_input"]}
 
 
 def estimate_cost(usages, pricing):
-    if not pricing or not usages:
-        return None
-    if any(type(pricing.get(k)) not in {int, float} or not math.isfinite(pricing[k]) or pricing[k] < 0
-           for k in ("input", "output")):
-        raise ValueError("explicit nonnegative pricing required")
-    if pricing.get("cached") is not None and (type(pricing["cached"]) not in {int, float}
-                                             or not math.isfinite(pricing["cached"]) or pricing["cached"] < 0):
-        raise ValueError("invalid cached pricing")
-    cost = 0.0
-    for usage in usages:
-        data = token_usage(usage)
-        if any(type(v) is not int or v < 0 for v in data.values()) or data["cached"] > data["input"]:
-            return None
-        if data["cached"] and pricing.get("cached") is None:
-            return None
-        cost += ((data["input"] - data["cached"]) * pricing["input"] + data["output"] * pricing["output"]
-                 + data["cached"] * (pricing.get("cached") or 0)) / 1_000_000
-    return cost
+    return estimate_usage_cost(usages, pricing)
 
 
 def _observation_view(observation, arm):
@@ -285,6 +272,9 @@ def run_trial(task, arm, cohort, config, memory, *, environment, decide=model_de
     deadline = start + deadline_seconds
     goal = task_goal(task)
     run_id = str(uuid4())
+    measurement = TrialMeasurement(run_id)
+    environment = measurement.wrap_environment(environment)
+    decide = measurement.wrap_decide(decide)
     terminal, reason, oracle = None, "turn_budget", None
     observations = None
     initial_hash = None
@@ -320,9 +310,12 @@ def run_trial(task, arm, cohort, config, memory, *, environment, decide=model_de
             hints = memory.lookup(form, plan) if arm == "harness_plus_procedure" and cohort == "warm" and plan else ()
             payload = {"goal": goal, "observation": _observation_view(observations, arm), "procedure_advice": hints}
             encoded_at = time.monotonic()
-            messages.append({"role": "user", "content": json.dumps(payload, ensure_ascii=False)})
-            context_bytes = len(json.dumps(messages, ensure_ascii=False).encode())
-            encode_ms = (time.monotonic() - encoded_at) * 1000
+            try:
+                messages.append({"role": "user", "content": json.dumps(payload, ensure_ascii=False)})
+                context_bytes = len(json.dumps(messages, ensure_ascii=False).encode())
+            finally:
+                encode_ms = (time.monotonic() - encoded_at) * 1000
+                measurement.record_encoding(encode_ms, turn=turn)
             if context_bytes > 1_000_000:
                 reason = "context_budget"
                 break
@@ -438,7 +431,7 @@ def run_trial(task, arm, cohort, config, memory, *, environment, decide=model_de
                 train_store.record_outcome(before, plan, report, run_ref=run_id, verify=lambda checked=checked: checked)
             except (TypeError, ValueError):
                 pass  # Unsupported/ambiguous evidence is not a learnable procedure.
-    return {"schema_version": "interactive-preparation-evaluation/v2", "run_id": run_id,
+    result = {"schema_version": "interactive-preparation-evaluation/v2", "run_id": run_id,
             "task_id": task["task_id"], "split": task["split"], "employer": task["employer"], "family": task["family"],
             "arm": arm, "cohort": cohort, "driver_mode": driver_mode, "config_digest": digest(config),
             "safety_digest": digest(SAFETY), "tools_digest": digest(TOOL_CONTRACT), "initial_state_digest": initial_hash,
@@ -463,6 +456,11 @@ def run_trial(task, arm, cohort, config, memory, *, environment, decide=model_de
             "coordination_wait_ms": None, "page_loading_ms": None,
             "timing_scope": "wall_spans_include_nested_work; do_not_add_to_elapsed",
             "turns": turns, "whole_application_evaluated": False}
+    result["measurement"] = measurement.report(result, usages, pricing)
+    if driver_mode == "reference_driver":
+        result["estimated_cost_usd"] = None
+        result["cost_basis"] = "reference_driver_fixture_not_provider_billing_evidence"
+    return result
 
 
 def summarize(results):
@@ -562,6 +560,7 @@ def source_manifest(root):
     paths = ["scripts/harness-evaluation-browser.mjs", "scripts/browser-form-state.mjs", "scripts/browser-form-semantics.mjs",
              "scripts/browser-field-batch.mjs", "scripts/browser-preparation-subgoals.mjs", "scripts/visual-bridge-host.mjs",
              "tests/fixtures/apply/semantic-preparation-lab.html", "src/applypilot/apply/harness_evaluation.py",
+             "src/applypilot/apply/harness_measurement.py", "src/applypilot/apply/harness_experiment_plan.py",
              "src/applypilot/apply/procedure_experience.py", "src/applypilot/apply/recipe_experience.py",
              "src/applypilot/llm.py", "src/applypilot/apply/application_consistency.py",
              "src/applypilot/apply/visual_bridge_mcp.py"]
@@ -673,13 +672,18 @@ def main():
                     model_decisions=decisions_used, status="completed" if complete_cohort else "incomplete_budget_exhausted")
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     (args.output / "summary.json").write_text(json.dumps(summarize(rows), indent=2), encoding="utf-8")
+    (args.output / "measurements.json").write_text(json.dumps(aggregate_measurements(rows), indent=2), encoding="utf-8")
     try:
         if not complete_cohort:
             raise ValueError("incomplete planned cohort")
         comparisons = paired_comparisons(rows)
+        from applypilot.apply.harness_experiment_plan import paired_cold_warm
+        cold_warm = paired_cold_warm(rows)
     except ValueError:
         comparisons = {"status": "invalid_comparison", "reason": "incomplete_or_non_equivalent_cohort"}
+        cold_warm = comparisons
     (args.output / "comparisons.json").write_text(json.dumps(comparisons, indent=2), encoding="utf-8")
+    (args.output / "cold-warm-comparisons.json").write_text(json.dumps(cold_warm, indent=2), encoding="utf-8")
     print(json.dumps({"status": manifest["status"], "trials": len(rows), "frozen_template_count": len(memory.templates)}))
 
 
