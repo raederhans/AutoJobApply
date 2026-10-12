@@ -5,15 +5,27 @@ from pathlib import Path
 import pytest
 
 from applypilot.apply.harness_evaluation import (
-    ARMS, BrowserRPC, digest, estimate_cost, extract_form, observed_plan, paired_comparisons,
-    parse_action, run_trial, schedule, summarize, task_goal, tasks, validate_splits,
+    ARMS,
+    BrowserRPC,
+    digest,
+    estimate_cost,
+    extract_form,
+    observed_plan,
+    paired_comparisons,
+    parse_action,
+    run_trial,
+    schedule,
+    summarize,
+    tasks,
+    validate_splits,
 )
 from applypilot.apply.procedure_experience import FrozenProcedureMemory, ProcedureExperienceStore
 
 
 class Environment:
-    def __init__(self, *, complete=True, unknown=False, oracle=True):
+    def __init__(self, *, complete=True, unknown=False, oracle=True, expected_handoff=None):
         self.complete, self.unknown, self.oracle = complete, unknown, oracle
+        self.expected_handoff = expected_handoff
         self.calls, self.closed = [], False
 
     def call(self, method, **kwargs):
@@ -24,7 +36,7 @@ class Environment:
             if not self.oracle:
                 raise RuntimeError("no terminal evidence")
             return {"complete": self.complete, "substantive_errors": 0, "recovery_triggered": False,
-                    "expected_handoff": None, "reads": 1, "writes": 0}
+                    "expected_handoff": self.expected_handoff, "reads": 1, "writes": 0}
         if method == "act" and self.unknown:
             return {"outcome": "outcome_unknown", "ok": False}
         return {"ok": True, "observation_id": "observation", "content": []}
@@ -83,6 +95,84 @@ def test_handoff_is_not_autonomous_completion_and_wait_time_is_unknown():
     result = trial(action={"operation": "finish", "arguments": {"status": "needs_fact"}})
     assert not result["autonomous_complete"]
     assert result["user_intervention_requests"] == 1 and result["user_intervention_ms"] is None
+    assert result["user_intervention_requests_status"] == "observed"
+    assert result["user_intervention_ms_status"] == "not_observed"
+
+
+@pytest.mark.parametrize("scenario", ["duplicate", "no-commit"])
+def test_correct_blocked_handoff_records_request_but_no_invented_wait(scenario):
+    task = next(t for t in tasks("holdout") if t["scenario"] == scenario)
+    result = run_trial(task, "current_harness", "cold", {"model": "reference"}, FrozenProcedureMemory(()),
+        environment=Environment(complete=False, expected_handoff="blocked"),
+        decide=driver({"operation": "finish", "arguments": {"status": "blocked"}}), driver_mode="reference_driver")
+    assert result["correct_handoff"] is True
+    assert not result["autonomous_complete"] and not result["assisted_complete"]
+    assert result["user_intervention_requests"] == 1
+    assert result["user_intervention_requests_status"] == "observed"
+    assert result["user_intervention_ms"] is None
+    assert result["user_intervention_ms_status"] == "not_observed"
+    summary = summarize([result])[0]
+    assert summary["correct_handoff"] == 1
+    assert summary["total_user_intervention_requests"] == 1
+    assert summary["total_user_intervention_ms"] is None
+    assert summary["user_intervention_ms_status_counts"]["not_observed"] == 1
+
+
+def test_nonhuman_blocked_termination_is_not_an_intervention():
+    result = trial(Environment(complete=False), {"operation": "finish", "arguments": {"status": "blocked"}})
+    assert result["correct_handoff"] is False
+    assert result["user_intervention_requests"] == 0 and result["user_intervention_ms"] == 0
+    assert result["user_intervention_requests_status"] == "not_requested"
+    assert result["user_intervention_ms_status"] == "not_requested"
+
+
+@pytest.mark.parametrize("oracle,expected_handoff", [(False, None), (True, "unrecognized")])
+def test_unclassified_blocked_termination_preserves_unknown_burden(oracle, expected_handoff):
+    result = trial(Environment(complete=False, oracle=oracle, expected_handoff=expected_handoff),
+                   {"operation": "finish", "arguments": {"status": "blocked"}})
+    assert result["user_intervention_requests"] is None and result["user_intervention_ms"] is None
+    assert result["user_intervention_requests_status"] == "unknown"
+    assert result["user_intervention_ms_status"] == "unknown"
+
+
+def test_failed_human_callback_does_not_report_zero_wait():
+    def unavailable(_goal):
+        raise RuntimeError("test callback unavailable")
+    result = trial(action={"operation": "finish", "arguments": {"status": "needs_fact"}}, human=unavailable)
+    assert result["user_intervention_requests"] == 1
+    assert result["user_intervention_ms"] is None
+    assert result["user_intervention_ms_status"] == "unknown"
+    assert not result["assisted_complete"]
+
+
+def test_unobserved_request_after_measured_callbacks_keeps_total_unknown():
+    result = trial(action={"operation": "finish", "arguments": {"status": "needs_fact"}},
+                   human=lambda _: {"School": "Cedar Institute"})
+    assert result["user_intervention_requests"] == 3
+    assert result["user_intervention_ms"] is None
+    assert result["user_intervention_ms_status"] == "not_observed"
+
+
+def test_mixed_handoff_summary_keeps_unknown_and_unobserved_trials():
+    ready = trial()
+    unobserved = trial(action={"operation": "finish", "arguments": {"status": "needs_fact"}})
+    unknown = trial(Environment(oracle=False), {"operation": "finish", "arguments": {"status": "blocked"}})
+    summary = summarize([ready, unobserved, unknown])[0]
+    assert summary["trials"] == 3
+    assert summary["total_user_intervention_requests"] is None
+    assert summary["unknown_intervention_request_trials"] == 1
+    assert summary["total_user_intervention_ms"] is None
+    assert summary["user_intervention_ms_status_counts"] == {
+        "not_requested": 1, "measured": 0, "not_observed": 1, "unknown": 1,
+    }
+
+
+def test_summary_keeps_old_intervention_accounting_separate():
+    result = trial()
+    legacy = dict(result, schema_version="interactive-preparation-evaluation/v1")
+    rows = summarize([result, legacy])
+    assert len(rows) == 2
+    assert all(row["trials"] == 1 for row in rows)
 
 
 def test_measured_human_intervention_is_assisted_not_autonomous():
@@ -95,6 +185,7 @@ def test_measured_human_intervention_is_assisted_not_autonomous():
         environment=Environment(), decide=decide, driver_mode="reference_driver", human=lambda _: {"School": "Cedar Institute"})
     assert result["assisted_complete"] and not result["autonomous_complete"]
     assert result["user_intervention_ms"] >= 0
+    assert result["user_intervention_ms_status"] == "measured"
 
 
 def test_training_split_disjoint_on_employer_and_page_family():
@@ -116,7 +207,7 @@ def test_schedule_is_reproducible_complete_and_counterbalanced():
     plan = schedule(tasks("holdout"), repeats=2)
     assert plan == schedule(tasks("holdout"), repeats=2)
     assert len(plan) == 84
-    assert set((a, c) for _, a, c, _, _ in plan[:6]) == {(a, c) for a in ARMS for c in ("cold", "warm")}
+    assert {(a, c) for _, a, c, _, _ in plan[:6]} == {(a, c) for a in ARMS for c in ("cold", "warm")}
     assert plan != schedule(tasks("holdout"), repeats=2, seed=18)
 
 
@@ -135,7 +226,7 @@ def paired_rows():
     return [dict(seed, arm=arm, pair_id="pair", cohort="cold") for arm in ARMS]
 
 
-@pytest.mark.parametrize("key", ["config_digest", "safety_digest", "tools_digest", "initial_state_digest", "memory_digest", "browser_version"])
+@pytest.mark.parametrize("key", ["schema_version", "config_digest", "safety_digest", "tools_digest", "initial_state_digest", "memory_digest", "browser_version"])
 def test_non_equivalent_pairs_cannot_publish_a_gain(key):
     rows = paired_rows()
     rows[1][key] = "different"
@@ -197,6 +288,10 @@ def test_real_production_controls_train_freeze_and_unseen_dom_holdout(tmp_path):
         assert result["oracle_available"], result
         assert result["autonomous_complete"] if task["completable"] else result["correct_handoff"], result
         assert result["false_ready"] is False
+        if not task["completable"]:
+            assert result["user_intervention_requests"] == 1, result
+            assert result["user_intervention_ms"] is None, result
+            assert result["user_intervention_ms_status"] == "not_observed", result
         if task["scenario"] == "overwrite":
             assert result["recovered"], result
     assert (tmp_path / "m.db").read_bytes() == frozen_bytes
@@ -230,3 +325,5 @@ def test_a_handoff_after_wrong_writes_is_not_a_correct_handoff():
             return result
     result = trial(WrongBeforeHandoff(), {"operation": "finish", "arguments": {"status": "blocked"}})
     assert result["correct_handoff"] is False
+    assert result["user_intervention_requests"] == 1
+    assert result["user_intervention_ms"] is None

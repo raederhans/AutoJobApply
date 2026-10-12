@@ -295,6 +295,7 @@ def run_trial(task, arm, cohort, config, memory, *, environment, decide=model_de
     cleanup_failed = False
     interventions = 0
     intervention_ms = 0
+    intervention_ms_status = "not_requested"
     assisted = False
     candidates = []
     memory_before = memory.digest
@@ -352,10 +353,17 @@ def run_trial(task, arm, cohort, config, memory, *, environment, decide=model_de
                     interventions += 1
                     if human is None or interventions > 2:
                         intervention_ms = None
+                        intervention_ms_status = "not_observed"
                         break
+                    previous_ms = intervention_ms
+                    # Until the callback returns, its complete wait is unknown.
+                    # An exception must not leave a fabricated zero or partial total.
+                    intervention_ms = None
+                    intervention_ms_status = "unknown"
                     human_start = time.monotonic()
                     supplied = human(copy.deepcopy(goal))
-                    intervention_ms += (time.monotonic() - human_start) * 1000
+                    intervention_ms = previous_ms + (time.monotonic() - human_start) * 1000
+                    intervention_ms_status = "measured"
                     if (not isinstance(supplied, dict) or not supplied or len(supplied) > 4
                             or any(k not in {"Company", "Job title", "Start date", "End date", "School", "University"}
                                    or not isinstance(v, str) or not v.strip() or len(v) > 400 for k, v in supplied.items())):
@@ -406,6 +414,19 @@ def run_trial(task, arm, cohort, config, memory, *, environment, decide=model_de
     complete = oracle.get("complete") is True if oracle else False
     correct_handoff = bool(oracle and oracle.get("expected_handoff") and terminal == oracle["expected_handoff"]
                            and oracle.get("substantive_errors") == 0 and not unknown)
+    if terminal == "blocked":
+        # A blocked status alone cannot distinguish a human handoff from an
+        # environment/tool stop. Use independent task evidence, not correctness:
+        # a harmful/incorrect handoff still imposes a request on the user.
+        expected_handoff = oracle.get("expected_handoff", "unknown") if oracle else "unknown"
+        if expected_handoff in {"blocked", "needs_fact"}:
+            interventions += 1
+            intervention_ms = None
+            intervention_ms_status = "not_observed"
+        elif expected_handoff is not None:
+            interventions = None
+            intervention_ms = None
+            intervention_ms_status = "unknown"
     autonomous = bool(task["completable"] and terminal == "ready" and complete and not unknown and not assisted)
     false_ready = (not complete) if oracle and terminal == "ready" else None if terminal == "ready" else False
     if train_store and oracle and not unknown:
@@ -417,7 +438,7 @@ def run_trial(task, arm, cohort, config, memory, *, environment, decide=model_de
                 train_store.record_outcome(before, plan, report, run_ref=run_id, verify=lambda checked=checked: checked)
             except (TypeError, ValueError):
                 pass  # Unsupported/ambiguous evidence is not a learnable procedure.
-    return {"schema_version": "interactive-preparation-evaluation/v1", "run_id": run_id,
+    return {"schema_version": "interactive-preparation-evaluation/v2", "run_id": run_id,
             "task_id": task["task_id"], "split": task["split"], "employer": task["employer"], "family": task["family"],
             "arm": arm, "cohort": cohort, "driver_mode": driver_mode, "config_digest": digest(config),
             "safety_digest": digest(SAFETY), "tools_digest": digest(TOOL_CONTRACT), "initial_state_digest": initial_hash,
@@ -429,6 +450,8 @@ def run_trial(task, arm, cohort, config, memory, *, environment, decide=model_de
             "recovery_triggered": oracle.get("recovery_triggered") if oracle else None,
             "recovered": bool(oracle and oracle.get("recovery_triggered") and autonomous),
             "user_intervention_requests": interventions, "user_intervention_ms": intervention_ms,
+            "user_intervention_requests_status": "unknown" if interventions is None else "observed" if interventions else "not_requested",
+            "user_intervention_ms_status": intervention_ms_status,
             "elapsed_ms": elapsed_ms, "estimated_cost_usd": estimate_cost(usages, pricing) if len(usages) == len(turns) else None,
             "cost_basis": "priced_successful_responses_only; any_missing_response_makes_total_unknown", "usage_responses": len(usages), "decision_attempts": len(turns),
             "input_tokens": _known_sum([token_usage(u)["input"] for u in usages]) if len(usages) == len(turns) else None,
@@ -446,13 +469,13 @@ def summarize(results):
     """Keep unknown metrics unknown, keep failed tasks, and do not pool driver modes."""
     grouped = defaultdict(list)
     for result in results:
-        grouped[(result["driver_mode"], result["split"], result["arm"], result["cohort"])].append(result)
+        grouped[(result["driver_mode"], result["split"], result["arm"], result["cohort"], result.get("schema_version", "unknown"))].append(result)
     output = []
     for group, rows in sorted(grouped.items()):
         eligible = [r for r in rows if r["completable"]]
         recovery = [r for r in rows if r["recovery_triggered"] is True]
         handoff = [r for r in rows if not r["completable"]]
-        output.append({"driver_mode": group[0], "split": group[1], "arm": group[2], "cohort": group[3], "trials": len(rows),
+        output.append({"driver_mode": group[0], "split": group[1], "arm": group[2], "cohort": group[3], "schema_version": group[4], "trials": len(rows),
             "completion_denominator": len(eligible), "autonomous_complete": sum(r["autonomous_complete"] for r in eligible),
             "assisted_complete": sum(r["assisted_complete"] for r in rows),
             "autonomous_rate": sum(r["autonomous_complete"] for r in eligible) / len(eligible) if eligible else None,
@@ -462,7 +485,12 @@ def summarize(results):
             "total_elapsed_ms": sum(r["elapsed_ms"] for r in rows),
             "total_cost_usd": _known_sum([r["estimated_cost_usd"] for r in rows]),
             "unknown_cost_trials": sum(r["estimated_cost_usd"] is None for r in rows),
+            "total_user_intervention_requests": _known_sum([r["user_intervention_requests"] for r in rows]),
+            "unknown_intervention_request_trials": sum(r["user_intervention_requests"] is None for r in rows),
             "total_user_intervention_ms": _known_sum([r["user_intervention_ms"] for r in rows]),
+            "user_intervention_ms_status_counts": {
+                status: sum(r.get("user_intervention_ms_status", "unknown") == status for r in rows)
+                for status in ("not_requested", "measured", "not_observed", "unknown")},
             "unknown_oracle_trials": sum(not r["oracle_available"] for r in rows)})
     return output
 
@@ -489,7 +517,7 @@ def paired_comparisons(results):
         for pair in pairs.values():
             if set(pair) != set(ARMS):
                 raise ValueError("incomplete paired cohort; do not drop missing trials")
-            for key in ("task_id", "config_digest", "safety_digest", "tools_digest", "initial_state_digest", "memory_digest", "browser_version"):
+            for key in ("task_id", "schema_version", "config_digest", "safety_digest", "tools_digest", "initial_state_digest", "memory_digest", "browser_version"):
                 values = [row.get(key) for row in pair.values()]
                 if None in values or len(set(values)) != 1:
                     raise ValueError("non-equivalent paired " + key)
