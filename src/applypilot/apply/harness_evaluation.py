@@ -419,7 +419,7 @@ def run_trial(task, arm, cohort, config, memory, *, environment, decide=model_de
         # environment/tool stop. Use independent task evidence, not correctness:
         # a harmful/incorrect handoff still imposes a request on the user.
         expected_handoff = oracle.get("expected_handoff", "unknown") if oracle else "unknown"
-        if expected_handoff in {"blocked", "needs_fact"}:
+        if expected_handoff in ("blocked", "needs_fact"):
             interventions += 1
             intervention_ms = None
             intervention_ms_status = "not_observed"

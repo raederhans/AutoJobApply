@@ -35,7 +35,7 @@ PR21 原始 [CI 38145882951](https://github.com/raederhans/AutoJobApply/actions/
 ## 本机验证
 
 - 修改产品代码前，新增的目标回归有 7 个失败，包括两项明确的 `0 != 1` blocked 复现、回调异常输出 0、未知分类被写为 0。
-- 修改后非浏览器目标套件：`python -m pytest -q tests/test_harness_evaluation.py tests/test_procedure_experience.py -m "not browser" --basetemp <new-task-local-directory>`：74 passed、1 deselected。
+- 修改后非浏览器目标套件：`python -m pytest -q tests/test_harness_evaluation.py tests/test_procedure_experience.py -m "not browser" --basetemp <new-task-local-directory>`：初次 74 passed、1 deselected。后续审查增加两项畸形 oracle 分类回归：原集合判断会抛 `TypeError` 丢失 trial，修复后完整目标套件为 76 passed、1 deselected；无法识别的列表/对象分类也保持未知。
 - `ruff check src tests/test_harness_evaluation.py` 与 `git diff --check` 通过。使用既有 Python 3.12.10、pytest 9.1.1 和 Ruff 0.16.4，没有安装或更新依赖。
 - Chromium 目标回归：`python -m pytest -q tests/test_harness_evaluation.py -m browser --basetemp <new-task-local-directory>`：1 passed、36 deselected，76.19 秒。该测试含 6 次训练、7 个不同 DOM holdout 和 1 次 false-ready 负控制；其中 duplicate/no-commit/missing 均验证请求 1、等待 `null / not_observed`。这些是 reference_driver 框架回归，不是模型效果证据。最终三项整合仍另行验证。
 

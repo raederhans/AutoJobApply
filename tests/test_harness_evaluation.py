@@ -126,7 +126,7 @@ def test_nonhuman_blocked_termination_is_not_an_intervention():
     assert result["user_intervention_ms_status"] == "not_requested"
 
 
-@pytest.mark.parametrize("oracle,expected_handoff", [(False, None), (True, "unrecognized")])
+@pytest.mark.parametrize("oracle,expected_handoff", [(False, None), (True, "unrecognized"), (True, []), (True, {})])
 def test_unclassified_blocked_termination_preserves_unknown_burden(oracle, expected_handoff):
     result = trial(Environment(complete=False, oracle=oracle, expected_handoff=expected_handoff),
                    {"operation": "finish", "arguments": {"status": "blocked"}})
