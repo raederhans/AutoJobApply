@@ -195,6 +195,32 @@ def test_usage_aliases_partial_failures_and_unsupported_billing_categories():
     assert normalize_usage({"prompt_tokens": 10})["cached_input"] is None
 
 
+@pytest.mark.parametrize("location", ["top_level", "input_tokens_details", "output_tokens_details"])
+def test_unrecognized_usage_category_keeps_cost_unknown(location):
+    raw = {"input_tokens": 100, "output_tokens": 20, "input_tokens_details": {"cached_tokens": 0},
+           "output_tokens_details": {"reasoning_tokens": 5}}
+    category = raw if location == "top_level" else raw[location]
+    category["future_billable_tokens"] = 50
+    assert normalize_usage(raw)["total"] == 120
+    assert estimate_usage_cost([raw], {"input": 2, "output": 8, "cached": 1}) is None
+
+
+def test_v2_handoff_and_measurement_survive_shared_evaluator_integration():
+    row = trial(Environment(complete=False, expected_handoff="blocked"),
+                {"operation": "finish", "arguments": {"status": "blocked"}})
+    assert row["schema_version"] == "interactive-preparation-evaluation/v2"
+    assert row["correct_handoff"] and not row["autonomous_complete"]
+    assert row["user_intervention_requests"] == 1
+    assert row["user_intervention_requests_status"] == "observed"
+    assert row["user_intervention_ms"] is None
+    assert row["user_intervention_ms_status"] == "not_observed"
+    assert row["measurement"]["private_trace"]["attempt_id"] == row["run_id"]
+    aggregate = aggregate_measurements([row])[0]
+    assert aggregate["evaluation_schema"] == row["schema_version"]
+    assert aggregate["timing"]["decision"]["status"] == "measured"
+    assert aggregate["timing"]["coordination_wait"]["value"] is None
+
+
 def test_legacy_sources_keep_windows_parallel_work_unknowns_and_no_private_dimensions():
     trace = PerformanceTrace({"domain": "PRIVATE-DOMAIN", "worker_id": "worker-1"})
     trace.record("agent.turn", 100)
@@ -272,3 +298,4 @@ def test_source_identity_includes_measurement_and_plan_implementations():
     manifest = source_manifest(ROOT)
     assert "src/applypilot/apply/harness_measurement.py" in manifest
     assert "src/applypilot/apply/harness_experiment_plan.py" in manifest
+    assert "scripts/attended-host-journal.mjs" in manifest

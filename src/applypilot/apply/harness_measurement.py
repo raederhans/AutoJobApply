@@ -104,6 +104,20 @@ def estimate_usage_cost(usages, pricing):
         data = normalize_usage(raw)
         if any(data[k] is None for k in ("input", "output", "cached_input")):
             return None
+        # A new usage category needs a billing contract before these text rates
+        # can cover it. Preserve known token totals, but do not guess its price.
+        if set(raw) - {"prompt_tokens", "input_tokens", "completion_tokens", "output_tokens", "total_tokens",
+                       "prompt_tokens_details", "input_tokens_details", "completion_tokens_details",
+                       "output_tokens_details"}:
+            return None
+        for key, allowed in (
+                ("prompt_tokens_details", {"cached_tokens", "cache_write_tokens", "audio_tokens"}),
+                ("input_tokens_details", {"cached_tokens", "cache_write_tokens", "audio_tokens"}),
+                ("completion_tokens_details", {"reasoning_tokens", "audio_tokens"}),
+                ("output_tokens_details", {"reasoning_tokens", "audio_tokens"})):
+            details = raw.get(key)
+            if details is not None and (not isinstance(details, Mapping) or set(details) - allowed):
+                return None
         prompt = _alias(raw, "prompt_tokens_details", "input_tokens_details")
         # Older usage omitted cache-write fields. Explicit writes need another
         # billing contract/rate; never silently charge them as ordinary input.

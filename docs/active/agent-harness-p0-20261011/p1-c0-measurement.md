@@ -102,6 +102,12 @@ This preserves the existing three-rate estimator for older compatible usage
 responses; omitted cache-write details remain an unknown metric, not an asserted
 zero. A changed provider billing contract must be checked before using that
 estimate. Reasoning tokens are already in output and are not charged again.
+The combined integration additionally rejects unmodeled fields at the usage root
+or inside input/output details when estimating cost. Known token totals are still
+reported, but a newly introduced category cannot silently inherit a text rate.
+This is deliberately conservative: extra provider metadata, including prediction
+details not modeled by this adapter, also requires an explicit contract update
+before the estimator returns a monetary value.
 `reported_usd` stays unknown because the client has no per-attempt billed-cost
 source. Organization/day billing totals must not be assigned to a trial.
 

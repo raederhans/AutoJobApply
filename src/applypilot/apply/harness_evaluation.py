@@ -559,6 +559,7 @@ def schedule(task_list, *, repeats=2, seed=17):
 def source_manifest(root):
     paths = ["scripts/harness-evaluation-browser.mjs", "scripts/browser-form-state.mjs", "scripts/browser-form-semantics.mjs",
              "scripts/browser-field-batch.mjs", "scripts/browser-preparation-subgoals.mjs", "scripts/visual-bridge-host.mjs",
+             "scripts/attended-host-journal.mjs",
              "tests/fixtures/apply/semantic-preparation-lab.html", "src/applypilot/apply/harness_evaluation.py",
              "src/applypilot/apply/harness_measurement.py", "src/applypilot/apply/harness_experiment_plan.py",
              "src/applypilot/apply/procedure_experience.py", "src/applypilot/apply/recipe_experience.py",

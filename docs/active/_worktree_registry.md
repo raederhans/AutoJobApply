@@ -23,8 +23,9 @@ All three lanes start from verified draft PR #21 head `6f2a116c36846dd8a8d17e1ec
 | `task-3/AutoJobApply-integration` | `codex/pr21-integration-20261012` | Handoff evaluation burden, delivery truth, capability boundaries and acceptance checklist |
 | `task-4/AutoJobApply-host-recovery` | `codex/pr21-host-recovery-20261012` | Explicit Host to existing C/D/SQLite recovery and reviewed continuation |
 | `task-5/AutoJobApply-timing` | `codex/pr21-timing-20261012` | Independent timing/cost attribution module and empirical-run budget preparation |
+| `task-3/AutoJobApply-combined` | `codex/pr21-combined-20261012` | Local cherry-picks of all three lanes, shared evaluator resolution and combined acceptance |
 
-State: in progress, local only. After the lane commits are ready, use a fourth isolated worktree on the same PR head for local integration and shared validation. No push, remote merge, release, user-installation change or real application is authorized by this entry. See [P1 integration closeout](agent-harness-p0-20261011/p1-integration-closeout.md).
+State: all three lanes committed; combined acceptance completed locally in the fourth isolated worktree on the same PR head. All 33 original HEAD/status inventories remained identical. No push, remote merge, release, user-installation change or real application was performed. See [P1 integration closeout](agent-harness-p0-20261011/p1-integration-closeout.md).
 
 ## Delivery package
 
