@@ -199,7 +199,7 @@ class CareerHandler(BaseHTTPRequestHandler):
         return [unquote(part) for part in path.path[len(PREFIX) + 1:].split("/")]
 
     def inbox_query(self):
-        values = parse_qs(urlsplit(self.path).query, keep_blank_values=True, strict_parsing=True, max_num_fields=4)
+        values = parse_qs(urlsplit(self.path).query, keep_blank_values=True, strict_parsing=True, max_num_fields=5)
         if set(values) - {"q", "scope", "sort", "offset", "record_id"} or any(len(value) != 1 for value in values.values()):
             raise ValueError("invalid_inbox_query")
         result = {name: value[0] for name, value in values.items()}

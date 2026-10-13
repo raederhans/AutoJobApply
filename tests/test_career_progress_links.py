@@ -22,7 +22,7 @@ def test_record_filter_and_exact_inbox_link_ignore_equal_titles(inbox):
                      ("https://example.test/different-role", first["title"], first["company"]))
     rows = client.get(records).json()["rows"]
     other = next(row for row in rows if row["record_id"] != first["record_id"])
-    exact = client.get(queue, params={"record_id": first["record_id"], "scope": "all"})
+    exact = client.get(queue, params={"q": "", "scope": "all", "sort": "newest", "offset": 0, "record_id": first["record_id"]})
     assert exact.status_code == 200, exact.text
     assert [item["id"] for item in exact.json()["items"]] == ["exception-1"]
     assert set(exact.json()["record_filter"]) == {"record_id", "title", "company"}
