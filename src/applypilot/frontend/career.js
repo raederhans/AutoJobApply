@@ -12,10 +12,11 @@
     return Number.isNaN(date.getTime()) ? String(value || "") : new Intl.DateTimeFormat("zh-CN", {month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}).format(date);
   };
   const state = {token:null, catalog:{companies:[],jobs:[]}, materials:[], targets:[], runs:[], target:null, diagnosis:null, progress:null, stage:"materials", file:null, polling:null, retry:null, busy:false, observedRuns:new Set(),pendingResults:new Map(),selectionGeneration:0,selectionPending:false,dialogGeneration:0,dataGeneration:0};
-  Object.assign(state,{inbox:null,inboxLoading:false,inboxError:null,inboxGeneration:0,inboxDrafts:new Map(),inboxQuery:{q:"",scope:"open",sort:"newest",offset:0},inboxDetailGeneration:0});
-  Object.assign(state,{jobReport:null,jobReportLoading:false,jobReportError:null,jobReportGeneration:0,jobStatusOptionsReady:false,jobReportDownloading:false,jobReportQuery:{q:"",since:"",until:"",date_field:"updated_at",statuses:[],offset:0}});
+  Object.assign(state,{inbox:null,inboxLoading:false,inboxError:null,inboxGeneration:0,inboxDrafts:new Map(),inboxQuery:{q:"",scope:"open",sort:"newest",offset:0,record_id:""},inboxDetailGeneration:0,inboxRecordLabel:null});
+  Object.assign(state,{jobReport:null,jobReportLoading:false,jobReportError:null,jobReportGeneration:0,jobStatusOptionsReady:false,jobReportDownloading:false,jobReportQuery:{q:"",since:"",until:"",date_field:"updated_at",statuses:[],offset:0,record_id:""},jobReportRecordLabel:null});
   Object.assign(state,{reminders:null,reminderLoading:false,reminderError:null,reminderGeneration:0,reminderLimit:100,reminderBusy:false,reminderUncertain:false});
   const stageNames = {materials:"目标与材料",diagnosis:"差距诊断",route:"学习路线",review:"产物与评审",inbox:"申请待处理","job-progress":"求职进度"};
+  const validRecordId=(value)=>typeof value==="string"&&/^application-[a-f0-9]{16}$/.test(value);
   const kindNames = {resume:"简历",resume_copy:"简历副本",project_evidence:"项目证据",generated:"生成 / 练习产物",candidate_facts:"事实记录",candidate_fact_master:"求职事实主档",project_fact_context:"项目事实与贡献范围",project_fact_master:"项目事实主档"};
   const roleNames={ux_design_research:"用户体验设计与研究",software:"软件工程",software_engineering:"软件工程",frontend:"前端开发",frontend_engineering:"前端开发",backend:"后端开发",fullstack:"全栈开发",data_analytics:"数据分析",data_analysis:"数据分析",data_science:"数据科学",machine_learning:"机器学习",ai_engineering:"AI 工程",product_management:"产品管理",business_analysis:"商业分析",technical_build:"技术开发",design:"设计",ux:"用户体验",sales_engineering:"售前技术"};
   const companyName=(id)=>state.catalog.companies.find((c)=>c.company_id===id)?.name||"公司未提供";
@@ -92,17 +93,20 @@
     };
     await perform();
   }
-  function showStage(stage, focus=false) {
+  function showStage(stage, focus=false, {read=true}={}) {
     state.stage=stage;
     document.querySelectorAll("[data-stage]").forEach((button)=>{if(button.dataset.stage===stage)button.setAttribute("aria-current","step");else button.removeAttribute("aria-current");});
     Object.keys(stageNames).forEach((name)=>{$("stage-"+name).hidden=name!==stage;});
     $("page-title").textContent=stageNames[stage];remember();if(focus)$("main").focus();
     $("target-strip").hidden=["inbox","job-progress"].includes(stage);renderRuns();
-    if(stage==="inbox")loadInbox();
-    if(stage==="job-progress"){loadJobProgress();loadReminders();}
+    if(read&&stage==="inbox")loadInbox();
+    if(read&&stage==="job-progress"){loadJobProgress();loadReminders();}
   }
   function renderInbox() {
     const data=state.inbox, counts=data?.counts||{};
+    const recordBox=$("inbox-record-filter"),recordLabel=data?.record_filter?.record_id===state.inboxQuery.record_id?data.record_filter:state.inboxRecordLabel;
+    recordBox.hidden=!state.inboxQuery.record_id;
+    recordBox.innerHTML=state.inboxQuery.record_id?`<div><strong>限定为对应求职记录的申请项</strong><p>${e(recordLabel?.title||"所选求职记录")}${recordLabel?.company?` · ${e(recordLabel.company)}`:""}</p><small>按精确保存的来源入口关联；搜索、范围与分页继续保留此限定。</small></div><button type="button" class="button subtle" data-inbox-clear-record>清除限定，查看全部</button>`:"";
     $("inbox-search-submit").disabled=state.inboxLoading;
     $("inbox-counts").innerHTML=[["shown","本页条目"],["open","本页开放"],["needs_response","本页待答复"],["resume_requested","本页等待接续"],["blocked","本页需另行处理"]].map(([key,label])=>`<div class="metric"><strong>${e(data?.available===true&&Number.isFinite(counts[key])?counts[key]:"—")}</strong>${label}${data?.truncated?` <span class="hint">（仅本页 ${e(data.limit||100)} 条以内）</span>`:""}</div>`).join("");
     const pagination=data?.pagination, nav=$("inbox-pagination");
@@ -127,8 +131,11 @@
   async function loadInbox() {
     const generation=++state.inboxGeneration;state.inboxLoading=true;state.inboxError=null;renderInbox();
     const query=state.inboxQuery;
-    try {const data=await api("/application-inbox?q="+segment(query.q)+"&scope="+segment(query.scope)+"&sort="+segment(query.sort)+"&offset="+query.offset);if(generation!==state.inboxGeneration)return;state.inbox={...data,items:Array.isArray(data.items)?data.items:[]};}
-    catch(error){if(generation===state.inboxGeneration)state.inboxError=error.message||"申请列表读取失败，请重试。";}
+    try {const data=await api("/application-inbox?q="+segment(query.q)+"&scope="+segment(query.scope)+"&sort="+segment(query.sort)+"&offset="+query.offset+(query.record_id?"&record_id="+segment(query.record_id):""));if(generation!==state.inboxGeneration)return;state.inbox={...data,items:Array.isArray(data.items)?data.items:[]};}
+    catch(error){if(generation===state.inboxGeneration){
+      if(error.code==="progress_record_changed"||error.code==="progress_source_unavailable"){state.inbox=null;state.inboxError=error.code==="progress_record_changed"?"原记录的来源身份已变化，无法继续关联。请回到求职进度核对记录，或清除限定后人工查看全部申请项。":"这条记录没有唯一的原申请入口，无法精确关联。可清除限定后人工查看全部申请项。";}
+      else state.inboxError=error.message||"申请列表读取失败，请重试。";
+    }}
     finally {if(generation===state.inboxGeneration){state.inboxLoading=false;renderInbox();}}
   }
   async function inboxPage(direction) {
@@ -183,7 +190,30 @@
     const parts=["q="+segment(query.q),"date_field="+segment(query.date_field)];
     if(query.since)parts.push("since="+segment(query.since));if(query.until)parts.push("until="+segment(query.until));
     query.statuses.forEach((status)=>parts.push("status="+segment(status)));
+    if(query.record_id)parts.push("record_id="+segment(query.record_id));
     if(withOffset)parts.push("offset="+query.offset);return parts.join("&");
+  }
+  function syncJobRecordInputs() {
+    const query=state.jobReportQuery;$("job-progress-query").value=query.q;$("job-progress-since").value=query.since;$("job-progress-until").value=query.until;$("job-progress-date-field").value=query.date_field;
+    $("job-progress-status-options").querySelectorAll("input[type=checkbox]").forEach((input)=>{input.checked=query.statuses.includes(input.value);});
+  }
+  function syncInboxRecordInputs() {
+    const query=state.inboxQuery;$("inbox-query").value=query.q;$("inbox-scope").value=query.scope;$("inbox-sort").value=query.sort;$("inbox-filter").value="all";
+  }
+  async function viewReminderRecord(id) {
+    if(!validRecordId(id))return;const item=Object.values(state.reminders?.groups||{}).flatMap((group)=>Array.isArray(group)?group:[]).find((item)=>item.record_id===id&&item.target_available===true);if(!item)return;
+    state.jobReportQuery={q:"",since:"",until:"",date_field:"updated_at",statuses:[],offset:0,record_id:id};state.jobReportRecordLabel={title:item.title,company:item.company};state.jobReport=null;syncJobRecordInputs();showStage("job-progress",false,{read:false});await loadJobProgress();
+    if(state.stage==="job-progress"&&state.jobReportQuery.record_id===id&&!state.jobReportError){$("job-progress-content").scrollIntoView({block:"start"});$("job-progress-content").focus({preventScroll:true});}
+  }
+  async function viewAssociatedApplications(id) {
+    if(!validRecordId(id))return;const row=state.jobReport?.rows.find((row)=>row.record_id===id);if(!row)return;
+    state.inboxQuery={q:"",scope:"all",sort:"newest",offset:0,record_id:id};state.inboxRecordLabel={title:row.title,company:row.company};state.inbox=null;syncInboxRecordInputs();showStage("inbox",true,{read:false});await loadInbox();
+  }
+  async function clearJobRecordFilter() {
+    state.jobReportQuery={q:"",since:"",until:"",date_field:"updated_at",statuses:[],offset:0,record_id:""};state.jobReportRecordLabel=null;state.jobReport=null;syncJobRecordInputs();await loadJobProgress();
+  }
+  async function clearInboxRecordFilter() {
+    state.inboxQuery={q:"",scope:"all",sort:"newest",offset:0,record_id:""};state.inboxRecordLabel=null;state.inbox=null;syncInboxRecordInputs();await loadInbox();
   }
   function progressStatus(value) {
     const labels={not_started:"未开始",in_progress:"执行中",applying:"执行中",applied:"记录为已投递",already_applied:"已有投递记录",failed:"执行未完成",previewed:"仅预览",submission_uncertain:"投递结果待核对",expired:"已过期",skipped:"已跳过",blocked:"需要处理",needs_human:"需要人工处理",manual:"需要人工处理",captcha:"需要人工验证",duplicate:"重复记录",submission_unverified:"投递尚未核实",unknown:"状态未核实",contacted:"已联系",assessment:"测评阶段",offer:"收到 offer",accepted:"已接受",declined:"已谢绝",rejected:"已拒绝",withdrawn:"已撤回",conflict:"记录存在冲突",interview_unknown:"面试轮次未记录"};
@@ -201,6 +231,9 @@
   }
   function renderJobProgress() {
     const data=state.jobReport,summary=data?.summary||{},box=$("job-progress-content");
+    const recordBox=$("job-progress-record-filter"),recordLabel=state.jobReportRecordLabel;
+    recordBox.hidden=!state.jobReportQuery.record_id;
+    recordBox.innerHTML=state.jobReportQuery.record_id?`<div><strong>来自提醒的记录筛选</strong><p>${e(recordLabel?.title||"所选求职记录")}${recordLabel?.company?` · ${e(recordLabel.company)}`:""}</p><small>精确限定此记录；继续筛选、分页与下载都保留此范围。</small></div><button type="button" class="button subtle" data-job-progress-clear-record>清除限定，查看全部记录</button>`:"";
     $("job-progress-apply").disabled=state.jobReportLoading;box.setAttribute("aria-busy",String(state.jobReportLoading));
     for(const id of ["job-progress-csv","job-progress-markdown"])$(id).disabled=data?.available!==true||state.jobReportLoading||!!state.jobReportError||state.jobReportDownloading;
     $("job-progress-summary").innerHTML=[["record_count","匹配记录"],["todo_count","含待核对线索的记录"],["open_action_record_count","含开放行动的记录"]].map(([key,label])=>`<div class="metric"><strong>${e(data?.available===true&&Number.isFinite(summary[key])?summary[key]:"—")}</strong>${label}</div>`).join("");
@@ -220,7 +253,7 @@
     const filters=data.filters||{},dateNames={updated_at:"最近观察更新",submitted_at:"记录的投递日期",discovered_at:"发现日期"};
     const applied=`关键词：${filters.q||"不限"} · ${dateNames[filters.date_field]||"最近观察更新"}：${filters.since||"不限起始"} 至 ${filters.until||"不限结束"}（UTC） · 状态：${filters.statuses?.length?filters.statuses.map(progressStatus).join("、"):"全部"}`;
     const bases={verified:"已核验记录",user_confirmed:"用户已确认",reported:"仅报告，待核实",unverified:"尚未核实",uncertain:"结果不确定"};
-    box.innerHTML=error+`<p class="hint job-progress-applied">已应用筛选 · ${e(applied)}<br>汇总生成时间：${e(progressDate(data.generated_at))}（UTC）</p>`+(data.rows.length?`<div class="job-progress-table-wrap" role="region" aria-label="本页求职记录，可横向滚动" tabindex="0"><table class="job-progress-table"><thead><tr><th scope="col">岗位</th><th scope="col">公司</th><th scope="col">执行状态</th><th scope="col">招聘阶段</th><th scope="col">投递依据</th><th scope="col">日期（UTC）</th><th scope="col">待核对线索</th><th scope="col">关联的开放行动</th><th scope="col">本地提醒</th></tr></thead><tbody>${data.rows.map((row)=>`<tr><td><strong>${e(row.title||"岗位未提供")}</strong>${row.location?`<small>${e(row.location)}</small>`:""}</td><td>${e(row.company||"公司未提供")}</td><td>${e(progressStatus(row.application_status))}</td><td>${e(progressStatus(row.recruiting_stage))}</td><td>${e(bases[row.submission_basis]||"未记录")}</td><td class="job-progress-dates"><span>最近观察更新：${e(progressDate(row.updated_at))}</span><span>记录的投递：${e(progressDate(row.submitted_at))}</span><span>发现：${e(progressDate(row.discovered_at))}</span></td><td>${e(progressTodo(row.todo_reason))}${row.todo_due_at?`<small>关联行动期限：${e(progressDate(row.todo_due_at))}（UTC）</small>`:""}</td><td>${e(Number.isFinite(row.open_action_count)?row.open_action_count:"—")}</td><td>${typeof row.record_id==="string"&&row.record_id?`<button type="button" class="button subtle" data-reminder-create="${e(row.record_id)}" data-reminder-write ${state.reminderBusy||state.reminderUncertain?"disabled":""}>设置提醒</button>`:"未提供可用记录"}</td></tr>`).join("")}</tbody></table></div>`:'<div class="empty"><h3>没有匹配的求职记录</h3><p>调整关键词、日期或状态后点击“应用筛选”。</p></div>');
+    box.innerHTML=error+`<p class="hint job-progress-applied">已应用筛选 · ${e(applied)}<br>汇总生成时间：${e(progressDate(data.generated_at))}（UTC）</p>`+(data.rows.length?`<div class="job-progress-table-wrap" role="region" aria-label="本页求职记录，可横向滚动" tabindex="0"><table class="job-progress-table"><thead><tr><th scope="col">岗位</th><th scope="col">公司</th><th scope="col">执行状态</th><th scope="col">招聘阶段</th><th scope="col">投递依据</th><th scope="col">日期（UTC）</th><th scope="col">待核对线索</th><th scope="col">关联的开放行动</th><th scope="col">记录操作</th></tr></thead><tbody>${data.rows.map((row)=>`<tr><td><strong>${e(row.title||"岗位未提供")}</strong>${row.location?`<small>${e(row.location)}</small>`:""}</td><td>${e(row.company||"公司未提供")}</td><td>${e(progressStatus(row.application_status))}</td><td>${e(progressStatus(row.recruiting_stage))}</td><td>${e(bases[row.submission_basis]||"未记录")}</td><td class="job-progress-dates"><span>最近观察更新：${e(progressDate(row.updated_at))}</span><span>记录的投递：${e(progressDate(row.submitted_at))}</span><span>发现：${e(progressDate(row.discovered_at))}</span></td><td>${e(progressTodo(row.todo_reason))}${row.todo_due_at?`<small>关联行动期限：${e(progressDate(row.todo_due_at))}（UTC）</small>`:""}</td><td>${e(Number.isFinite(row.open_action_count)?row.open_action_count:"—")}</td><td><div class="actions">${validRecordId(row.record_id)?`<button type="button" class="button subtle" data-inbox-record="${e(row.record_id)}">查看关联申请</button>`:""}${typeof row.record_id==="string"&&row.record_id?`<button type="button" class="button subtle" data-reminder-create="${e(row.record_id)}" data-reminder-write ${state.reminderBusy||state.reminderUncertain?"disabled":""}>设置提醒</button>`:"未提供可用记录"}</div></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty"><h3>没有匹配的求职记录</h3><p>${state.jobReportQuery.record_id?"当前限定下没有匹配记录。若原记录已变化，请刷新提醒后重新选择，或清除记录限定查看全部。":"调整关键词、日期或状态后点击应用筛选。"}</p>${state.jobReportQuery.record_id?'<button class="button subtle" type="button" data-reminder-refresh>刷新提醒，重新选择</button>':""}</div>`);
   }
   async function loadJobProgress() {
     const generation=++state.jobReportGeneration;state.jobReportLoading=true;state.jobReportError=null;renderJobProgress();
@@ -247,6 +280,8 @@
     finally{if(objectURL)setTimeout(()=>URL.revokeObjectURL(objectURL),1000);state.jobReportDownloading=false;renderJobProgress();}
   }
   function reminderStep(value) {
+    const defaults={"Review the saved application progress, then dismiss or postpone this local reminder.":"核对已保存的申请进度，再决定是否隐藏或延后本地提醒。","Review the existing submission receipt before deciding any further action.":"先核对已有投递回执，再决定下一步。","Review this closed or conflicting recruiting record and decide whether to keep the local task.":"核对已结束或有冲突的招聘记录，再决定是否保留本地跟进任务。"};
+    if(defaults[value])return defaults[value];
     const labels={follow_up:"核对跟进进展",check_status:"核对申请进度",review_progress:"查看已有进度",followup_action_pending:"核对尚未完成的跟进行动","Follow up":"核对跟进进展","Check application status":"核对申请进度"};
     return labels[value]||value||"核对进度并决定下一步";
   }
@@ -266,7 +301,7 @@
     box.innerHTML=error+uncertain+`<p class="hint">${e(Number.isFinite(data.unscheduled_count)?data.unscheduled_count:"—")} 条记录尚未设置本地提醒，可在下方进度表逐行设置。${data.target_unavailable_count?` ${e(data.target_unavailable_count)} 条提醒的目标记录不可用，仍保留在清单中，需核对。`:""}</p>`+Object.entries(labels).map(([key,label])=>{
       const items=Array.isArray(groups[key])?groups[key]:[],total=Number.isFinite(counts[key])?counts[key]:null;
       if(total!==null&&total>items.length)hasMore=true;
-      return `<section class="reminder-group"><div class="reminder-group-head"><h3>${label}</h3><span class="muted">显示 ${e(items.length)} / ${e(total??"—")} 条${total!==null&&total>items.length?" · 还有未显示记录":""}</span></div>${items.length?items.map((item)=>`<article class="reminder-card"><div class="reminder-card-head"><div><p class="inbox-company">${e(item.company||"公司未提供")}</p><h4>${e(item.title||"原岗位未提供")}</h4></div><span class="tag">${item.source==="existing_action"?"已有行动 · 清单视图":item.source==="local_reminder"?"本地提醒":"来源待核对"}</span></div><p class="reminder-status">执行状态：${e(progressStatus(item.application_status))} · 招聘阶段：${e(progressStatus(item.recruiting_stage))}</p>${item.target_available===false?'<p class="notice">目标记录不可用，请核对原流程；提醒仍被保留。</p>':""}<p class="reminder-next">${e(reminderStep(item.next_step))}</p><div class="reminder-card-foot"><span class="hint">提醒日期（UTC）：${e(item.due_date||"未定日期")}</span><div class="actions"><button type="button" class="text-button" data-reminder-snooze="${e(item.reminder_id)}" data-reminder-write>延后</button><button type="button" class="text-button" data-reminder-dismiss="${e(item.reminder_id)}" data-reminder-write>隐藏提醒</button></div></div></article>`).join(""):'<p class="hint">本组没有提醒。</p>'}</section>`;
+      return `<section class="reminder-group"><div class="reminder-group-head"><h3>${label}</h3><span class="muted">显示 ${e(items.length)} / ${e(total??"—")} 条${total!==null&&total>items.length?" · 还有未显示记录":""}</span></div>${items.length?items.map((item)=>`<article class="reminder-card"><div class="reminder-card-head"><div><p class="inbox-company">${e(item.company||"公司未提供")}</p><h4>${e(item.title||"原岗位未提供")}</h4></div><span class="tag">${item.source==="existing_action"?"已有行动 · 清单视图":item.source==="local_reminder"?"本地提醒":"来源待核对"}</span></div><p class="reminder-status">执行状态：${e(progressStatus(item.application_status))} · 招聘阶段：${e(progressStatus(item.recruiting_stage))}</p>${item.target_available===false?'<p class="notice">目标记录不可用，请核对原流程；提醒仍被保留。</p>':""}<p class="reminder-next">${e(reminderStep(item.next_step))}</p><div class="reminder-card-foot"><span class="hint">提醒日期（UTC）：${e(item.due_date||"未定日期")}</span><div class="actions">${item.target_available===true&&validRecordId(item.record_id)?`<button type="button" class="text-button" data-reminder-record="${e(item.record_id)}">查看求职记录</button>`:""}<button type="button" class="text-button" data-reminder-snooze="${e(item.reminder_id)}" data-reminder-write>延后</button><button type="button" class="text-button" data-reminder-dismiss="${e(item.reminder_id)}" data-reminder-write>隐藏提醒</button></div></div></article>`).join(""):'<p class="hint">本组没有提醒。</p>'}</section>`;
     }).join("")+ (hasMore?`<div class="reminder-more"><p class="hint">每组最多显示 ${e(state.reminderLimit)} 条，计数包含未显示记录。${state.reminderLimit>=500?"已达每组 500 条显示上限，仍有未显示记录。":""}</p><button type="button" class="button subtle" data-reminder-more ${state.reminderLimit>=500||state.reminderLoading?"disabled":""}>显示更多（每组增加 100 条）</button></div>`:"");
     syncReminderControls();
   }
@@ -569,7 +604,11 @@
     if(button.hasAttribute("data-job-progress-refresh"))await loadJobProgress();
     if(button.dataset.jobProgressPage)await jobProgressPage(button.dataset.jobProgressPage);
     if(button.dataset.jobProgressDownload)await downloadJobProgress(button.dataset.jobProgressDownload);
-    if(button.hasAttribute("data-reminder-refresh"))await loadReminders({reconcile:true});
+    if(button.hasAttribute("data-job-progress-clear-record"))await clearJobRecordFilter();
+    if(button.hasAttribute("data-inbox-clear-record"))await clearInboxRecordFilter();
+    if(button.dataset.reminderRecord)await viewReminderRecord(button.dataset.reminderRecord);
+    if(button.dataset.inboxRecord)await viewAssociatedApplications(button.dataset.inboxRecord);
+    if(button.hasAttribute("data-reminder-refresh")){$("job-reminders-section").open=true;await loadReminders({reconcile:true});}
     if(button.hasAttribute("data-reminder-more")&&!state.reminderLoading&&state.reminderLimit<500){state.reminderLimit+=100;await loadReminders();}
     if(button.dataset.reminderCreate)openReminder("create",button.dataset.reminderCreate);
     if(button.dataset.reminderSnooze)openReminder("snooze",button.dataset.reminderSnooze);
@@ -592,7 +631,7 @@
   $("refresh").addEventListener("click",refresh);
   $("inbox-search-form").addEventListener("submit",async(event)=>{
     event.preventDefault();if(state.inboxLoading)return;
-    state.inboxQuery={q:$("inbox-query").value.trim(),scope:$("inbox-scope").value||"open",sort:$("inbox-sort").value||"newest",offset:0};
+    state.inboxQuery={q:$("inbox-query").value.trim(),scope:$("inbox-scope").value||"open",sort:$("inbox-sort").value||"newest",offset:0,record_id:state.inboxQuery.record_id||""};
     await loadInbox();
   });
   $("inbox-progress-dialog").addEventListener("close",()=>{state.inboxDetailGeneration++;});
@@ -600,7 +639,7 @@
     event.preventDefault();if(state.jobReportLoading)return;
     const since=$("job-progress-since").value,until=$("job-progress-until").value;
     if(since&&until&&since>until){feedback("起始日期不能晚于结束日期。",{error:true});$("job-progress-since").focus();return;}
-    state.jobReportQuery={q:$("job-progress-query").value.trim(),since,until,date_field:$("job-progress-date-field").value||"updated_at",statuses:[...$("job-progress-status-options").querySelectorAll("input:checked")].map((input)=>input.value),offset:0};await loadJobProgress();
+    state.jobReportQuery={q:$("job-progress-query").value.trim(),since,until,date_field:$("job-progress-date-field").value||"updated_at",statuses:[...$("job-progress-status-options").querySelectorAll("input:checked")].map((input)=>input.value),offset:0,record_id:state.jobReportQuery.record_id||""};await loadJobProgress();
   });
   $("company").addEventListener("change",renderJobs);$("job").addEventListener("change",renderJobContext);
   $("current-target").addEventListener("change",async(event)=>{try{if(await loadTarget(event.target.value))showStage(state.stage);}catch(err){showError(err);}});

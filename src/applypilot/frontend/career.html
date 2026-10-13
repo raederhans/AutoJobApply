@@ -47,6 +47,7 @@
         <section id="stage-review" class="stage" hidden><div class="intro"><div><h2>让每个结论都有原句。</h2><p>提交产物后逐条评审。观察只限当前任务、情境与实际协助。</p></div><span class="section-number" aria-hidden="true">04</span></div><div id="review-content"></div></section>
         <section id="stage-inbox" class="stage" hidden>
           <div class="intro"><div><h2>把暂停的申请，接着往下走。</h2><p>查看原申请需要的答复与下一步。保存答复后，再明确申请继续。</p></div><span class="section-number" aria-hidden="true">05</span></div>
+          <div id="inbox-record-filter" class="notice info record-filter" aria-label="申请记录限定" hidden></div>
           <form id="inbox-search-form" class="inbox-query"><div class="inbox-search-field"><label for="inbox-query">岗位、公司或问题关键词</label><input id="inbox-query" type="search" maxlength="200" placeholder="搜索申请记录"></div><div><label for="inbox-scope">范围</label><select id="inbox-scope"><option value="open">开放项</option><option value="history">历史记录</option><option value="all">全部记录</option></select></div><div><label for="inbox-sort">时间排序</label><select id="inbox-sort"><option value="newest">从新到旧</option><option value="oldest">从旧到新</option></select></div><button type="submit" id="inbox-search-submit" class="button secondary">搜索 / 应用</button></form>
           <p class="hint">修改关键词、范围或排序后点击“搜索 / 应用”。查看列表与进度不会改变申请状态。</p>
           <div id="inbox-counts" class="metrics" aria-label="本页申请概览"></div>
@@ -57,11 +58,12 @@
         <section id="stage-job-progress" class="stage" hidden>
           <div class="intro"><div><h2>看清记录，再安排下一步。</h2><p>执行状态与招聘阶段分开查看；筛选已有记录，下载全部匹配结果。</p></div><span class="section-number" aria-hidden="true">06</span></div>
           <div class="notice info">本页日期均为 UTC。更新时间来自已有观察或记录，不等于申请状态发生变化。待核对线索可能来自历史失败，不代表当前可重试。</div>
+          <div id="job-progress-record-filter" class="notice info record-filter" aria-label="求职记录限定" hidden></div>
           <form id="job-progress-form" class="job-progress-query"><div class="job-progress-search"><label for="job-progress-query">岗位、公司关键词</label><input type="search" id="job-progress-query" maxlength="200" placeholder="搜索已有求职记录"></div><div><label for="job-progress-date-field">筛选日期字段</label><select id="job-progress-date-field"><option value="updated_at">最近观察更新</option><option value="submitted_at">记录的投递日期</option><option value="discovered_at">发现日期</option></select></div><div><label for="job-progress-since">起始日期（UTC）</label><input type="date" id="job-progress-since"></div><div><label for="job-progress-until">结束日期（UTC）</label><input type="date" id="job-progress-until"></div><fieldset class="job-progress-statuses"><legend>状态多选 · 满足任一所选状态</legend><div id="job-progress-status-options" class="job-progress-status-options"></div><p class="hint">不选择时显示全部状态。日期为空时不限制日期。</p></fieldset><button class="button secondary" id="job-progress-apply" type="submit">应用筛选</button></form>
           <div id="job-progress-summary" class="metrics" aria-label="全部匹配记录摘要"></div>
           <div class="job-progress-downloads"><p class="hint">下载当前已应用筛选的全部匹配记录，包含其它分页；只生成本地文件。</p><div class="actions"><button class="button subtle" type="button" id="job-progress-csv" data-job-progress-download="csv" disabled>下载 CSV</button><button class="button subtle" type="button" id="job-progress-markdown" data-job-progress-download="markdown" disabled>下载 Markdown</button></div></div>
           <details id="job-reminders-section" class="job-reminders-section"><summary>本地跟进提醒 <span class="muted">按 UTC 日期整理</span></summary><p class="notice info">保存仅记录本地提醒，不改变申请、联系或招聘状态。已有行动的延后 / 隐藏只影响本清单，原行动及日历日期保留。隐藏不代表已完成或已联系。</p><div class="reminder-toolbar"><p id="reminder-date" class="hint">UTC 日期：未记录</p><button type="button" class="button subtle" data-reminder-refresh>刷新提醒清单</button></div><div id="reminder-counts" class="metrics" aria-label="全部提醒计数"></div><div id="reminder-content" aria-live="polite"></div></details>
-          <div id="job-progress-content" aria-live="polite"></div><nav id="job-progress-pagination" class="inbox-pagination" aria-label="求职记录分页" hidden></nav>
+          <div id="job-progress-content" aria-live="polite" tabindex="-1"></div><nav id="job-progress-pagination" class="inbox-pagination" aria-label="求职记录分页" hidden></nav>
         </section>
         <footer>材料关联、任务观察与通用技能等级分别记录。此工作台不作录用判断。</footer>
       </main>
