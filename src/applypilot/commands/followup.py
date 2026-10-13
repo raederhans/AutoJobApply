@@ -115,6 +115,29 @@ def progress_stats(
         _print(summarize(collect_progress(conn), as_of=as_of, since=since, until=until, scope=scope, query=query))
 
 
+@app.command("export-progress")
+def export_progress(
+    output_dir: Annotated[Path, typer.Option("--output-dir", file_okay=False)],
+    since: Annotated[str | None, typer.Option("--since", help="First inclusive UTC date (YYYY-MM-DD).")] = None,
+    until: Annotated[str | None, typer.Option("--until", help="Last inclusive UTC date (YYYY-MM-DD).")] = None,
+    status: Annotated[list[str] | None, typer.Option(
+        "--status", help="Application status or recruiting stage; repeat to include several."
+    )] = None,
+    date_field: Annotated[str, typer.Option(
+        "--date-field", help="Date to filter: updated_at, submitted_at or discovered_at."
+    )] = "updated_at",
+) -> None:
+    """Export existing local job progress to new CSV and Markdown files, without applying."""
+    from applypilot.progress_report import export_progress as export
+
+    try:
+        result = export(_database_path(), output_dir, since=since, until=until,
+                        statuses=status or (), date_field=date_field)
+    except (ValueError, TypeError, OSError, sqlite3.Error) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    _print(result)
+
+
 @app.command("pending")
 def pending() -> None:
     """Show observations that still need an exact job choice."""
