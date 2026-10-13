@@ -100,7 +100,7 @@
   }
   function renderInbox() {
     const data=state.inbox, counts=data?.counts||{};
-    $("inbox-counts").innerHTML=[["open","待处理"],["needs_response","待答复"],["resume_requested","等待流程接续"],["blocked","需另行处理 / 已过期"]].map(([key,label])=>`<div class="metric"><strong>${e(counts[key]??0)}</strong>${label}</div>`).join("");
+    $("inbox-counts").innerHTML=[["open","待处理"],["needs_response","待答复"],["resume_requested","等待流程接续"],["blocked","需另行处理 / 已过期"]].map(([key,label])=>`<div class="metric"><strong>${e(data?.available===true&&Number.isFinite(counts[key])?counts[key]:"—")}</strong>${label}${data?.truncated?` <span class="hint">（仅前 ${e(data.limit||100)} 条）</span>`:""}</div>`).join("");
     const box=$("inbox-content");box.setAttribute("aria-busy",String(state.inboxLoading));
     if(state.inboxLoading&&!data){box.innerHTML='<div class="empty"><span class="spinner" aria-hidden="true"></span>正在读取待处理申请…</div>';return;}
     const error=state.inboxError?`<div class="notice" role="alert">${e(state.inboxError)} <button type="button" class="button subtle" data-inbox-refresh>重新读取</button></div>`:"";
