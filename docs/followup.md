@@ -29,6 +29,11 @@ overdue and future. `set-reminder`, `snooze-reminder` and `dismiss-reminder` man
 only the local reminder file. See [Local followup reminders](followup-reminders.md)
 for record IDs, date controls and the distinction from completing an action.
 
+`followup export-html --kind progress` and `--kind reminders` produce a
+self-contained HTML snapshot of the selected progress or local reminder rows.
+See [Offline progress and reminder reports](local-html-reports.md) for filters
+and browser-openable fictional examples.
+
 The import file is an array of reviewed observations:
 
 ```json

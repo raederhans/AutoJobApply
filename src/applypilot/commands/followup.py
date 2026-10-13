@@ -240,3 +240,27 @@ def snooze_reminder(
 def dismiss_reminder(reminder_id: Annotated[str, typer.Option("--reminder-id")]) -> None:
     """Hide one reminder locally; existing application and action records are unchanged."""
     _reminder_call("dismiss_reminder", reminder_id=reminder_id)
+
+
+@app.command("export-html")
+def export_html(
+    output_dir: Annotated[Path, typer.Option("--output-dir", file_okay=False)],
+    kind: Annotated[str, typer.Option("--kind", help="progress or reminders; one self-contained HTML report.")] = "progress",
+    since: Annotated[str | None, typer.Option("--since", help="First inclusive UTC date (YYYY-MM-DD).")] = None,
+    until: Annotated[str | None, typer.Option("--until", help="Last inclusive UTC date (YYYY-MM-DD).")] = None,
+    status: Annotated[list[str] | None, typer.Option("--status", help="Application status or recruiting stage; repeatable.")] = None,
+    date_field: Annotated[str, typer.Option(
+        "--date-field", help="Progress only: updated_at, submitted_at or discovered_at. Reminders always filter due_date."
+    )] = "updated_at",
+    on: Annotated[str | None, typer.Option("--on", help="Reminders only: UTC reference day for date groups.")] = None,
+    bucket: Annotated[str, typer.Option("--bucket", help="Reminders only: all, overdue, today, future or undated.")] = "all",
+) -> None:
+    """Save a filtered, private HTML snapshot for offline browser viewing."""
+    from applypilot.local_report_html import export_report_html
+
+    try:
+        result = export_report_html(_database_path().parent, output_dir, kind=kind, since=since, until=until,
+                                    statuses=status or (), date_field=date_field, on=on, bucket=bucket)
+    except (ValueError, TypeError, OSError, sqlite3.Error) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    _print(result)
