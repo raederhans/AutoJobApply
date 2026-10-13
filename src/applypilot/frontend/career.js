@@ -290,7 +290,7 @@
   }
   function renderReminders() {
     const data=state.reminders,counts=data?.counts||{},groups=data?.groups||{},labels={overdue:"逾期",today:"今天",future:"未来",undated:"未定日期"},box=$("reminder-content");
-    $("reminder-html").disabled=!data||state.reminderLoading||!!state.reminderError||state.reminderDownloading;
+    for(const id of ["reminder-html","reminder-ics"])$(id).disabled=!data||state.reminderLoading||!!state.reminderError||state.reminderDownloading;
     $("reminder-date").textContent=`清单日期：${data?.date||"未记录"}（UTC） · 各组计数为全量；本清单不受上方进度筛选影响`;
     $("reminder-counts").innerHTML=Object.entries(labels).map(([key,label])=>`<div class="metric"><strong>${e(Number.isFinite(counts[key])?counts[key]:"—")}</strong>${label}</div>`).join("");
     box.setAttribute("aria-busy",String(state.reminderLoading));
@@ -313,15 +313,21 @@
     finally{if(generation===state.reminderGeneration){state.reminderLoading=false;renderReminders();}}
   }
   function findReminder(id) {return Object.values(state.reminders?.groups||{}).flatMap((items)=>Array.isArray(items)?items:[]).find((item)=>item.reminder_id===id);}
-  async function downloadReminders() {
-    if(!state.reminders||state.reminderLoading||state.reminderError||state.reminderDownloading)return;
+  async function downloadReminders(format="html") {
+    if(!["html","ics"].includes(format)||!state.reminders||state.reminderLoading||state.reminderError||state.reminderDownloading)return;
     const bucket=$("reminder-download-bucket").value||"all";if(!["all","overdue","today","future","undated"].includes(bucket))return;
-    state.reminderDownloading=true;renderReminders();let objectURL;
+    state.reminderDownloading=true;if(format==="ics")$("reminder-calendar-result").hidden=true;renderReminders();let objectURL;
     try{
-      const response=await fetch(BASE+"/job-progress/reminders/download?format=html&bucket="+segment(bucket),{headers:{Accept:"text/html"},cache:"no-store"});
+      const response=await fetch(BASE+"/job-progress/reminders/download?format="+format+"&bucket="+segment(bucket),{headers:{Accept:format==="ics"?"text/calendar":"text/html"},cache:"no-store"});
       if(!response.ok){let data;try{data=await response.json();}catch{}throw new Error(data?.error?.message||"提醒下载未完成，请检查本地服务。");}
-      objectURL=URL.createObjectURL(await response.blob());const link=document.createElement("a");link.href=objectURL;link.download="followup-reminders.html";document.body.append(link);link.click();link.remove();
-      feedback("已下载所选组的全部提醒，可离线打开或打印。");
+      objectURL=URL.createObjectURL(await response.blob());const link=document.createElement("a");link.href=objectURL;link.download=`followup-reminders.${format}`;document.body.append(link);link.click();link.remove();
+      if(format==="ics"){
+        const count=(name)=>{const raw=response.headers.get(name);const value=raw!==null&&/^\d+$/.test(raw)?Number(raw):null;return Number.isSafeInteger(value)?value:null;};
+        const events=count("X-ApplyPilot-Calendar-Events"),undated=count("X-ApplyPilot-Calendar-Omitted-Undated"),unavailable=count("X-ApplyPilot-Calendar-Omitted-Unavailable");
+        const skippedDate=undated===null?"无日期跳过数量未提供":`无日期跳过 ${undated} 条`,skippedTarget=unavailable===null?"目标不可用跳过数量未提供":`目标不可用跳过 ${unavailable} 条`;
+        const message=(events===0?"已下载空日历（0 个全天事件）":events===null?"已下载日历（事件数量未提供）":`已下载日历（${events} 个全天事件）`)+`；${skippedDate}，${skippedTarget}。请自行导入；文件不会随后续编辑自动更新，重复导入可能产生重复事件。`;
+        const names={all:"全部",overdue:"逾期",today:"今天",future:"未来",undated:"未定日期"};$("reminder-calendar-result").textContent=`上次下载 · ${names[bucket]}组：${message}`;$("reminder-calendar-result").hidden=false;feedback(message);
+      }else feedback("已下载所选组的全部提醒，可离线打开或打印。");
     }catch(error){feedback(error.message||"提醒下载连接中断，请检查本地服务后重试。",{error:true});}
     finally{if(objectURL)setTimeout(()=>URL.revokeObjectURL(objectURL),1000);state.reminderDownloading=false;renderReminders();}
   }
@@ -340,7 +346,7 @@
     const item=action==="create"?state.jobReport?.rows.find((row)=>row.record_id===id):findReminder(id);if(!item)return;
     const snooze=action==="snooze",current=snooze?item.due_date||"":"",dialog=$("job-reminder-dialog");
     dialog.querySelector("[data-dialog-feedback]")?.remove();$("job-reminder-title").textContent=snooze?"延后本地提醒":"设置本地提醒";
-    $("job-reminder-dialog-content").innerHTML=`<p class="inbox-company">${e(item.company||"公司未提供")}</p><h3>${e(item.title||"岗位未提供")}</h3><p class="hint">执行状态：${e(progressStatus(item.application_status))} · 招聘阶段：${e(progressStatus(item.recruiting_stage))}</p><p class="notice info">${snooze&&item.source==="existing_action"?"延后只改变本清单中的提醒日期，原行动与日历日期保持不变。":"保存只记录本地提醒，不会投递申请、联系他人或改变招聘状态。"}</p><form id="job-reminder-form"><label for="reminder-due-date">${snooze?"新的提醒日期":"提醒日期"}（UTC）</label><input id="reminder-due-date" type="date" required ${current?`min="${e(current)}"`:""}>${snooze?`<p class="hint">当前日期：${e(current||"未定日期")}。延期不能早于当前提醒日期。</p>`:'<label for="reminder-next-step">短下一步</label><textarea id="reminder-next-step" rows="3" maxlength="200" required placeholder="例如：核对面试时间，整理下一轮准备事项"></textarea>'}<button type="submit" class="button primary" data-reminder-write>${snooze?"保存延后日期":"保存本地提醒"}</button></form>`;
+    $("job-reminder-dialog-content").innerHTML=`<p class="inbox-company">${e(item.company||"公司未提供")}</p><h3>${e(item.title||"岗位未提供")}</h3><p class="hint">执行状态：${e(progressStatus(item.application_status))} · 招聘阶段：${e(progressStatus(item.recruiting_stage))}</p><p class="notice info">${snooze&&item.source==="existing_action"?"延后只改变本清单中的提醒日期，原行动期限保留。新 ICS 使用延期后的清单日期，已导入文件不会自动更新。":"保存只记录本地提醒，不会投递申请、联系他人或改变招聘状态。"}</p><form id="job-reminder-form"><label for="reminder-due-date">${snooze?"新的提醒日期":"提醒日期"}（UTC）</label><input id="reminder-due-date" type="date" required ${current?`min="${e(current)}"`:""}>${snooze?`<p class="hint">当前日期：${e(current||"未定日期")}。延期不能早于当前提醒日期。</p>`:'<label for="reminder-next-step">短下一步</label><textarea id="reminder-next-step" rows="3" maxlength="200" required placeholder="例如：核对面试时间，整理下一轮准备事项"></textarea>'}<button type="submit" class="button primary" data-reminder-write>${snooze?"保存延后日期":"保存本地提醒"}</button></form>`;
     $("job-reminder-form").addEventListener("submit",async(event)=>{
       event.preventDefault();if(state.reminderBusy||state.reminderUncertain)return;const due_date=$("reminder-due-date").value,next_step=snooze?null:$("reminder-next-step").value.trim();
       if(!due_date||(current&&due_date<current)){feedback("请选择有效日期；延期不能早于当前提醒日期。",{error:true});$("reminder-due-date").focus();return;}
@@ -622,7 +628,7 @@
     if(button.dataset.reminderRecord)await viewReminderRecord(button.dataset.reminderRecord);
     if(button.dataset.inboxRecord)await viewAssociatedApplications(button.dataset.inboxRecord);
     if(button.hasAttribute("data-reminder-refresh")){$("job-reminders-section").open=true;await loadReminders({reconcile:true});}
-    if(button.hasAttribute("data-reminder-download"))await downloadReminders();
+    if(button.hasAttribute("data-reminder-download"))await downloadReminders(button.dataset.reminderDownload||"html");
     if(button.hasAttribute("data-reminder-more")&&!state.reminderLoading&&state.reminderLimit<500){state.reminderLimit+=100;await loadReminders();}
     if(button.dataset.reminderCreate)openReminder("create",button.dataset.reminderCreate);
     if(button.dataset.reminderSnooze)openReminder("snooze",button.dataset.reminderSnooze);
