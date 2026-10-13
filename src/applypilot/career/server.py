@@ -16,7 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from applypilot.career import learning, service
+from applypilot.career import job_progress, learning, service
 from applypilot.career.application_inbox import ApplicationInbox
 from applypilot.career.workbench import Workbench, previous_request, public, save_request
 from applypilot.career.worker import CareerWorker
@@ -93,6 +93,10 @@ class CareerServer(ThreadingHTTPServer):
 
 def _error(exc):
     raw = str(exc)
+    if raw == "progress_filter_invalid":
+        return 422, "invalid_progress_filter", "请核对关键词、UTC 日期范围、日期字段和状态选项。"
+    if raw == "progress_report_unavailable":
+        return 422, "progress_unavailable", "当前工作区尚无可读取的求职进度记录。"
     if isinstance(exc, KeyError) or raw in {"target_not_found", "diagnosis_not_found", "route_not_found"}:
         return 404, "not_found", "这条记录已不存在，请刷新后重新选择。"
     if any(s in raw for s in ("changed", "stale", "revision", "conflict", "reused")):
@@ -126,11 +130,13 @@ class CareerHandler(BaseHTTPRequestHandler):
         # Avoid writing private target/material contents or session tokens to logs.
         pass
 
-    def send(self, status, value, *, content_type="application/json; charset=utf-8"):
+    def send(self, status, value, *, content_type="application/json; charset=utf-8", download_name=None):
         body = value if isinstance(value, bytes) else json.dumps(public(value), ensure_ascii=False, allow_nan=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        if download_name is not None:
+            self.send_header("Content-Disposition", f'attachment; filename="{download_name}"')
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
@@ -168,8 +174,9 @@ class CareerHandler(BaseHTTPRequestHandler):
 
     def parts(self):
         path = urlsplit(self.path)
-        inbox_query = self.command == "GET" and path.path == PREFIX + "/application-inbox"
-        if (path.query and not inbox_query) or path.fragment or not path.path.startswith(PREFIX + "/"):
+        filtered_query = self.command == "GET" and path.path in {
+            PREFIX + "/application-inbox", PREFIX + "/job-progress", PREFIX + "/job-progress/download"}
+        if (path.query and not filtered_query) or path.fragment or not path.path.startswith(PREFIX + "/"):
             raise KeyError("endpoint_not_found")
         return [unquote(part) for part in path.path[len(PREFIX) + 1:].split("/")]
 
@@ -183,6 +190,27 @@ class CareerHandler(BaseHTTPRequestHandler):
                 raise ValueError("invalid_inbox_offset")
             result["offset"] = int(result["offset"])
         return result
+
+    def progress_query(self, *, downloading=False):
+        try:
+            values = parse_qs(urlsplit(self.path).query, keep_blank_values=True, strict_parsing=True, max_num_fields=40)
+            allowed = {"q", "since", "until", "date_field", "status", "format" if downloading else "offset"}
+            if set(values) - allowed or any(len(value) != 1 for name, value in values.items() if name != "status"):
+                raise ValueError("invalid_query")
+            result = {name: value[0] for name, value in values.items() if name != "status"}
+            result["statuses"] = [value for value in values.get("status", []) if value]
+            for name in ("since", "until"):
+                if result.get(name) == "":
+                    result.pop(name)
+            if "offset" in result:
+                if not result["offset"].isascii() or not result["offset"].isdigit() or len(result["offset"]) > 7:
+                    raise ValueError("invalid_offset")
+                result["offset"] = int(result["offset"])
+            if downloading and "format" not in result:
+                raise ValueError("format_required")
+            return result
+        except ValueError as exc:
+            raise ValueError("progress_filter_invalid") from exc
 
     def do_GET(self):
         if not self.permitted():
@@ -205,6 +233,12 @@ class CareerHandler(BaseHTTPRequestHandler):
                     result = self.server.application_inbox.list_items(conn, **self.inbox_query())
                 elif len(p) == 2 and p[0] == "application-inbox":
                     result = self.server.application_inbox.detail(conn, p[1])
+                elif p == ["job-progress"]:
+                    result = job_progress.preview(conn, **self.progress_query())
+                elif p == ["job-progress", "download"]:
+                    body, content_type, filename = job_progress.download(conn, **self.progress_query(downloading=True))
+                    self.send(200, body, content_type=content_type, download_name=filename)
+                    return
                 elif p == ["materials"]:
                     result = {"materials": wb.materials(conn)}
                 elif len(p) == 2 and p[0] == "materials":

@@ -1,5 +1,25 @@
 # Local job progress export
 
+The local career workbench also exposes this projection under **求职进度**.
+Start it for the intended workspace (`applypilot --workspace C:\local-data career serve`)
+and select that stage. A career learning target is not required. Search role,
+company or location, choose inclusive UTC dates and any execution/recruiting
+statuses, then apply the filters. The table has 100 records per page; both download
+buttons include **all matching records**, using the applied filters rather than
+unsaved form edits. Downloads go to the browser's normal download location.
+
+The three summary numbers count matching records, records with a recorded review
+clue, and records associated with an open action. An action can be associated with
+more than one record; the last number is not a unique-action total. A historic
+failure clue does not authorize a retry. Missing dates display as `未记录`, and
+unavailable source tables produce unavailable counts rather than measured zeros.
+
+The HTTP preview and download routes reuse this module's read-only projection.
+They do not write report files into the workspace or change application state.
+Short acceptance covers literal keyword filtering before pagination, all-match
+CSV/Markdown download, UTC/status filters, unknown dates, formula escaping and
+unchanged database bytes (`tests/test_job_progress_browser.py`).
+
 Export the existing workspace database to a spreadsheet CSV and a Markdown
 summary. The command reads a SQLite snapshot in read-only mode; it does not
 refresh progress, initialize or migrate a database, load a profile or resume,

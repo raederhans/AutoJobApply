@@ -19,7 +19,8 @@ app = typer.Typer(help="Local recruiting timeline, next actions and calendar exp
 def _database_path() -> Path:
     # Use the root callback's current environment, including repeated invocations
     # in one process. Never retain config.DB_PATH from an earlier workspace.
-    return Path(os.environ.get("APPLYPILOT_DIR", Path.home() / ".applypilot")) / "applypilot.db"
+    configured = os.environ.get("APPLYPILOT_DIR")
+    return (Path(configured) if configured else Path.home() / ".applypilot") / "applypilot.db"
 
 
 @contextmanager
