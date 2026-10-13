@@ -715,7 +715,7 @@ def _worker_runtime_ports() -> worker_orchestration_mod.WorkerRuntimePorts:
             coordinator_factory=runtime_cell_coordinator_mod.RuntimeCellCoordinator,
             host_factory=runtime_cell_coordinator_mod.RuntimeCellHost,
             connection_factory=_open_durable_control_connection,
-            source_root=Path(__file__).resolve().parents[3],
+            source_root=Path(__file__).resolve().parents[1],
             process_identity=_launcher_process_identity,
             production_enabled=runtime_cell_coordinator_mod.APP_SERVER_PRODUCTION_CELL_ADMITTED,
         ),
@@ -7846,7 +7846,7 @@ def main(limit: int = 1, target_url: str | None = None,
         workers,
         mode=runtime_cell_settings.runtime_cell_mode,
         manifest_path=runtime_cell_settings.runtime_cell_admission_manifest,
-        source_root=Path(__file__).resolve().parents[3],
+        source_root=Path(__file__).resolve().parents[1],
     )
     if runtime_cell_decision is not None:
         console.print(

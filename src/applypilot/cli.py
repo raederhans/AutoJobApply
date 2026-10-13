@@ -1824,6 +1824,25 @@ def rekey_email_job_command(
     _print_json(data=result)
 
 
+@app.command("compare-jobs")
+def compare_jobs(
+    job_id: list[str] | None = typer.Option(None, "--job-id", help="Repeat to select 2–6 exact local job IDs."),
+    output_dir: Path | None = typer.Option(None, "--output-dir", file_okay=False),
+    list_jobs: bool = typer.Option(False, "--list", help="List safe selection IDs and public job labels."),
+    query: str = typer.Option("", "--query", help="List only: match company/title text."),
+    limit: int = typer.Option(40, "--limit", min=1, max=500, help="List display limit."),
+) -> None:
+    """Compare saved job facts as local HTML and Markdown without scoring or applying."""
+    import sqlite3
+
+    try:
+        result = _command_module("job_compare").run(job_ids=job_id or (), output_dir=output_dir,
+                                                  list_jobs=list_jobs, query=query, limit=limit)
+    except (ValueError, TypeError, OSError, sqlite3.Error) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    _print_json(data=result)
+
+
 @app.command("portal-list")
 def portal_list(
     portal: str | None = typer.Option(None, "--portal", help="JobStreet Singapore or InternSG."),
@@ -2077,6 +2096,24 @@ def dashboard(
         open_dashboard(str(output) if output else None)
     else:
         generate_dashboard(str(output) if output else None)
+
+
+@app.command("browser-host-path")
+def browser_host_path(
+    json_output: bool = typer.Option(False, "--json", help="Include artifact origin and module paths."),
+) -> None:
+    """Print the supervised Browser Host module URI without opening a browser."""
+    from applypilot.apply.browser_runtime import browser_host_info
+
+    try:
+        info = browser_host_info()
+    except OSError as exc:
+        console.print(str(exc), markup=False)
+        raise typer.Exit(code=2) from exc
+    if json_output:
+        _print_json(data=info)
+    else:
+        typer.echo(info["module_uri"])
 
 
 @app.command("attended-application")

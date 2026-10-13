@@ -16,7 +16,23 @@ applypilot --workspace C:\demo\workspace followup add-action --url https://examp
 applypilot --workspace C:\demo\workspace followup due --at 2026-10-12T09:00:00+08:00
 applypilot --workspace C:\demo\workspace followup complete-action --action-id <id-from-timeline>
 applypilot --workspace C:\demo\workspace followup export-ics --file C:\demo\followup.ics
+applypilot --workspace C:\demo\workspace followup export-progress --output-dir C:\demo\progress-report --since 2026-10-01 --status failed
 ```
+
+`export-progress` creates a local CSV and Markdown snapshot of existing jobs and
+registered applications. Its inclusive date filters use UTC, defaulting to the
+latest existing update timestamp. See [Local job progress export](job-progress-export.md)
+for status filters, date fields, privacy boundaries and fictional example files.
+
+`followup reminders` groups existing actions and local reminder dates into today,
+overdue and future. `set-reminder`, `snooze-reminder` and `dismiss-reminder` manage
+only the local reminder file. See [Local followup reminders](followup-reminders.md)
+for record IDs, date controls and the distinction from completing an action.
+
+`followup export-html --kind progress` and `--kind reminders` produce a
+self-contained HTML snapshot of the selected progress or local reminder rows.
+See [Offline progress and reminder reports](local-html-reports.md) for filters
+and browser-openable fictional examples.
 
 The import file is an array of reviewed observations:
 

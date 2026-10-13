@@ -8,6 +8,7 @@ import os
 import sys
 from pathlib import Path
 
+from applypilot.apply.procedure_experience import enrich_bridge_response
 from applypilot.apply.visual_bridge import (
     VisualBridgeError,
     request_visual_operation,
@@ -71,6 +72,9 @@ def _tool() -> dict[str, object]:
         "values": {"type": "array", "minItems": 1, "maxItems": 80, "uniqueItems": True,
                    "items": {"type": "string", "maxLength": 12000}},
         "checked": {"type": "boolean"},
+        "kind": {"type": "string", "enum": ["school_selection", "record_fields"]},
+        "record_key": {"type": "string", "minLength": 1, "maxLength": 12000},
+        "query": {"type": "string", "minLength": 1, "maxLength": 12000},
         "steps": {"type": "array", "minItems": 1, "maxItems": 4, "items": {
             "type": "object", "properties": {
                 "operation": {"type": "string", "enum": ["fill_control", "select_control"]},
@@ -98,6 +102,15 @@ def _tool() -> dict[str, object]:
             "Only prepare supports batches. Each field is rechecked and read back; inspect batch_result. "
             "A parked batch may have partial writes: reobserve and review before any further action, never replay the batch. "
             "Check control_result and post_upload_changes; changed values are observations requiring fact review, not approved answers. "
+            "prepare_subgoal is IAB prepare-only with DOM feedback: school_selection uses observed field_key, "
+            "record_key and exact value (optional query); record_fields uses record_key and 1-4 scalar steps. "
+            "Read field semantic diagnostics first. The host binds the current record, rechecks dependencies, "
+            "and verifies committed selection or requested record fields. Use only authoritative candidate facts. "
+            "It never creates records, uploads, navigates or submits. Inspect subgoal_result: waiting, needs_fact "
+            "or parked is not success; retain partial progress and reobserve before a reviewed continuation. "
+            "Reuse the returned observation; no redundant whole-page observation is needed without a new question. "
+            "Verified is immediate and scoped, not proof of application readiness or later persistence. "
+            "Optional procedure_advice is value-free, non-authorizing guidance, not facts or a replay command. "
             "Passwords and OTPs must never be placed in this tool; request secure host authentication instead."
         ),
         "inputSchema": {
@@ -106,7 +119,7 @@ def _tool() -> dict[str, object]:
                 "operation": {
                     "type": "string",
                     "enum": ["observe", "click", "scroll", "type_text", "press_key", "navigate", "upload_artifact",
-                             "fill_control", "select_control", "open_control", "search_control", "set_checked", "fill_batch"],
+                             "fill_control", "select_control", "open_control", "search_control", "set_checked", "fill_batch", "prepare_subgoal"],
                 },
                 "observation_id": {"type": "string", "minLength": 1},
                 "arguments": {
@@ -181,6 +194,7 @@ def _handle(message: dict[str, object]) -> dict[str, object] | None:
             _error_result(exc.code, str(exc), outcome=exc.outcome),
         )
 
+    response = enrich_bridge_response(response, Path(bridge_dir))
     content = response["content"]
     structured = {key: value for key, value in response.items() if key != "content"}
     return _result(

@@ -19,7 +19,8 @@ app = typer.Typer(help="Local recruiting timeline, next actions and calendar exp
 def _database_path() -> Path:
     # Use the root callback's current environment, including repeated invocations
     # in one process. Never retain config.DB_PATH from an earlier workspace.
-    return Path(os.environ.get("APPLYPILOT_DIR", Path.home() / ".applypilot")) / "applypilot.db"
+    configured = os.environ.get("APPLYPILOT_DIR")
+    return (Path(configured) if configured else Path.home() / ".applypilot") / "applypilot.db"
 
 
 @contextmanager
@@ -115,6 +116,29 @@ def progress_stats(
         _print(summarize(collect_progress(conn), as_of=as_of, since=since, until=until, scope=scope, query=query))
 
 
+@app.command("export-progress")
+def export_progress(
+    output_dir: Annotated[Path, typer.Option("--output-dir", file_okay=False)],
+    since: Annotated[str | None, typer.Option("--since", help="First inclusive UTC date (YYYY-MM-DD).")] = None,
+    until: Annotated[str | None, typer.Option("--until", help="Last inclusive UTC date (YYYY-MM-DD).")] = None,
+    status: Annotated[list[str] | None, typer.Option(
+        "--status", help="Application status or recruiting stage; repeat to include several."
+    )] = None,
+    date_field: Annotated[str, typer.Option(
+        "--date-field", help="Date to filter: updated_at, submitted_at or discovered_at."
+    )] = "updated_at",
+) -> None:
+    """Export existing local job progress to new CSV and Markdown files, without applying."""
+    from applypilot.progress_report import export_progress as export
+
+    try:
+        result = export(_database_path(), output_dir, since=since, until=until,
+                        statuses=status or (), date_field=date_field)
+    except (ValueError, TypeError, OSError, sqlite3.Error) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    _print(result)
+
+
 @app.command("pending")
 def pending() -> None:
     """Show observations that still need an exact job choice."""
@@ -171,3 +195,72 @@ def export_ics(
             raise ValueError("Calendar output cannot overwrite workspace database files")
         file.write_bytes(followup.export_ics(conn, job_url=url).encode("utf-8"))
         _print({"file": str(file.resolve())})
+
+
+def _reminder_call(function: str, **options) -> None:
+    from applypilot import followup_reminders
+
+    try:
+        result = getattr(followup_reminders, function)(_database_path().parent, **options)
+    except (ValueError, TypeError, OSError, sqlite3.Error) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    _print(result)
+
+
+@app.command("reminders")
+def reminders(
+    on: Annotated[str | None, typer.Option("--on", help="UTC date to inspect (YYYY-MM-DD); defaults to today.")] = None,
+    bucket: Annotated[str, typer.Option("--bucket", help="all, overdue, today, future or undated.")] = "all",
+    limit: Annotated[int, typer.Option("--limit", min=1, max=500, help="Maximum entries per group.")] = 50,
+) -> None:
+    """List local reminders by UTC day, with safe record IDs and next steps."""
+    _reminder_call("list_reminders", on=on, bucket=bucket, limit=limit)
+
+
+@app.command("set-reminder")
+def set_reminder(
+    record_id: Annotated[str, typer.Option("--record-id", help="Safe ID from reminders or export-progress.")],
+    due_date: Annotated[str, typer.Option("--due-date", help="Reminder's UTC date (YYYY-MM-DD).")],
+    next_step: Annotated[str, typer.Option("--next-step", help="Brief local task; omit credentials and application answers.")],
+) -> None:
+    """Set one explicit local reminder date and task for an existing application record."""
+    _reminder_call("set_reminder", record_id=record_id, due_date=due_date, next_step=next_step)
+
+
+@app.command("snooze-reminder")
+def snooze_reminder(
+    reminder_id: Annotated[str, typer.Option("--reminder-id", help="Safe ID from the reminders list.")],
+    due_date: Annotated[str, typer.Option("--due-date", help="Same or later UTC date (YYYY-MM-DD).")],
+) -> None:
+    """Postpone a local reminder, including an existing action's local reminder date."""
+    _reminder_call("snooze_reminder", reminder_id=reminder_id, due_date=due_date)
+
+
+@app.command("dismiss-reminder")
+def dismiss_reminder(reminder_id: Annotated[str, typer.Option("--reminder-id")]) -> None:
+    """Hide one reminder locally; existing application and action records are unchanged."""
+    _reminder_call("dismiss_reminder", reminder_id=reminder_id)
+
+
+@app.command("export-html")
+def export_html(
+    output_dir: Annotated[Path, typer.Option("--output-dir", file_okay=False)],
+    kind: Annotated[str, typer.Option("--kind", help="progress or reminders; one self-contained HTML report.")] = "progress",
+    since: Annotated[str | None, typer.Option("--since", help="First inclusive UTC date (YYYY-MM-DD).")] = None,
+    until: Annotated[str | None, typer.Option("--until", help="Last inclusive UTC date (YYYY-MM-DD).")] = None,
+    status: Annotated[list[str] | None, typer.Option("--status", help="Application status or recruiting stage; repeatable.")] = None,
+    date_field: Annotated[str, typer.Option(
+        "--date-field", help="Progress only: updated_at, submitted_at or discovered_at. Reminders always filter due_date."
+    )] = "updated_at",
+    on: Annotated[str | None, typer.Option("--on", help="Reminders only: UTC reference day for date groups.")] = None,
+    bucket: Annotated[str, typer.Option("--bucket", help="Reminders only: all, overdue, today, future or undated.")] = "all",
+) -> None:
+    """Save a filtered, private HTML snapshot for offline browser viewing."""
+    from applypilot.local_report_html import export_report_html
+
+    try:
+        result = export_report_html(_database_path().parent, output_dir, kind=kind, since=since, until=until,
+                                    statuses=status or (), date_field=date_field, on=on, bucket=bucket)
+    except (ValueError, TypeError, OSError, sqlite3.Error) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    _print(result)

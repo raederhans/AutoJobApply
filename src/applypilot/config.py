@@ -10,7 +10,7 @@ from applypilot.apply.application_facts import validate_profile_fact_policy
 from applypilot.runtime_settings import load_runtime_settings
 
 # User data directory — all user-specific files live here
-APP_DIR = Path(os.environ.get("APPLYPILOT_DIR", Path.home() / ".applypilot"))
+APP_DIR = Path(os.environ["APPLYPILOT_DIR"]) if "APPLYPILOT_DIR" in os.environ else Path.home() / ".applypilot"
 
 # Core paths
 DB_PATH = APP_DIR / "applypilot.db"

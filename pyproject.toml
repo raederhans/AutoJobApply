@@ -82,6 +82,17 @@ only-include = [
     "docs/real-form-validation-20261009.md",
     "docs/file-upload-validation-20261009.md",
     "docs/followup.md",
+    "docs/job-progress-export.md",
+    "docs/followup-reminders.md",
+    "docs/local-html-reports.md",
+    "docs/job-comparison.md",
+    "docs/examples/job-comparison.html",
+    "docs/examples/job-comparison.md",
+    "docs/examples/job-progress.html",
+    "docs/examples/followup-reminders.html",
+    "docs/examples/reminder-checklist.json",
+    "docs/examples/job-progress.csv",
+    "docs/examples/job-progress.md",
     "docs/interview-prep.md",
     "docs/json-resume.md",
     "docs/browser-observation-adapter.md",
@@ -89,6 +100,7 @@ only-include = [
     "docs/career.md",
     "docs/application-writing.md",
     "docs/application-writing-evaluation.md",
+    "docs/local-reminder-calendar.md",
     ".env.example",
     "CHANGELOG.md",
     "CONTRIBUTING.md",
@@ -99,6 +111,16 @@ only-include = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/applypilot"]
+
+[tool.hatch.build.targets.wheel.force-include]
+# Explicit production Host closure; no tests, fixtures or local script output.
+"scripts/visual-bridge-host.mjs" = "applypilot/browser_runtime/visual-bridge-host.mjs"
+"scripts/attended-host-journal.mjs" = "applypilot/browser_runtime/attended-host-journal.mjs"
+"scripts/browser-form-state.mjs" = "applypilot/browser_runtime/browser-form-state.mjs"
+"scripts/browser-form-semantics.mjs" = "applypilot/browser_runtime/browser-form-semantics.mjs"
+"scripts/browser-field-batch.mjs" = "applypilot/browser_runtime/browser-field-batch.mjs"
+"scripts/browser-preparation-subgoals.mjs" = "applypilot/browser_runtime/browser-preparation-subgoals.mjs"
+"scripts/browser-observation-feedback.mjs" = "applypilot/browser_runtime/browser-observation-feedback.mjs"
 
 [tool.hatch.build]
 artifacts = [

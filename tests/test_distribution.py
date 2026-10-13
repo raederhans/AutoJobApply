@@ -11,7 +11,7 @@ from typer.testing import CliRunner
 
 import install
 from applypilot import cli
-from scripts.build_release import audit_wheel
+from scripts.build_release import BROWSER_RUNTIME_MEMBERS, audit_wheel
 from scripts.smoke_release import display_command
 
 pytestmark = pytest.mark.compatibility
@@ -97,10 +97,13 @@ def test_release_smoke_command_preview_is_ascii_safe() -> None:
     assert "\\u5de5\\u4f5c\\u533a" in preview
 
 
-def _write_wheel(path: Path, *, include_private_file: bool = False) -> None:
+def _write_wheel(path: Path, *, include_private_file: bool = False, include_browser_runtime: bool = True) -> None:
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr("applypilot/__init__.py", "")
         archive.writestr("applypilot/frontend/dashboard.html", "<!doctype html>")
+        if include_browser_runtime:
+            for member in BROWSER_RUNTIME_MEMBERS:
+                archive.writestr(member, "// runtime fixture")
         archive.writestr(
             "applypilot_local-0.4.0.dist-info/METADATA",
             "Metadata-Version: 2.4\nName: applypilot-local\nVersion: 0.4.0\n",
@@ -118,3 +121,10 @@ def test_wheel_audit_requires_frontend_and_rejects_private_runtime_files(tmp_pat
     _write_wheel(private_wheel, include_private_file=True)
     with pytest.raises(RuntimeError, match="Private runtime file"):
         audit_wheel(private_wheel, "applypilot-local", "0.4.0")
+
+
+def test_wheel_audit_rejects_missing_host_runtime(tmp_path: Path) -> None:
+    wheel = tmp_path / "incomplete.whl"
+    _write_wheel(wheel, include_browser_runtime=False)
+    with pytest.raises(RuntimeError, match="missing Browser Host modules"):
+        audit_wheel(wheel, "applypilot-local", "0.4.0")

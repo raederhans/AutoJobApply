@@ -13,6 +13,30 @@ import venv
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+INSTALLED_RUNTIME_PROBE = """
+import json
+import sys
+from pathlib import Path
+import applypilot
+from applypilot.apply import browser_runtime, launcher
+
+package = Path(applypilot.__file__).resolve().parent
+assert package.is_relative_to(Path(sys.prefix).resolve()), package
+host = browser_runtime.browser_host_info()
+assert host["origin"] == "installed_package", host
+assert Path(host["entrypoint"]).is_relative_to(package), host
+source_root = launcher._worker_runtime_ports().runtime_cells.source_root
+assert source_root == package, source_root
+decisions = {}
+for mode in ("shadow", "canary"):
+    workers, decision = launcher._resolve_runtime_cell_worker_capacity(
+        2, mode=mode, manifest_path=None, source_root=source_root,
+    )
+    assert workers == 1 and decision.status == "NOT_ADMITTED", decision
+    assert decision.production_authority is False
+    decisions[mode] = decision.as_dict()
+print(json.dumps({"package": str(package), "browser_host": host, "runtime_cells": decisions}))
+"""
 
 
 def _venv_python(root: Path) -> Path:
@@ -94,6 +118,8 @@ def smoke_release(wheel: Path) -> None:
         _run([str(applypilot), "resume-route", "--help"], cwd=root, env=child_env)
         _run([str(applypilot), "browser-batch", "--help"], cwd=root, env=child_env)
         _run([str(applypilot), "attended-plan", "--help"], cwd=root, env=child_env)
+        _run([str(applypilot), "browser-host-path", "--json"], cwd=root, env=child_env)
+        _run([str(python), "-I", "-c", INSTALLED_RUNTIME_PROBE], cwd=root, env=child_env)
         _run([str(python), "-m", "applypilot.apply.browser_worker", "--help"], cwd=root, env=child_env)
         base = [str(python), "-m", "applypilot.cli"]
         _run([*base, "--version"], cwd=root, env=child_env)
@@ -144,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
     except (FileNotFoundError, RuntimeError, subprocess.CalledProcessError) as exc:
         print(f"Release smoke failed: {exc}", file=sys.stderr)
         return 1
-    print("Release smoke passed: install -> resume-route help -> init -> doctor -> dashboard")
+    print("Release smoke passed: install -> installed runtime boundaries -> init -> doctor -> dashboard")
     return 0
 
 

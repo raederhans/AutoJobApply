@@ -24,7 +24,7 @@ HOST_MAX_AGE_SECONDS = 120.0
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 45.0
 MAX_REQUEST_TIMEOUT_SECONDS = 120.0
 OPERATIONS = frozenset({"observe", "click", "scroll", "type_text", "press_key", "navigate", "upload_artifact",
-                        "fill_control", "select_control", "open_control", "search_control", "set_checked", "fill_batch"})
+                        "fill_control", "select_control", "open_control", "search_control", "set_checked", "fill_batch", "prepare_subgoal"})
 SURFACES = frozenset({"computer_use", "browser"})
 PRESS_KEYS = frozenset(
     {
@@ -160,9 +160,9 @@ def request_visual_operation(
         raise VisualBridgeError("invalid_request", "Visual bridge timeout must be positive.")
     timeout_seconds = min(timeout_seconds, MAX_REQUEST_TIMEOUT_SECONDS)
     host = read_active_host(root, now=now())
-    if operation == "fill_batch" and (host.phase != "prepare" or host.target.get("runtime") != "iab"):
+    if operation in {"fill_batch", "prepare_subgoal"} and (host.phase != "prepare" or host.target.get("runtime") != "iab"):
         raise VisualBridgeError("invalid_request", "Field batch requires an IAB prepare host.")
-    if operation in {"navigate", "upload_artifact", "fill_control", "select_control", "open_control", "search_control", "set_checked", "fill_batch"} and host.surface != "browser":
+    if operation in {"navigate", "upload_artifact", "fill_control", "select_control", "open_control", "search_control", "set_checked", "fill_batch", "prepare_subgoal"} and host.surface != "browser":
         raise VisualBridgeError("invalid_request", f"{operation} is only available on the browser surface.")
     if operation == "type_text" and "node_id" in args and host.surface != "browser":
         raise VisualBridgeError("invalid_request", "Targeted text entry is only available on the browser surface.")
@@ -340,6 +340,8 @@ def _validate_operation(
 ) -> None:
     if operation not in OPERATIONS:
         raise VisualBridgeError("invalid_request", "Unsupported visual operation.")
+    if operation == "prepare_subgoal" and arguments.get("mode", "dom") != "dom":
+        raise VisualBridgeError("invalid_request", "Preparation subgoals require DOM feedback.")
     if operation != "observe" and "mode" in arguments:
         if arguments["mode"] not in {"dom", "screenshot"}:
             raise VisualBridgeError("invalid_request", "Response mode must be dom or screenshot.")
@@ -358,6 +360,7 @@ def _validate_operation(
         "search_control": {"field_key", "value"},
         "set_checked": {"field_key", "checked"},
         "fill_batch": {"steps"},
+        "prepare_subgoal": {"kind", "record_key", "field_key", "value", "query", "steps"},
     }
     if not set(arguments).issubset(allowed[operation]):
         raise VisualBridgeError(
@@ -372,6 +375,28 @@ def _validate_operation(
         return
     if not isinstance(observation_id, str) or not observation_id.strip():
         raise VisualBridgeError("invalid_request", f"{operation} requires observation_id.")
+    if operation == "prepare_subgoal":
+        record = arguments.get("record_key")
+        if not isinstance(record, str) or not record.strip() or len(record) > 12000:
+            raise VisualBridgeError("invalid_request", "Subgoal requires a bounded observed record_key.")
+        if arguments.get("kind") == "record_fields":
+            if set(arguments) != {"kind", "record_key", "steps"}:
+                raise VisualBridgeError("invalid_request", "Record subgoal accepts only scalar steps.")
+            _validate_operation("fill_batch", observation_id, {"steps": arguments["steps"]})
+        elif arguments.get("kind") == "school_selection":
+            if set(arguments) not in (
+                {"kind", "record_key", "field_key", "value"},
+                {"kind", "record_key", "field_key", "value", "query"},
+            ) or any(not isinstance(arguments.get(key), str) or not arguments[key].strip()
+                     or len(arguments[key]) > 12000 for key in ("field_key", "value")):
+                raise VisualBridgeError("invalid_request", "School subgoal requires an observed field and exact target.")
+            if "query" in arguments and (
+                not isinstance(arguments["query"], str) or not arguments["query"].strip() or len(arguments["query"]) > 12000
+            ):
+                raise VisualBridgeError("invalid_request", "School query must be bounded and nonempty.")
+        else:
+            raise VisualBridgeError("invalid_request", "Unsupported preparation subgoal kind.")
+        return
     if operation == "fill_batch":
         steps = arguments.get("steps")
         if not isinstance(steps, list) or not 1 <= len(steps) <= 4:

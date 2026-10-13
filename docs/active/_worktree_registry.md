@@ -10,9 +10,22 @@ States: `in-progress`, `blocked`, `ready-for-review`, `ready-for-integration`, `
 
 - Worktree: sibling `career-integration-20261011`; branch `codex/career-workbench-20261011`, based on owner `fork/main` at `357e805`.
 - Scope: M1–M4 catalog, evidence, diagnosis, learning/review and local workbench; private runtime materials excluded.
-- State: ready-for-integration after core/host review fixes and local validation; PR CI and remote merge remain the delivery gate.
+- State: integrated remotely; PR #19 merged at `15273c5`, followed by the canary test correction PR #20 at `64d2ba6`. Remote main and ancestry rechecked on 2026-10-12. This does not update the original source checkout or installed application.
 - Ownership: primary agent owns Git and integration. The original checkout at `48bec07` contains unrelated WIP and is preserved.
 - Retention: keep the isolated verified checkout after merging until the original checkout's unrelated work is reconciled. Record final remote delivery facts in the local registry without resetting or broadly copying that checkout.
+
+## PR #21 local integration lanes (2026-10-12)
+
+All three lanes start from verified draft PR #21 head `6f2a116c36846dd8a8d17e1ec7d427089011ba63`, seven commits ahead of remote `main` at `64d2ba6`. The integration owner alone manages worktree creation and later local cherry-picks. Thirty-three original checkouts (the source plus 32 worktrees), their HEADs and status inventories were preserved.
+
+| Task directory / worktree | Branch | Owned scope |
+| --- | --- | --- |
+| `task-3/AutoJobApply-integration` | `codex/pr21-integration-20261012` | Handoff evaluation burden, delivery truth, capability boundaries and acceptance checklist |
+| `task-4/AutoJobApply-host-recovery` | `codex/pr21-host-recovery-20261012` | Explicit Host to existing C/D/SQLite recovery and reviewed continuation |
+| `task-5/AutoJobApply-timing` | `codex/pr21-timing-20261012` | Independent timing/cost attribution module and empirical-run budget preparation |
+| `task-3/AutoJobApply-combined` | `codex/pr21-combined-20261012` | Local cherry-picks of all three lanes, shared evaluator resolution and combined acceptance |
+
+State: all three lanes committed; combined acceptance completed locally in the fourth isolated worktree on the same PR head. All 33 original HEAD/status inventories remained identical. No push, remote merge, release, user-installation change or real application was performed. See [P1 integration closeout](agent-harness-p0-20261011/p1-integration-closeout.md).
 
 ## Delivery package
 

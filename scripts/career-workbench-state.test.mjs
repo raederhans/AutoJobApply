@@ -10,7 +10,8 @@ assert(source.includes(startup), 'Expected the private workbench startup boundar
 // Inspect the real closure in the test VM only; the shipped script exposes no test API.
 const instrumented = source.replace(startup, `  globalThis.workbench = {
   state, loadTarget, loadRoute, refresh, start, resultOfRun, selectionContext,
-  updateProgress, taskAction, handleAction, intent, viewMaterial, pollRuns
+  updateProgress, taskAction, handleAction, intent, viewMaterial, pollRuns,
+  showError, writeReminder, renderJobProgress
 };\n})();`);
 
 class Element {
@@ -63,7 +64,7 @@ function progress(id, routeId = `R-${id}`, revision = 1) {
 const flush = async () => { for (let i = 0; i < 15; i++) await Promise.resolve(); };
 
 function runtime(initial = 'A') {
-  const nodes = new Map(), requests = [], replies = new Map(), deferred = new Map(), storage = new Map();
+  const nodes = new Map(), requests = [], replies = new Map(), failures = new Map(), deferred = new Map(), storage = new Map();
   const element = id => {
     if (!nodes.has(id)) nodes.set(id, new Element(id));
     return nodes.get(id);
@@ -71,12 +72,16 @@ function runtime(initial = 'A') {
   const document = new Element();
   document.getElementById = element;
   document.createElement = () => new Element();
-  const response = data => ({ ok: true, status: 200, json: async () => data });
+  const response = (data, status = 200) => ({ ok: status < 400, status, json: async () => data });
   const fetch = async (url, options) => {
     const path = url.replace('/api/career/v1', '');
-    requests.push({ path, body: options.body ? JSON.parse(options.body) : undefined });
+    requests.push({ path, body: options.body ? JSON.parse(options.body) : undefined, token: options.headers['X-Career-Token'] });
     const wait = deferred.get(path)?.shift();
     if (wait) return wait.promise;
+    if (failures.has(path)) {
+      const error = failures.get(path);
+      return response({ error }, error.status);
+    }
     assert(replies.has(path), `Unexpected mock API request: ${path}`);
     const value = replies.get(path);
     return response(typeof value === 'function' ? value() : value);
@@ -98,7 +103,7 @@ function runtime(initial = 'A') {
   }
   replies.set('/targets', { targets: [target('A'), target('B')] });
   return {
-    app, element, document, requests, replies, storage,
+    app, element, document, requests, replies, failures, storage,
     defer(path) {
       let resolve, reject;
       const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
@@ -412,4 +417,73 @@ test('target creation list lookup cannot steal a subsequent user selection', asy
   await creating;
   assertSelection(r, 'B');
   assert.equal(r.app.state.stage, 'materials');
+});
+
+test('selected progress rounds survive missing response options, and explicit uncheck clears the draft', async () => {
+  const r = runtime();
+  r.app.state.jobReportQuery.statuses = ['interview_1'];
+  r.app.state.jobReport = { available: false, rows: [], status_options: [] };
+  r.app.renderJobProgress();
+  assert.match(r.element('job-progress-status-options').innerHTML, /value="interview_1" checked/);
+  // The choice belongs to UI state even when another result response has no rows/options.
+  r.element('job-progress-status-options').querySelectorAll = () => [{ value: 'interview_2' }];
+  await r.element('job-progress-status-options').dispatch('change');
+  r.app.renderJobProgress();
+  assert.match(r.element('job-progress-status-options').innerHTML, /value="interview_2" checked/);
+  assert(!r.element('job-progress-status-options').innerHTML.includes('interview_1'));
+  r.element('job-progress-status-options').querySelectorAll = () => [];
+  await r.element('job-progress-status-options').dispatch('change');
+  r.app.renderJobProgress();
+  assert.equal(r.app.state.jobReportStatusDraft.length, 0);
+  assert(!r.element('job-progress-status-options').innerHTML.includes('checked'));
+});
+
+for (const path of ['/job-progress/reminders', '/job-progress/reminders/item/snooze', '/job-progress/reminders/item/dismiss']) {
+  test(`session refresh never replays a reminder write: ${path}`, async () => {
+    const r = runtime();
+    r.app.state.stage = 'job-progress';
+    r.element('job-reminder-dialog').showModal();
+    r.element('reminder-due-date').value = '2026-12-01';
+    r.element('reminder-next-step').value = 'Synthetic retained draft';
+    r.failures.set(path, { status: 403, code: 'session_required' });
+    await r.app.writeReminder(path, { due_date: '2026-12-01' });
+    assert.equal(r.app.state.sessionExpired, true);
+    assert.equal(r.requests.filter(request => request.body).length, 1);
+    r.replies.set('/bootstrap', { token: 'replacement-token', targets: [], materials: [], runs: [] });
+    r.replies.set('/job-progress?q=&date_field=updated_at&offset=0', { available: false, rows: [] });
+    r.replies.set('/job-progress/reminders?limit=100', {
+      groups: { overdue: [], today: [], future: [], undated: [] },
+      counts: { overdue: 0, today: 0, future: 0, undated: 0 },
+    });
+    // The normal page Refresh is also a session recovery action after the 403.
+    assert.equal(await r.app.refresh(), true);
+    assert.equal(r.app.state.token, 'replacement-token');
+    assert.equal(r.app.state.sessionExpired, false);
+    assert.equal(r.element('job-reminder-dialog').open, true);
+    assert.equal(r.element('reminder-due-date').value, '2026-12-01');
+    assert.equal(r.element('reminder-next-step').value, 'Synthetic retained draft');
+    assert.equal(r.requests.filter(request => request.body).length, 1);
+    r.failures.delete(path);
+    r.replies.set(path, {});
+    await r.app.writeReminder(path, { due_date: '2026-12-01' }, { closeDialog: true });
+    assert.equal(r.requests.filter(request => request.body).length, 2);
+    assert.equal(r.requests.at(-2).token, 'replacement-token');
+    assert.equal(r.element('job-reminder-dialog').open, false);
+  });
+}
+
+test('conflict recovery closes a stale inbox form, retains its draft and preserves task-dialog recovery', async () => {
+  for (const name of ['inbox', 'task']) {
+    const r = runtime();
+    r.element(`${name}-dialog`).showModal();
+    r.app.state.inboxDrafts.set('item', 'Retained synthetic answer');
+    r.replies.set('/bootstrap', { token: 'new', targets: [], materials: [], runs: [] });
+    r.app.showError({ status: 409 });
+    const action = r.element('feedback').children[1];
+    assert.equal(action.textContent, '刷新最新数据');
+    await action.dispatch('click');
+    assert.equal(r.element(`${name}-dialog`).open, false);
+    assert.equal(r.app.state.inboxDrafts.get('item'), 'Retained synthetic answer');
+    assert.equal(r.requests.filter(request => request.body).length, 0);
+  }
 });

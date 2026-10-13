@@ -1,0 +1,25 @@
+{
+  "schema_version": "harness-experiment-plan/v1",
+  "model": null,
+  "endpoint_binding": null,
+  "temperature": 0.0,
+  "reasoning_effort": null,
+  "repeats": 1,
+  "seed": 17,
+  "max_turns": 8,
+  "max_decisions": 448,
+  "max_output_tokens": 1024,
+  "trial_seconds": 90,
+  "train": true,
+  "assumed_max_input_tokens_per_decision": null,
+  "output_cap_includes_reasoning": null,
+  "pricing": {
+    "input": null,
+    "output": null,
+    "cached": null,
+    "source_url": null,
+    "observed_date": null,
+    "billing_categories": "text_input_cached_input_output"
+  },
+  "proposed_spend_limit_usd": null
+}

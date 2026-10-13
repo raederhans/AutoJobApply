@@ -110,6 +110,110 @@ def _json_size(value: object) -> int:
     return len(encoded.encode("utf-8"))
 
 
+def _dynamic_schema_types(schema: Mapping[str, object], *, label: str) -> tuple[str, ...]:
+    if "type" not in schema:
+        return ()
+    raw = schema["type"]
+    types = [raw] if isinstance(raw, str) else raw
+    allowed = {"string", "integer", "number", "boolean", "object", "array", "null"}
+    if (
+        not isinstance(types, list)
+        or not types
+        or any(not isinstance(item, str) or item not in allowed for item in types)
+        or len(set(types)) != len(types)
+    ):
+        raise ValueError(f"{label} type must be a supported type or a non-empty unique array of types")
+    return tuple(types)
+
+
+def _dynamic_json_number_is_finite(value: object) -> bool:
+    if not isinstance(value, float):
+        return True
+    from math import isfinite
+
+    return isfinite(value)
+
+
+def _dynamic_json_equal(left: object, right: object) -> bool:
+    """JSON equality distinguishes booleans from numbers, including in containers."""
+    if isinstance(left, bool) or isinstance(right, bool):
+        return type(left) is type(right) and left == right
+    if isinstance(left, Mapping) and isinstance(right, Mapping):
+        return left.keys() == right.keys() and all(_dynamic_json_equal(left[key], right[key]) for key in left)
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(_dynamic_json_equal(a, b) for a, b in zip(left, right))
+    return left == right
+
+
+def _validate_dynamic_schema_node(schema: Mapping[str, object], *, label: str) -> None:
+    """Admit only the assertion subset implemented by the value validator."""
+    supported = {
+        "type", "enum", "const", "properties", "required", "additionalProperties", "items",
+        "minItems", "maxItems", "minLength", "maxLength", "minimum", "maximum",
+        # These keywords are annotations; format does not assert URI/email validity.
+        "$schema", "$id", "$comment", "title", "description", "default", "examples",
+        "deprecated", "readOnly", "writeOnly", "format",
+    }
+    if any(not isinstance(key, str) for key in schema):
+        raise TypeError(f"{label} schema keys must be strings")
+    if any(key in schema for key in ("$ref", "allOf", "anyOf", "oneOf")):
+        raise ValueError(f"{label} contains an unbounded schema construct")
+    unknown = set(schema).difference(supported)
+    if unknown:
+        raise ValueError(f"{label} contains unsupported schema keywords: {', '.join(sorted(unknown))}")
+    _dynamic_schema_types(schema, label=label)
+    properties = schema.get("properties", {})
+    if not isinstance(properties, Mapping) or any(not isinstance(name, str) for name in properties):
+        raise TypeError(f"{label} schema properties must be an object with string keys")
+    for name, child in properties.items():
+        if not isinstance(child, Mapping):
+            raise TypeError(f"{label} property {name!r} must be an object schema")
+        _validate_dynamic_schema_node(child, label=f"{label}.{name}")
+    required = schema.get("required", ())
+    if (
+        not isinstance(required, Sequence)
+        or isinstance(required, (str, bytes))
+        or any(not isinstance(name, str) for name in required)
+        or len(set(required)) != len(required)
+    ):
+        raise TypeError(f"{label} schema required must be a unique array of strings")
+    additional = schema.get("additionalProperties", True)
+    if isinstance(additional, Mapping):
+        _validate_dynamic_schema_node(additional, label=f"{label}.additionalProperties")
+    elif not isinstance(additional, bool):
+        raise TypeError(f"{label} additionalProperties must be a boolean or an object schema")
+    if "items" in schema:
+        items = schema["items"]
+        if not isinstance(items, Mapping):
+            raise TypeError(f"{label} items must be one object schema")
+        _validate_dynamic_schema_node(items, label=f"{label}.items")
+    for keyword in ("minItems", "maxItems", "minLength", "maxLength"):
+        if keyword in schema:
+            bound = schema[keyword]
+            if isinstance(bound, bool) or not isinstance(bound, int) or bound < 0:
+                raise ValueError(f"{label} {keyword} must be a non-negative integer")
+    for keyword in ("minimum", "maximum"):
+        if keyword in schema:
+            bound = schema[keyword]
+            if (
+                isinstance(bound, bool)
+                or not isinstance(bound, (int, float))
+                or not _dynamic_json_number_is_finite(bound)
+            ):
+                raise ValueError(f"{label} {keyword} must be a finite number")
+    for lower, upper in (("minItems", "maxItems"), ("minLength", "maxLength"), ("minimum", "maximum")):
+        if lower in schema and upper in schema and schema[lower] > schema[upper]:
+            raise ValueError(f"{label} {lower} cannot exceed {upper}")
+    if "enum" in schema:
+        choices = schema["enum"]
+        if not isinstance(choices, list) or not choices:
+            raise ValueError(f"{label} enum must be a non-empty array")
+        for choice in choices:
+            _validate_dynamic_json_value(choice, {}, label=f"{label} enum value")
+    if "const" in schema:
+        _validate_dynamic_json_value(schema["const"], {}, label=f"{label} const value")
+
+
 def _validate_bounded_schema(schema: Mapping[str, object], *, label: str) -> dict[str, object]:
     rendered = dict(schema)
     if rendered.get("type") != "object":
@@ -123,58 +227,79 @@ def _validate_bounded_schema(schema: Mapping[str, object], *, label: str) -> dic
         if depth > _MAX_DYNAMIC_SCHEMA_DEPTH:
             raise ValueError(f"{label} exceeds the schema depth limit")
         if isinstance(value, Mapping):
-            if any(key in value for key in ("$ref", "allOf", "anyOf", "oneOf")):
-                raise ValueError(f"{label} contains an unbounded schema construct")
             for nested in value.values():
                 visit(nested, depth + 1)
-        elif isinstance(value, list):
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
             for nested in value:
                 visit(nested, depth + 1)
 
     visit(rendered, 0)
+    _validate_dynamic_schema_node(rendered, label=label)
     return rendered
+
+
+def _validate_dynamic_json_value(value: object, schema: Mapping[str, object], *, label: str) -> None:
+    if value is not None and not isinstance(value, (str, bool, int, float, Mapping, list)):
+        raise TypeError(f"{label} must be a JSON value")
+    if not _dynamic_json_number_is_finite(value):
+        raise ValueError(f"{label} must be a finite JSON number")
+    numeric = isinstance(value, (int, float)) and not isinstance(value, bool)
+    matches = {
+        "string": isinstance(value, str),
+        "integer": numeric and (isinstance(value, int) or value.is_integer()),
+        "number": numeric,
+        "boolean": isinstance(value, bool),
+        "object": isinstance(value, Mapping),
+        "array": isinstance(value, list),
+        "null": value is None,
+    }
+    expected = _dynamic_schema_types(schema, label=label)
+    if expected and not any(matches[kind] for kind in expected):
+        raise ValueError(f"{label} does not match type {expected!r}")
+    if "enum" in schema and not any(_dynamic_json_equal(value, choice) for choice in schema["enum"]):
+        raise ValueError(f"{label} is outside enum")
+    if "const" in schema and not _dynamic_json_equal(value, schema["const"]):
+        raise ValueError(f"{label} does not match const")
+    if isinstance(value, Mapping):
+        if any(not isinstance(name, str) for name in value):
+            raise TypeError(f"{label} object keys must be strings")
+        properties = schema.get("properties", {})
+        missing = [name for name in schema.get("required", ()) if name not in value]
+        if missing:
+            raise ValueError(f"{label} is missing required fields: {', '.join(missing)}")
+        additional = schema.get("additionalProperties", True)
+        unknown = set(value).difference(properties)
+        if additional is False and unknown:
+            raise ValueError(f"{label} contains unknown fields: {', '.join(sorted(unknown))}")
+        for name, item in value.items():
+            child_schema = (
+                properties[name] if name in properties else additional if isinstance(additional, Mapping) else {}
+            )
+            _validate_dynamic_json_value(item, child_schema, label=f"{label}.{name}")
+    if isinstance(value, list):
+        if len(value) < schema.get("minItems", 0):
+            raise ValueError(f"{label} is below minItems")
+        if "maxItems" in schema and len(value) > schema["maxItems"]:
+            raise ValueError(f"{label} exceeds maxItems")
+        for index, item in enumerate(value):
+            _validate_dynamic_json_value(item, schema.get("items", {}), label=f"{label}[{index}]")
+    if isinstance(value, str):
+        if len(value) < schema.get("minLength", 0):
+            raise ValueError(f"{label} is below minLength")
+        if "maxLength" in schema and len(value) > schema["maxLength"]:
+            raise ValueError(f"{label} exceeds maxLength")
+    if numeric:
+        if "minimum" in schema and value < schema["minimum"]:
+            raise ValueError(f"{label} is below minimum")
+        if "maximum" in schema and value > schema["maximum"]:
+            raise ValueError(f"{label} exceeds maximum")
 
 
 def _validate_json_object(value: object, schema: Mapping[str, object], *, label: str) -> dict[str, object]:
     if not isinstance(value, Mapping):
         raise TypeError(f"{label} must be an object")
     rendered = dict(value)
-    properties = schema.get("properties", {})
-    if not isinstance(properties, Mapping):
-        raise TypeError(f"{label} schema properties must be an object")
-    required = schema.get("required", ())
-    if not isinstance(required, Sequence) or isinstance(required, (str, bytes)):
-        raise TypeError(f"{label} schema required must be an array")
-    missing = [name for name in required if isinstance(name, str) and name not in rendered]
-    unknown = set(rendered).difference(properties)
-    if missing:
-        raise ValueError(f"{label} is missing required fields: {', '.join(missing)}")
-    if unknown:
-        raise ValueError(f"{label} contains unknown fields: {', '.join(sorted(unknown))}")
-    for name, item in rendered.items():
-        field_schema = properties.get(name)
-        if not isinstance(field_schema, Mapping):
-            raise TypeError(f"{label} field {name!r} has no valid schema")
-        expected = field_schema.get("type")
-        matches = {
-            "string": isinstance(item, str),
-            "integer": isinstance(item, int) and not isinstance(item, bool),
-            "number": isinstance(item, (int, float)) and not isinstance(item, bool),
-            "boolean": isinstance(item, bool),
-            "object": isinstance(item, Mapping),
-            "array": isinstance(item, list),
-            "null": item is None,
-        }.get(expected, False)
-        if not matches:
-            raise ValueError(f"{label} field {name!r} does not match type {expected!r}")
-        if (
-            isinstance(item, str)
-            and isinstance(field_schema.get("maxLength"), int)
-            and len(item) > int(field_schema["maxLength"])
-        ):
-            raise ValueError(f"{label} field {name!r} exceeds maxLength")
-        if "enum" in field_schema and item not in field_schema["enum"]:
-            raise ValueError(f"{label} field {name!r} is outside enum")
+    _validate_dynamic_json_value(rendered, schema, label=label)
     return rendered
 
 

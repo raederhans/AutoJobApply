@@ -14,9 +14,10 @@ import webbrowser
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
-from applypilot.career import learning, service
+from applypilot.career import job_comparison, job_progress, learning, progress_links, reminders, service
+from applypilot.career.application_inbox import ApplicationInbox
 from applypilot.career.workbench import Workbench, previous_request, public, save_request
 from applypilot.career.worker import CareerWorker
 from applypilot.database import close_connection, init_db
@@ -58,6 +59,7 @@ class CareerServer(ThreadingHTTPServer):
         self.workspace = Path(workspace).resolve()
         self.db_path = self.workspace / "applypilot.db"
         self.workbench = Workbench(self.workspace)
+        self.application_inbox = ApplicationInbox(self.workspace)
         self.token, self.instance_id = secrets.token_urlsafe(32), secrets.token_hex(16)
         # Migration is startup-only. Request handlers never call init_db.
         init_db(self.db_path)
@@ -91,6 +93,36 @@ class CareerServer(ThreadingHTTPServer):
 
 def _error(exc):
     raw = str(exc)
+    comparison_errors = {
+        "comparison_selection_invalid": (422, "请选择 2–4 条不同的求职记录进行对比。"),
+        "comparison_record_changed": (409, "所选记录已变化，请刷新后重新选择要对比的岗位。"),
+        "comparison_source_unavailable": (422, "所选记录缺少唯一的本地岗位来源，无法直接对比；请重新核对选择。"),
+        "comparison_duplicate_job": (422, "多条所选记录指向同一岗位，请选择不同岗位进行对比。"),
+    }
+    if raw in comparison_errors:
+        status, message = comparison_errors[raw]
+        return status, raw, message
+    reminder_errors = {
+        "reminder_store_invalid": (409, "本地提醒文件无法读取，已保留原文件。请核对文件后再编辑。"),
+        "reminder_busy": (409, "另一项本地提醒编辑尚未完成，请稍后刷新清单。"),
+        "reminder_record_changed": (409, "这条记录或提醒已变化，请刷新清单后重新选择。"),
+        "reminder_ambiguous": (409, "同一记录关联了多个本地提醒，请从清单选择具体提醒。"),
+        "reminder_date_before_current": (422, "延后日期不能早于当前提醒日期。"),
+        "reminder_step_invalid": (422, "请输入 1–200 字的下一步短标签，不要填写凭据或仅填写链接。"),
+        "reminder_date_invalid": (422, "请选择有效的 UTC 日期。"),
+        "reminder_input_invalid": (422, "请核对提醒日期、下一步和所选记录。"),
+    }
+    if raw in reminder_errors:
+        status, message = reminder_errors[raw]
+        return status, raw, message
+    if raw == "progress_record_changed":
+        return 409, raw, "这条求职记录的关联已变化，请刷新求职进度或提醒清单后重新选择。"
+    if raw == "progress_source_unavailable":
+        return 422, raw, "这条记录没有唯一的原申请入口关联，无法直接定位待处理项。请从申请待处理列表核对。"
+    if raw == "progress_filter_invalid":
+        return 422, "invalid_progress_filter", "请核对关键词、UTC 日期范围、日期字段和状态选项。"
+    if raw == "progress_report_unavailable":
+        return 422, "progress_unavailable", "当前工作区尚无可读取的求职进度记录。"
     if isinstance(exc, KeyError) or raw in {"target_not_found", "diagnosis_not_found", "route_not_found"}:
         return 404, "not_found", "这条记录已不存在，请刷新后重新选择。"
     if any(s in raw for s in ("changed", "stale", "revision", "conflict", "reused")):
@@ -124,11 +156,19 @@ class CareerHandler(BaseHTTPRequestHandler):
         # Avoid writing private target/material contents or session tokens to logs.
         pass
 
-    def send(self, status, value, *, content_type="application/json; charset=utf-8"):
+    def send(self, status, value, *, content_type="application/json; charset=utf-8", download_name=None,
+             calendar_counts=None):
         body = value if isinstance(value, bytes) else json.dumps(public(value), ensure_ascii=False, allow_nan=False).encode("utf-8")
         self.send_response(status)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
+        if status != 204:
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+        if download_name is not None:
+            self.send_header("Content-Disposition", f'attachment; filename="{download_name}"')
+        if calendar_counts is not None:
+            for key, header in (("events", "Events"), ("omitted_undated", "Omitted-Undated"),
+                                ("omitted_unavailable", "Omitted-Unavailable")):
+                self.send_header("X-ApplyPilot-Calendar-" + header, str(calendar_counts[key]))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
@@ -166,9 +206,59 @@ class CareerHandler(BaseHTTPRequestHandler):
 
     def parts(self):
         path = urlsplit(self.path)
-        if path.query or path.fragment or not path.path.startswith(PREFIX + "/"):
+        filtered_query = self.command == "GET" and path.path in {
+            PREFIX + "/application-inbox", PREFIX + "/job-progress", PREFIX + "/job-progress/download",
+            PREFIX + "/job-progress/reminders", PREFIX + "/job-progress/reminders/download", PREFIX + "/job-progress/compare",
+            PREFIX + "/job-progress/compare/download"}
+        if (path.query and not filtered_query) or path.fragment or not path.path.startswith(PREFIX + "/"):
             raise KeyError("endpoint_not_found")
         return [unquote(part) for part in path.path[len(PREFIX) + 1:].split("/")]
+
+    def inbox_query(self):
+        values = parse_qs(urlsplit(self.path).query, keep_blank_values=True, strict_parsing=True, max_num_fields=5)
+        if set(values) - {"q", "scope", "sort", "offset", "record_id"} or any(len(value) != 1 for value in values.values()):
+            raise ValueError("invalid_inbox_query")
+        result = {name: value[0] for name, value in values.items()}
+        if "offset" in result:
+            if not result["offset"].isascii() or not result["offset"].isdigit() or len(result["offset"]) > 7:
+                raise ValueError("invalid_inbox_offset")
+            result["offset"] = int(result["offset"])
+        return result
+
+    def progress_query(self, *, downloading=False):
+        try:
+            values = parse_qs(urlsplit(self.path).query, keep_blank_values=True, strict_parsing=True, max_num_fields=40)
+            allowed = {"q", "since", "until", "date_field", "status", "record_id", "format" if downloading else "offset"}
+            if set(values) - allowed or any(len(value) != 1 for name, value in values.items() if name != "status"):
+                raise ValueError("invalid_query")
+            result = {name: value[0] for name, value in values.items() if name != "status"}
+            result["statuses"] = [value for value in values.get("status", []) if value]
+            for name in ("since", "until"):
+                if result.get(name) == "":
+                    result.pop(name)
+            if "offset" in result:
+                if not result["offset"].isascii() or not result["offset"].isdigit() or len(result["offset"]) > 7:
+                    raise ValueError("invalid_offset")
+                result["offset"] = int(result["offset"])
+            if downloading and "format" not in result:
+                raise ValueError("format_required")
+            return result
+        except ValueError as exc:
+            raise ValueError("progress_filter_invalid") from exc
+
+    def comparison_query(self, *, downloading=False):
+        try:
+            values = parse_qs(urlsplit(self.path).query, keep_blank_values=True, strict_parsing=True,
+                              max_num_fields=5 if downloading else 4)
+            if set(values) != ({"record_id", "format"} if downloading else {"record_id"}):
+                raise ValueError
+            if downloading:
+                if len(values["format"]) != 1:
+                    raise ValueError
+                return {"record_ids": values["record_id"], "format": values["format"][0]}
+            return values["record_id"]
+        except ValueError as exc:
+            raise ValueError("comparison_selection_invalid") from exc
 
     def do_GET(self):
         if not self.permitted():
@@ -183,10 +273,60 @@ class CareerHandler(BaseHTTPRequestHandler):
             if p == ["health"]:
                 self.send(200, {"instance_id": self.server.instance_id})
                 return
+            if p == ["job-progress", "reminders"]:
+                try:
+                    query = parse_qs(urlsplit(self.path).query, keep_blank_values=True, strict_parsing=True, max_num_fields=1)
+                    value = query.get("limit", ["100"])[0]
+                    if set(query) - {"limit"} or not value.isascii() or not value.isdigit() or len(value) > 3:
+                        raise ValueError
+                    limit = int(value)
+                except ValueError as exc:
+                    raise ValueError("reminder_input_invalid") from exc
+                self.send(200, reminders.list_items(self.server.workspace, limit=limit))
+                return
+            if p == ["job-progress", "reminders", "download"]:
+                try:
+                    query = parse_qs(urlsplit(self.path).query, keep_blank_values=True, strict_parsing=True, max_num_fields=2)
+                    if set(query) - {"format", "bucket"} or any(len(value) != 1 for value in query.values()):
+                        raise ValueError
+                    options = {key: value[0] for key, value in query.items()}
+                    if "format" not in options:
+                        raise ValueError
+                except ValueError as exc:
+                    raise ValueError("reminder_input_invalid") from exc
+                if options["format"] == "ics":
+                    body, counts = reminders.download_calendar(self.server.workspace, bucket=options.get("bucket", "all"))
+                    self.send(200 if counts["events"] else 204, body, content_type="text/calendar; charset=utf-8",
+                              download_name="followup-reminders.ics" if counts["events"] else None, calendar_counts=counts)
+                    return
+                body, content_type, filename = reminders.download(self.server.workspace, **options)
+                self.send(200, body, content_type=content_type, download_name=filename)
+                return
             wb = self.server.workbench
             with self.server.connection() as conn:
                 if p == ["bootstrap"]:
                     result = {**wb.bootstrap(conn), "token": self.server.token, "runs": self.server.worker.list_jobs()}
+                elif p == ["application-inbox"]:
+                    filters = self.inbox_query()
+                    record_id = filters.pop("record_id", None)
+                    if record_id is None:
+                        result = self.server.application_inbox.list_items(conn, **filters)
+                    else:
+                        result = progress_links.related_inbox(conn, self.server.application_inbox, record_id, **filters)
+                elif len(p) == 2 and p[0] == "application-inbox":
+                    result = self.server.application_inbox.detail(conn, p[1])
+                elif p == ["job-progress"]:
+                    result = job_progress.preview(conn, **self.progress_query())
+                elif p == ["job-progress", "compare"]:
+                    result = job_comparison.preview(conn, self.comparison_query())
+                elif p == ["job-progress", "compare", "download"]:
+                    body, content_type, filename = job_comparison.download(conn, **self.comparison_query(downloading=True))
+                    self.send(200, body, content_type=content_type, download_name=filename)
+                    return
+                elif p == ["job-progress", "download"]:
+                    body, content_type, filename = job_progress.download(conn, **self.progress_query(downloading=True))
+                    self.send(200, body, content_type=content_type, download_name=filename)
+                    return
                 elif p == ["materials"]:
                     result = {"materials": wb.materials(conn)}
                 elif len(p) == 2 and p[0] == "materials":
@@ -238,7 +378,17 @@ class CareerHandler(BaseHTTPRequestHandler):
                 result = worker.cancel(p[1]) if p[2] == "cancel" else worker.resume(p[1], data.get("request_key"))
                 self.send(200 if p[2] == "cancel" else 202, result)
                 return
+            if p == ["job-progress", "reminders"]:
+                self.send(200, reminders.mutate(self.server.workspace, "set", data))
+                return
+            if len(p) == 4 and p[:2] == ["job-progress", "reminders"] and p[3] in {"snooze", "dismiss"}:
+                self.send(200, reminders.mutate(self.server.workspace, p[3], data, reminder_id=p[2]))
+                return
             with worker.mutation(), self.server.connection(writing=True) as conn:
+                if len(p) == 3 and p[0] == "application-inbox" and p[2] in {"respond", "resume"}:
+                    result = self.server.application_inbox.mutate(conn, p[1], p[2], data)
+                    self.send(200, result)
+                    return
                 operation = "/".join(p)
                 key = data.get("request_key")
                 # Uploads are content-addressed and do not need a client request key.

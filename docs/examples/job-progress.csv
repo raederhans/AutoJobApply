@@ -1,0 +1,4 @@
+﻿record_id,title,company,location,application_status,recruiting_stage,submission_basis,submitted_at,discovered_at,updated_at,updated_at_source,todo_reason,todo_due_at,open_action_count
+application-d714051269a4556d,Data Intern,Harbor Research (fictional),Singapore,failed,submission_unverified,unverified,,2026-10-11T08:00:00+00:00,2026-10-13T00:30:00+00:00,jobs.last_attempted_at,human_verification_required,,0
+application-2ca7c11a970c9382,Analyst Intern,North Star Labs (fictional),Singapore,applied,interview_1,user_confirmed,2026-10-10T02:00:00+00:00,2026-10-01T09:00:00+00:00,2026-10-12T08:30:00+00:00,followup_actions.created_at,followup_action_pending,2026-10-14T09:00:00+00:00,1
+application-eb18490d60b1336f,Operations Intern,Example Services (fictional),Singapore,not_started,,,,2026-10-12T04:00:00+00:00,2026-10-12T04:00:00+00:00,jobs.discovered_at,,,0

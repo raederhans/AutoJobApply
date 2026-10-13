@@ -254,6 +254,7 @@ class OperatorRuntime:
             raise OperatorCommandError("resume requires a resume command")
         replay = self._replay_if_present(command)
         if replay is not None and replay.status != "requested":
+            self._validate_resume_replay(command, request_id)
             if replay.resolved:
                 self._consume_human_request(request_id)
             return replay
@@ -478,6 +479,33 @@ class OperatorRuntime:
             "portal_status": " ".join(str(evidence.get("portal_status") or "").casefold().split())[:200],
         }
         return _canonical_digest(cleaned)
+
+    def _validate_resume_replay(self, command: OperatorCommand, request_id: str) -> None:
+        """Bind a terminal replay without re-admitting its advanced checkpoint."""
+        item = agent_control.get_exception(self.connection, command.exception_id)
+        if (
+            item is None
+            or item.queue_kind != "human_only"
+            or (item.run_id, item.attempt_id, item.actor_id, item.turn_id)
+            != (command.run_id, command.attempt_id, command.actor_id, command.turn_id)
+            or item.context.get("request_id") != request_id
+        ):
+            raise OperatorCommandError("resume replay exception or human request identity drifted")
+        request = agent_control.get_human_request(self.connection, request_id)
+        response = load_human_response(self.connection, request_id)
+        if (
+            request is None
+            or response is None
+            or request.run_id != command.run_id
+            or request.attempt_id != command.attempt_id
+            or request.context.get("actor_id") != command.actor_id
+            or request.context.get("turn_id") != command.turn_id
+            or response.response_type != request.request_type
+            or response.resolved_at < request.created_at
+            or command.input_ref != f"human-response:{_sha256(request_id.encode('utf-8'))}"
+            or command.input_sha256 != response.response_digest
+        ):
+            raise OperatorCommandError("resume replay human request/response identity or digest drifted")
 
     def _prepare_resume(self, command: OperatorCommand, request_id: str) -> Mapping[str, object]:
         item = agent_control.get_exception(self.connection, command.exception_id)

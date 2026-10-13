@@ -15,7 +15,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from applypilot.apply.application_consistency import build_contract, check_contract
 from applypilot.apply.application_jobs import revalidate_duplicate_before_submit
+from applypilot.apply.attended_recovery import assess_recovery, episode_barrier, extract_form, summarize_feedback
 from applypilot.apply.authorization import (
     authorize_job,
     freeze_submission_materials,
@@ -39,15 +41,20 @@ def _required(data, key):
     return value
 
 
-def _observation(data):
+def _observation(data, *, allow_stale=False):
     if data.get("source") != "attending_host":
         raise ValueError("independent attending_host observation required")
     refs = data.get("evidence_refs")
     if not isinstance(refs, list) or not refs or any(not isinstance(x, str) or not x.strip() for x in refs):
         raise ValueError("evidence_refs required; do not include raw credentials")
-    observed = datetime.fromisoformat(_required(data, "observed_at"))
-    if observed.tzinfo is None or not 0 <= (datetime.now(UTC) - observed).total_seconds() <= 300:
+    try:
+        observed = datetime.fromisoformat(_required(data, "observed_at"))
+    except ValueError:
+        raise ValueError("valid observation timestamp required") from None
+    age = (datetime.now(UTC) - observed).total_seconds() if observed.tzinfo is not None else -1
+    if age < 0 or (not allow_stale and age > 300):
         raise ValueError("observation must be timezone-aware and within five minutes")
+    return observed
 
 
 def _validate_query_identity(expected_url, observed_url):
@@ -69,13 +76,23 @@ def execute(connection: sqlite3.Connection, request: dict, profile: dict) -> dic
     )
     connection.commit()
     connection.execute("BEGIN IMMEDIATE")
+    delivery = None
     try:
-        result = _execute(connection, request, profile)
+        if str(request.get("action", "")).startswith("host-"):
+            from applypilot.apply.attended_host import transition
+            result, delivery = transition(connection, request, profile)
+        else:
+            result = _execute(connection, request, profile)
         connection.commit()
-        return result
     except Exception:
         connection.rollback()
         raise
+    # Never expose a permit or acknowledge a Host reply before the same-attempt
+    # owner commits bindings, recovery evidence and irreversible barriers.
+    if delivery is not None:
+        from applypilot.apply.attended_host import publish
+        publish(connection, delivery, profile)
+    return result
 
 
 def _save(conn, state):
@@ -85,7 +102,42 @@ def _save(conn, state):
     )
 
 
-def _execute(conn, req, profile):
+def _fresh_form(req, state, job):
+    _observation(req)
+    form = extract_form(req.get("inspection"), state)
+    for url in (form["page_url"], req["inspection"]["target"].get("application_url")):
+        if not url or not _same_bound_application_flow(job["application_url"], url, {}):
+            raise ValueError("recovery/review page is outside the bound application flow")
+        _validate_query_identity(job["application_url"], url)
+    epoch = _required(req, "host_token_epoch")
+    if state.get("host_token_epoch", epoch) != epoch:
+        raise ValueError("host token epoch changed; no implicit session recovery")
+    state["host_token_epoch"] = epoch
+    return form
+
+
+def _check_consistency(req, state, job, profile, materials):
+    contract = state.get("consistency_contract")
+    if not contract:
+        return  # Legacy attempts retain existing audits; never call this a pass.
+    _observation(req)
+    snapshot = req.get("snapshot") or {}
+    data = snapshot.get("consistency")
+    if not isinstance(data, dict):
+        raise ValueError("bound consistency observation required")  # noqa: TRY004 - keep the attended validation error contract
+    form = data.get("form_state")
+    if form is not None and form.get("page_url") != snapshot.get("url"):
+        raise ValueError("consistency form is from a different page")
+    if not _same_bound_application_flow(job["application_url"], snapshot.get("url", ""), {}):
+        raise ValueError("consistency review is outside the bound application flow")
+    _validate_query_identity(job["application_url"], snapshot["url"])
+    report = check_contract(contract, data, profile, job, materials)
+    if report["status"] != "consistent":
+        raise ValueError("application consistency: " + ", ".join(item["code"] for item in report["issues"]))
+    state["consistency_report"] = report
+
+
+def _execute(conn, req, profile, *, host_transport=False):
     action = _required(req, "action")
     job_url = _required(req, "job_url")
     row = conn.execute("SELECT * FROM jobs WHERE url=?", (job_url,)).fetchone()
@@ -149,6 +201,15 @@ def _execute(conn, req, profile):
     if state["job_url"] != job_url or any(state[k] != v for k, v in host.items()):
         raise ValueError("job or host/tab binding mismatch")
     attempt_row = conn.execute("SELECT * FROM application_attempts WHERE attempt_id=?", (attempt,)).fetchone()
+    if attempt_row is None:
+        raise ValueError("attended attempt ledger entry missing")
+    # Monotone evidence: a stale attended payload must not clear a durable latch.
+    durable_submit = bool(attempt_row["submit_started"])
+    if durable_submit:
+        state["submit_started"] = True
+    gate = conn.execute("SELECT state FROM application_submission_gates WHERE attempt_id=?", (attempt,)).fetchone()
+    submission_barrier = (state["submit_started"] or job.get("apply_status") in {"applying", "submission_uncertain"}
+                          or (gate is not None and gate[0] not in {"claimed", "cancelled_before_action"}))
     if action == "receipt":
         if not state["submit_started"] or not state.get("gate_id"):
             raise ValueError("receipt requires durable submit intent and gate")
@@ -186,24 +247,33 @@ def _execute(conn, req, profile):
         return dict(state, next_action="already_applied; no further writes")
     if job.get("apply_task_id") != attempt:
         raise ValueError("job ownership changed; cannot resume or mutate this attempt")
-    if action == "resume" and state["submit_started"]:
+    if action in {"resume", "recover"} and submission_barrier:
         return dict(state, next_action="reconcile_receipt_only")
+    if (state.get("host_continuity", {}).get("pending") and action != "resume"
+            and not (action == "recover" and host_transport)):
+        raise ValueError("outstanding Host input must be completed or reconciled first")
     if attempt_row["status"] != "in_progress":
+        if action == "resume" and host_transport:
+            return dict(state, blocked="attempt_terminal", next_action="host_effect_reconciliation_only",
+                        browser_write_authority=False, submit_authority=False)
         raise ValueError("attempt terminal")
     if action == "fail":
-        state["phase"] = "submission_uncertain" if state["submit_started"] else "failed"
+        state["phase"] = "submission_uncertain" if submission_barrier else "failed"
         ledger.finalize_attempt(conn, attempt, state["phase"], evidence={"reason": _required(req, "reason")})
         if state.get("gate_id"):
             ledger.update_submission_gate_state(
-                conn, attempt, "submission_uncertain" if state["submit_started"] else "cancelled_before_action"
+                conn, attempt, "submission_uncertain" if submission_barrier else "cancelled_before_action"
             )
             ledger.update_batch_submission_status(conn, state["batch_id"], job_url, state["phase"])
         conn.execute("UPDATE jobs SET apply_status=?, agent_id=NULL WHERE url=?", (state["phase"], job_url))
         _save(conn, state)
         return state
-    if state["submit_started"]:
+    if submission_barrier:
         raise ValueError("submit already started; reconcile receipt only")
     if datetime.fromisoformat(attempt_row["lease_expires_at"]) <= datetime.now(UTC):
+        if action == "resume" and host_transport:
+            return dict(state, blocked="attempt_lease_expired", next_action="host_effect_reconciliation_only",
+                        browser_write_authority=False, submit_authority=False)
         raise ValueError("attempt lease expired; finalize before starting another attempt")
     if state["phase"] == "material_changed":
         return dict(state, blocked="material_changed; finalize and begin again")
@@ -214,8 +284,60 @@ def _execute(conn, req, profile):
         state["phase"] = "material_changed"
         _save(conn, state)
         return dict(state, blocked="material_changed; finalize and begin with current authorization")
+    barrier = episode_barrier(conn, attempt)
+    if action in {"resume", "recover"} and barrier:
+        return dict(state, next_action=barrier, browser_write_authority=False, submit_authority=False)
+    if action in {"resume", "recover"} and state.get("recovery", {}).get("unknown_effect_latched"):
+        return dict(state, next_action="manual_effect_reconciliation_no_replay", browser_write_authority=False)
     if action == "resume":
-        ledger.update_attempt(conn, attempt, phase=attempt_row["phase"], submit_started=False)
+        if not host_transport:
+            ledger.update_attempt(conn, attempt, phase=attempt_row["phase"], submit_started=False)
+        return dict(state, next_action="fresh_host_inspection_before_input", browser_write_authority=False)
+    if action == "recover":
+        if state.get("gate_id"):
+            return dict(state, next_action="claimed_checkpoint_immutable; review_or_finalize", browser_write_authority=False)
+        _observation(req)
+        epoch = _required(req, "host_token_epoch")
+        if state.get("host_token_epoch", epoch) != epoch:
+            raise ValueError("host token epoch changed; no implicit session recovery")
+        feedback = summarize_feedback(req.get("feedback"), state, epoch)
+        state["host_token_epoch"] = epoch
+        if feedback["category"] == "effect_unknown":
+            # A stopped Host cannot inspect. Retain the uncertainty without
+            # demanding an impossible fresh observation, and never auto-clear it.
+            state["recovery"] = {"status": "parked", "unknown_effect_latched": True,
+                "next_action": "manual_effect_reconciliation_no_replay", "history": [feedback],
+                "browser_write_authority": False, "submit_authority": False}
+        else:
+            form = _fresh_form(req, state, job)
+            state["recovery"] = assess_recovery(form, feedback, state.get("recovery"), attempt_id=attempt,
+                                               observed_at=datetime.fromisoformat(req["observed_at"]).timestamp())
+        if state.get("checkpoint"):
+            state["historical_checkpoint_digest"] = _digest(state["checkpoint"])
+        state.pop("checkpoint", None)
+        state.pop("checkpoint_digest", None)
+        state.pop("consistency_report", None)
+        state["phase"] = "prepare"
+        ledger.update_attempt(conn, attempt, phase="prepare", submit_started=False)
+        _save(conn, state)
+        return state
+    if barrier or state.get("recovery", {}).get("unknown_effect_latched"):
+        raise ValueError("unresolved recovery effect; no new checkpoint or input authority")
+    if action == "bind-consistency":
+        if state.get("gate_id"):
+            raise ValueError("claimed consistency evidence is immutable")
+        form = _fresh_form(req, state, job)
+        contract = build_contract(req.get("bindings"), form, profile, job, materials)
+        old = state.get("consistency_contract")
+        if old and not {i["claim_id"] for i in old["items"]} <= {i["claim_id"] for i in contract["items"]}:
+            raise ValueError("cannot drop previously bound consistency checks; start a new reviewed attempt")
+        state["consistency_contract"] = contract
+        state["consistency_report"] = check_contract(contract, {"form_state": form}, profile, job, materials)
+        state.pop("checkpoint", None)
+        state.pop("checkpoint_digest", None)
+        state["phase"] = "prepare"
+        ledger.update_attempt(conn, attempt, phase="prepare", submit_started=False)
+        _save(conn, state)
         return state
     if action == "upload-checkpoint":
         if state.get("gate_id"):
@@ -270,6 +392,7 @@ def _execute(conn, req, profile):
             raise ValueError("observed page snapshot required")
         if snapshot.get("resume_field_present") is True and snapshot.get("resume_uploaded") is not True:
             state.pop("resume_upload", None)
+        _check_consistency(req, state, job, profile, materials)
         state["checkpoint"] = {k: req[k] for k in ("observed_at", "evidence_refs", "source")}
         state["checkpoint"]["snapshot_digest"] = _digest(snapshot)
         state["phase"] = "prepared"
@@ -318,6 +441,7 @@ def _execute(conn, req, profile):
                 "visible_filename": upload["visible_filename"],
             }
         }
+    _check_consistency(req, state, job, profile, materials)
     issues = _validate_pre_submit_snapshot(snapshot, profile, audit_job)
     if issues:
         raise ValueError("pre-submit audit: " + ", ".join(issues))
