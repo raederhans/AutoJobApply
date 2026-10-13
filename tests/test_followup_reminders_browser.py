@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 
 import test_job_progress_browser as progress_fixture
 
-from applypilot import followup
+from applypilot import followup, followup_reminders
 from applypilot.career.server import PREFIX
 
 progress = progress_fixture.progress
@@ -81,3 +81,23 @@ def test_existing_action_override_and_invalid_inputs_are_visible(progress):
     response = client.post(ROUTE + f'/{existing["reminder_id"]}/dismiss', json={})
     assert response.status_code == 409 and damaged.read_text(encoding="utf-8") == "{broken"
     assert db.read_bytes() == original
+
+
+def test_reminder_html_download_includes_whole_selected_group(progress):
+    client, db = progress
+    rows = client.get(PREFIX + "/job-progress").json()["rows"]
+    today = datetime.now(UTC).date()
+    for row in rows[:2]:
+        followup_reminders.set_reminder(db.parent, record_id=row["record_id"], due_date=today.isoformat(), next_step="Synthetic preparation")
+    followup_reminders.set_reminder(db.parent, record_id=rows[2]["record_id"], due_date=(today + timedelta(days=2)).isoformat(), next_step="Future preparation")
+    original = db.read_bytes()
+    sidecar = (db.parent / "followup-reminders.json").read_bytes()
+    assert len(client.get(ROUTE + "?limit=1").json()["groups"]["today"]) == 1
+    response = client.get(ROUTE + "/download?format=html&bucket=today")
+    assert response.status_code == 200, response.text
+    assert response.headers["Content-Disposition"] == 'attachment; filename="followup-reminders.html"'
+    assert all(row["title"] in response.text for row in rows[:2])
+    assert rows[2]["title"] not in response.text and "Future preparation" not in response.text
+    assert "无条数截断" in response.text
+    assert client.get(ROUTE + "/download?format=html&limit=1").status_code == 422
+    assert db.read_bytes() == original and (db.parent / "followup-reminders.json").read_bytes() == sidecar

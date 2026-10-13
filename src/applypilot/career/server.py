@@ -193,7 +193,7 @@ class CareerHandler(BaseHTTPRequestHandler):
         path = urlsplit(self.path)
         filtered_query = self.command == "GET" and path.path in {
             PREFIX + "/application-inbox", PREFIX + "/job-progress", PREFIX + "/job-progress/download",
-            PREFIX + "/job-progress/reminders"}
+            PREFIX + "/job-progress/reminders", PREFIX + "/job-progress/reminders/download"}
         if (path.query and not filtered_query) or path.fragment or not path.path.startswith(PREFIX + "/"):
             raise KeyError("endpoint_not_found")
         return [unquote(part) for part in path.path[len(PREFIX) + 1:].split("/")]
@@ -253,6 +253,19 @@ class CareerHandler(BaseHTTPRequestHandler):
                 except ValueError as exc:
                     raise ValueError("reminder_input_invalid") from exc
                 self.send(200, reminders.list_items(self.server.workspace, limit=limit))
+                return
+            if p == ["job-progress", "reminders", "download"]:
+                try:
+                    query = parse_qs(urlsplit(self.path).query, keep_blank_values=True, strict_parsing=True, max_num_fields=2)
+                    if set(query) - {"format", "bucket"} or any(len(value) != 1 for value in query.values()):
+                        raise ValueError
+                    options = {key: value[0] for key, value in query.items()}
+                    if "format" not in options:
+                        raise ValueError
+                except ValueError as exc:
+                    raise ValueError("reminder_input_invalid") from exc
+                body, content_type, filename = reminders.download(self.server.workspace, **options)
+                self.send(200, body, content_type=content_type, download_name=filename)
                 return
             wb = self.server.workbench
             with self.server.connection() as conn:

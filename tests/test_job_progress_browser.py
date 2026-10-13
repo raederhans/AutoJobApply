@@ -66,6 +66,11 @@ def test_preview_pagination_and_download_share_filters_without_writes(progress):
     assert markdown.headers["Content-Disposition"] == 'attachment; filename="job-progress.md"'
     assert "&lt;script&gt;" in markdown.text and "<script>" not in markdown.text
     assert "Literal keyword filter: %" in markdown.text
+    document = client.get(route + "/download", params={**filters, "format": "html", "record_id": row["record_id"]})
+    assert document.status_code == 200 and 'filename="job-progress.html"' in document.headers["Content-Disposition"]
+    assert "<script>" not in document.text and "&lt;script&gt;" in document.text
+    assert "关键词：%" in document.text and "限定本地记录：" + row["record_id"] in document.text
+    assert "Analyst 001" not in document.text
     assert "PRIVATE" not in exported.text + markdown.text + response.text
     assert "example.test" not in exported.text + markdown.text + response.text
     assert db.read_bytes() == before
@@ -80,7 +85,7 @@ def test_utc_status_filters_and_bad_browser_queries(progress):
     submitted = client.get(route, params={"date_field": "submitted_at", "since": "2026-10-12", "until": "2026-10-12"}).json()
     assert [row["title"] for row in submitted["rows"]] == ["Analyst 001"]
     for query in ("?q=a&q=b", "?offset=-1", "?date_field=private_answer", "?since=2026-10-14&until=2026-10-13",
-                  "?status=not_a_status", "/download", "/download?format=html", "/download?format=csv&offset=100"):
+                  "?status=not_a_status", "/download", "/download?format=svg", "/download?format=csv&offset=100"):
         response = client.get(route + query)
         assert response.status_code == 422, (query, response.text)
         assert response.json()["error"]["code"] == "invalid_progress_filter"

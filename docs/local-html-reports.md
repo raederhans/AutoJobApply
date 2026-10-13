@@ -1,5 +1,15 @@
 # Offline progress and reminder reports
 
+The career workbench's **求职进度** page also offers HTML downloads. The progress
+download uses the currently applied search, UTC dates, statuses and any selected
+record, across all pages. Its scope block includes browser-only keyword and
+record filters. The local reminder section has a separate HTML download with an
+explicit all/overdue/today/future/undated group choice; it includes the entire
+selected group, even when the page displays only its first 100 or 500 entries.
+Reminder downloads use today's UTC grouping and are independent of the progress
+table filters. Both buttons reuse the renderers below and return the document
+directly to the browser, without writing report files into the workspace.
+
 Create one self-contained HTML snapshot of the currently selected local data:
 
 ```powershell

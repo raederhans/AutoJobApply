@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from applypilot import followup_reminders
+from applypilot import followup_reminders, local_report_html
 
 
 def _call(function, *args, **kwargs):
@@ -30,6 +30,14 @@ def list_items(workspace, *, limit=100):
     if type(limit) is not int or not 1 <= limit <= 500:
         raise ValueError("reminder_input_invalid")
     return {**_call(followup_reminders.list_reminders, workspace, limit=limit), "limit": limit}
+
+
+def download(workspace, *, format="html", bucket="all"):
+    if format != "html" or bucket not in {"all", *followup_reminders.BUCKETS}:
+        raise ValueError("reminder_input_invalid")
+    report = _call(local_report_html.collect_reminder_report, workspace, on=None, bucket=bucket,
+                   since=None, until=None, statuses=())
+    return local_report_html.render_reminder_html(report).encode("utf-8"), "text/html; charset=utf-8", "followup-reminders.html"
 
 
 def mutate(workspace, operation, data, *, reminder_id=None):

@@ -6,7 +6,7 @@ import html
 import re
 from collections import Counter
 
-from applypilot import progress_report
+from applypilot import local_report_html, progress_report
 
 LIMIT = 100
 _LABELS = {
@@ -83,13 +83,27 @@ def preview(conn, *, offset=0, **filters):
 
 
 def download(conn, *, format, **filters):
-    if format not in {"csv", "markdown"}:
+    if format not in {"csv", "markdown", "html"}:
         raise ValueError("progress_filter_invalid")
     report, available = _report(conn, **filters)
     if not available:
         raise ValueError("progress_report_unavailable")
     if format == "csv":
         return progress_report.render_csv(report).encode("utf-8-sig"), "text/csv; charset=utf-8", "job-progress.csv"
+    if format == "html":
+        document = local_report_html.render_progress_html(report)
+        extra = ""
+        if report["filters"]["q"]:
+            extra += "<p>关键词：" + html.escape(report["filters"]["q"], quote=True) + "</p>"
+        if report["filters"]["record_id"]:
+            extra += "<p>限定本地记录：" + html.escape(report["filters"]["record_id"], quote=True) + "</p>"
+        # The shared renderer owns the report. Add browser-only filter context to
+        # its explicit scope block without creating an alternate report projection.
+        marker = '<div class="scope">'
+        if marker not in document:
+            raise RuntimeError("html_report_scope_missing")
+        document = document.replace(marker, marker + extra, 1)
+        return document.encode("utf-8"), "text/html; charset=utf-8", "job-progress.html"
     markdown = progress_report.render_markdown(report)
     if report["filters"]["q"]:
         escaped = re.sub(r"([\\`*_{}\[\]()#+.!|])", r"\\\1", html.escape(report["filters"]["q"], quote=False))
