@@ -9,7 +9,7 @@ import fs from 'node:fs/promises';
 import { observeForm, structureChanges } from './browser-form-state.mjs';
 import { operatePreparationSubgoal } from './browser-preparation-subgoals.mjs';
 const python = process.env.APPLYPILOT_TEST_PYTHON || 'python';
-const location = spawnSync(python, ['-c', 'import pathlib,playwright;print(pathlib.Path(playwright.__file__).parent / "driver" / "package")'], { encoding: 'utf8' });
+const location = spawnSync(python, ['-X', 'utf8', '-c', 'import pathlib,playwright;print(pathlib.Path(playwright.__file__).parent / "driver" / "package")'], { encoding: 'utf8' });
 assert.equal(location.status, 0, location.stderr);
 const { chromium } = createRequire(import.meta.url)(location.stdout.trim());
 let browser, fixtureHtml;
@@ -259,7 +259,7 @@ async function hostFixture(t, { phase = 'prepare', mode = 'playwright' } = {}) {
   const request = async (operation, args = {}, observation_id = null) => {
     const id = randomUUID(), b = host.binding;
     await fs.writeFile(path.join(directory, 'pending', `${id}.json`), JSON.stringify({
-      request_id: id, session_id: b.session_id, token_epoch: b.token_epoch, surface: b.surface, phase: b.phase,
+      schema_version: 1, request_id: id, session_id: b.session_id, token_epoch: b.token_epoch, surface: b.surface, phase: b.phase,
       target: b.target, created_at: Date.now() / 1000, deadline_at: Date.now() / 1000 + 20,
       operation, arguments: args, observation_id }));
     assert.ok((await host.peek()).some(r => r.request_id === id));
