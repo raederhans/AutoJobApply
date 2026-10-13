@@ -22,10 +22,12 @@ _LABELS = {
 }
 
 
-def _report(conn, *, q="", since=None, until=None, date_field="updated_at", statuses=()):
+def _report(conn, *, q="", since=None, until=None, date_field="updated_at", statuses=(), record_id=None):
     if not isinstance(q, str) or len(q) > 200 or len(statuses) > 30:
         raise ValueError("progress_filter_invalid")
     if any(not isinstance(value, str) or len(value) > 80 for value in statuses):
+        raise ValueError("progress_filter_invalid")
+    if record_id is not None and (not isinstance(record_id, str) or not re.fullmatch(r"application-[0-9a-f]{16}", record_id)):
         raise ValueError("progress_filter_invalid")
     owned = not conn.in_transaction
     if owned:
@@ -41,11 +43,14 @@ def _report(conn, *, q="", since=None, until=None, date_field="updated_at", stat
         if owned:
             conn.rollback()
     query = q.strip()
+    if record_id is not None:
+        report["rows"] = [row for row in report["rows"] if row["record_id"] == record_id]
     if query:
         needle = query.casefold()
         report["rows"] = [row for row in report["rows"] if any(
             needle in row[field].casefold() for field in ("title", "company", "location"))]
     report["filters"]["q"] = query
+    report["filters"]["record_id"] = record_id
     report["application_status_counts"] = dict(sorted(Counter(row["application_status"] for row in report["rows"]).items()))
     report["recruiting_stage_counts"] = dict(sorted(Counter(row["recruiting_stage"] for row in report["rows"] if row["recruiting_stage"]).items()))
     report["todo_count"] = sum(bool(row["todo_reason"]) for row in report["rows"])
@@ -89,4 +94,6 @@ def download(conn, *, format, **filters):
     if report["filters"]["q"]:
         escaped = re.sub(r"([\\`*_{}\[\]()#+.!|])", r"\\\1", html.escape(report["filters"]["q"], quote=False))
         markdown += "\nLiteral keyword filter: " + escaped + "\n"
+    if report["filters"]["record_id"]:
+        markdown += "\nSelected local record: " + report["filters"]["record_id"] + "\n"
     return markdown.encode("utf-8"), "text/markdown; charset=utf-8", "job-progress.md"

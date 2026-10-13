@@ -16,7 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from applypilot.career import job_progress, learning, reminders, service
+from applypilot.career import job_progress, learning, progress_links, reminders, service
 from applypilot.career.application_inbox import ApplicationInbox
 from applypilot.career.workbench import Workbench, previous_request, public, save_request
 from applypilot.career.worker import CareerWorker
@@ -106,6 +106,10 @@ def _error(exc):
     if raw in reminder_errors:
         status, message = reminder_errors[raw]
         return status, raw, message
+    if raw == "progress_record_changed":
+        return 409, raw, "这条求职记录的关联已变化，请刷新求职进度或提醒清单后重新选择。"
+    if raw == "progress_source_unavailable":
+        return 422, raw, "这条记录没有唯一的原申请入口关联，无法直接定位待处理项。请从申请待处理列表核对。"
     if raw == "progress_filter_invalid":
         return 422, "invalid_progress_filter", "请核对关键词、UTC 日期范围、日期字段和状态选项。"
     if raw == "progress_report_unavailable":
@@ -196,7 +200,7 @@ class CareerHandler(BaseHTTPRequestHandler):
 
     def inbox_query(self):
         values = parse_qs(urlsplit(self.path).query, keep_blank_values=True, strict_parsing=True, max_num_fields=4)
-        if set(values) - {"q", "scope", "sort", "offset"} or any(len(value) != 1 for value in values.values()):
+        if set(values) - {"q", "scope", "sort", "offset", "record_id"} or any(len(value) != 1 for value in values.values()):
             raise ValueError("invalid_inbox_query")
         result = {name: value[0] for name, value in values.items()}
         if "offset" in result:
@@ -208,7 +212,7 @@ class CareerHandler(BaseHTTPRequestHandler):
     def progress_query(self, *, downloading=False):
         try:
             values = parse_qs(urlsplit(self.path).query, keep_blank_values=True, strict_parsing=True, max_num_fields=40)
-            allowed = {"q", "since", "until", "date_field", "status", "format" if downloading else "offset"}
+            allowed = {"q", "since", "until", "date_field", "status", "record_id", "format" if downloading else "offset"}
             if set(values) - allowed or any(len(value) != 1 for name, value in values.items() if name != "status"):
                 raise ValueError("invalid_query")
             result = {name: value[0] for name, value in values.items() if name != "status"}
@@ -255,7 +259,12 @@ class CareerHandler(BaseHTTPRequestHandler):
                 if p == ["bootstrap"]:
                     result = {**wb.bootstrap(conn), "token": self.server.token, "runs": self.server.worker.list_jobs()}
                 elif p == ["application-inbox"]:
-                    result = self.server.application_inbox.list_items(conn, **self.inbox_query())
+                    filters = self.inbox_query()
+                    record_id = filters.pop("record_id", None)
+                    if record_id is None:
+                        result = self.server.application_inbox.list_items(conn, **filters)
+                    else:
+                        result = progress_links.related_inbox(conn, self.server.application_inbox, record_id, **filters)
                 elif len(p) == 2 and p[0] == "application-inbox":
                     result = self.server.application_inbox.detail(conn, p[1])
                 elif p == ["job-progress"]:

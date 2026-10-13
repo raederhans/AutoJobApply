@@ -189,18 +189,20 @@ class ApplicationInbox:
                 "next_action": {"label": "保存答复" if respond else "申请继续" if resume else label, "description": description},
                 "can_respond": respond, "can_resume": resume}
 
-    def list_items(self, conn, *, q="", scope="open", sort="newest", offset=0):
+    def list_items(self, conn, *, q="", scope="open", sort="newest", offset=0, job_url=None):
         if not isinstance(q, str) or len(q) > 200 or scope not in {"open", "history", "all"} or sort not in {"newest", "oldest"}:
             raise ValueError("invalid_inbox_filter")
         if type(offset) is not int or not 0 <= offset <= 1_000_000:
             raise ValueError("invalid_inbox_offset")
+        if job_url is not None and (not isinstance(job_url, str) or not job_url):
+            raise ValueError("invalid_inbox_filter")
         with _read_snapshot(conn):
-            return self._list_items(conn, q=q.strip(), scope=scope, sort=sort, offset=offset)
+            return self._list_items(conn, q=q.strip(), scope=scope, sort=sort, offset=offset, job_url=job_url)
 
-    def _list_items(self, conn, *, q, scope, sort, offset):
+    def _list_items(self, conn, *, q, scope, sort, offset, job_url):
         tables = _tables(conn)
         parameters = {"query": q, "scope": scope, "sort": sort}
-        if "agent_exception_queue" not in tables:
+        if "agent_exception_queue" not in tables or (job_url is not None and "application_attempts" not in tables):
             return {"available": False, "items": [], "counts": {"open": None, "needs_response": None,
                     "resume_requested": None, "blocked": None, "shown": None}, "limit": LIMIT, "truncated": False,
                     **parameters, "pagination": {"offset": 0, "total": None, "has_more": False, "next_offset": None, "previous_offset": None}}
@@ -209,9 +211,14 @@ class ApplicationInbox:
             clauses.append("e.status='open'" if scope == "open" else "e.status<>'open'")
         joins = ""
         search_fields = ["e.exception_id", "e.queue_kind"]
-        if {"application_attempts", "jobs"} <= tables:
-            joins += " LEFT JOIN application_attempts a ON a.attempt_id=e.attempt_id LEFT JOIN jobs j ON j.url=a.job_url"
-            search_fields += ["j.title", "j.company_name", "j.url"]
+        if "application_attempts" in tables:
+            joins += " LEFT JOIN application_attempts a ON a.attempt_id=e.attempt_id"
+            if "jobs" in tables:
+                joins += " LEFT JOIN jobs j ON j.url=a.job_url"
+                search_fields += ["j.title", "j.company_name", "j.url"]
+        if job_url is not None:
+            clauses.append("a.job_url=?")
+            args.append(job_url)
         if "agent_human_requests" in tables:
             # JSON extraction applies only to valid object contexts; it never trusts a caller path.
             joins += (" LEFT JOIN agent_human_requests h ON h.request_id="

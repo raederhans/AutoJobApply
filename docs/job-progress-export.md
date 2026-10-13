@@ -20,6 +20,17 @@ Short acceptance covers literal keyword filtering before pagination, all-match
 CSV/Markdown download, UTC/status filters, unknown dates, formula escaping and
 unchanged database bytes (`tests/test_job_progress_browser.py`).
 
+Reminder cards can select their current exact record in this table. The selected
+record filter stays visible and applies to pagination and downloads until it is
+cleared. A row's related-application control opens the existing application inbox
+with the same saved source entry, including both open and historical items.
+The source lookup uses the public report handle and the exact saved URL internally;
+it does not match company/title or normalize links. If a registered identity has
+changed, refresh and choose its current record. A record without a unique saved
+entry cannot be presented as having zero related inbox items: the page explains
+that direct association is unavailable. These links do not create requests or
+change the existing answer/review/continue guards.
+
 Export the existing workspace database to a spreadsheet CSV and a Markdown
 summary. The command reads a SQLite snapshot in read-only mode; it does not
 refresh progress, initialize or migrate a database, load a profile or resume,
