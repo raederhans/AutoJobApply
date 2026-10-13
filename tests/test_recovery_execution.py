@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import replace
+from datetime import timedelta
 
 import pytest
 
 from applypilot.apply.application_actor import ApplicationActorState, decide_recovery
-from applypilot.apply.contracts import RecoveryExecutionResult, application_actor_id
+from applypilot.apply.contracts import RecoveryCommand, RecoveryExecutionResult, application_actor_id, contract_json
 from applypilot.apply.recovery_execution import (
     admit_recovery_decision,
     execute_recovery_command,
@@ -428,3 +429,77 @@ def test_recovery_started_claim_race_returns_persisted_owner_without_effect(monk
     assert result == persisted[0]
     assert calls == []
     assert len(agent_control.list_recovery_results(connection, command_id=command.command_id)) == 1
+
+
+def test_recovery_rebuilt_admission_and_serialized_envelope_replay_exactly() -> None:
+    connection = sqlite3.connect(":memory:")
+    command = command_for("failed:site_blocked")
+    calls = []
+    first = execute_recovery_command(
+        connection,
+        command,
+        handler=lambda _command: calls.append("handler") or {"mock_effect": True},
+        verifier=lambda _command, _details: True,
+    )
+    rebuilt = command_for("failed:site_blocked")
+    restored = RecoveryCommand(**contract_json(command))
+    assert rebuilt is not command and restored is not command
+    before = connection.total_changes
+    for replay_command in (rebuilt, restored):
+        assert execute_recovery_command(connection, replay_command) == first
+    assert calls == ["handler"]
+    assert connection.total_changes == before
+
+
+@pytest.mark.parametrize("journal_mode", ["DELETE", "WAL"])
+def test_recovery_concurrent_sqlite_claim_commits_snapshot_before_single_reread(
+    tmp_path,
+    monkeypatch,
+    journal_mode,
+) -> None:
+    from applypilot.apply import recovery_execution
+
+    path = tmp_path / "concurrent-recovery.sqlite3"
+    connection = sqlite3.connect(path)
+    competitor = sqlite3.connect(path)
+    try:
+        assert connection.execute(f"PRAGMA journal_mode={journal_mode}").fetchone()[0].upper() == journal_mode
+        agent_control.ensure_schema(connection)
+        agent_control.ensure_schema(competitor)
+        command = command_for("failed:site_blocked")
+        append = recovery_execution._append_durable
+        list_results = agent_control.list_recovery_results
+        persisted = []
+        reads = []
+
+        def track_read(connection, **filters):
+            reads.append(connection.in_transaction)
+            return list_results(connection, **filters)
+
+        def competing_claim(connection, started):
+            assert not persisted  # There must be exactly one attempted claim.
+            assert not connection.in_transaction
+            # A real independent SQLite writer commits after our empty-history
+            # read, with its own lifecycle timestamp but an identical envelope.
+            competing_started = replace(started, occurred_at=started.occurred_at - timedelta(seconds=1))
+            assert append(competitor, competing_started)
+            persisted.append(competing_started)
+            assert append(connection, started) is False
+            assert not connection.in_transaction  # No stale SQLite snapshot.
+            return False
+
+        monkeypatch.setattr(agent_control, "list_recovery_results", track_read)
+        monkeypatch.setattr(recovery_execution, "_append_durable", competing_claim)
+        calls = []
+        result = execute_recovery_command(
+            connection,
+            command,
+            handler=lambda _command: calls.append("handler") or {},
+        )
+        assert result == persisted[0]
+        assert reads == [False, False]
+        assert calls == []
+        assert len(list_results(connection, command_id=command.command_id)) == 1
+    finally:
+        connection.close()
+        competitor.close()

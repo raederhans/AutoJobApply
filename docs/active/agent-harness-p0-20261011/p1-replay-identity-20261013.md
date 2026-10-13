@@ -93,3 +93,30 @@ There were no real applications, browser actions, emails, credentials, remote
 Git actions, paid API calls, or installation changes. No blocker remains for
 this bounded correction; wheel packaging and real browser acceptance belong to
 the coordinating task.
+
+## Follow-up: reconstruction and competing-claim exit
+
+Static inspection found no timestamp in either `RecoveryCommand` or its source
+`DecisionEnvelope`. The `RecoveryExecutionResult.occurred_at` timestamp is
+outside the hashed envelope. The sole production path admits one command in
+`worker_orchestration.py`, stores that complete object in `recovery_command`,
+and passes it directly to execution. Its human-resume payload is derived from
+the existing run/checkpoint/browser-lease binding, not a fresh wall clock. A
+fresh admission from an identical decision and a JSON round-trip of the full
+command both successfully replay the original result without repeating effects.
+
+The false-insert path cannot retain a SQLite snapshot: execution rejects an
+outer transaction, and `_append_durable` commits both successful inserts and
+semantic duplicate inserts. `append_recovery_result` returns false only after
+finding the existing same-command/same-stage record with matching semantic
+fields. The unique stage constraint and append-only history triggers preserve
+that started record for the next read. Hence the recursive call reaches the
+existing-history branch after one reread under the current storage contract.
+
+Two actual independent SQLite connections tested this race in both DELETE and
+WAL journal modes. The competing connection commits a started record with a
+different result timestamp after the empty-history read. The losing insert
+returns false, commits, and rereads once without an active transaction; execution
+returns the competitor's persisted result and calls no handler. Together with
+the independent admission/JSON reconstruction test, the three added targeted
+cases passed. No production change or weaker semantic digest was necessary.
