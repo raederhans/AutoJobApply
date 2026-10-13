@@ -1,5 +1,20 @@
 # Local job comparison
 
+In the career workbench, open **求职进度**, add **2–4** rows to the comparison,
+then view the comparison or download its HTML/Markdown snapshot. The selection
+survives pagination and filters during the current page session; remove individual
+rows or clear it explicitly. Columns retain selection order. Downloaded snapshots
+do not change when the database later changes. A missing or ambiguous source
+produces an error and leaves the selection available for review.
+
+The browser selects existing progress records through their exact saved job
+identity. Public research jobs that have no progress row remain available through
+the CLI below. Browser reads and downloads do not create reports on the server,
+write SQLite, or change local reminders. The endpoints are
+`GET /api/career/v1/job-progress/compare?record_id=...&record_id=...` and
+`GET /api/career/v1/job-progress/compare/download?format=html&record_id=...&record_id=...`
+(`format=markdown` is also supported).
+
 List existing jobs and obtain safe IDs before choosing a comparison:
 
 ```powershell

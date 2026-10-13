@@ -10,7 +10,8 @@ from pathlib import Path
 def run(*, job_ids: Sequence[str], output_dir: Path | None, list_jobs: bool, query: str, limit: int) -> dict:
     from applypilot.job_comparison import export_comparison, list_comparison_jobs
 
-    workspace = Path(os.environ.get("APPLYPILOT_DIR", Path.home() / ".applypilot"))
+    configured = os.environ.get("APPLYPILOT_DIR")
+    workspace = Path(configured) if configured else Path.home() / ".applypilot"
     if list_jobs:
         if job_ids or output_dir is not None:
             raise ValueError("Use --list separately from --job-id and --output-dir")

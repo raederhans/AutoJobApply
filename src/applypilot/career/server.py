@@ -16,7 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from applypilot.career import job_progress, learning, progress_links, reminders, service
+from applypilot.career import job_comparison, job_progress, learning, progress_links, reminders, service
 from applypilot.career.application_inbox import ApplicationInbox
 from applypilot.career.workbench import Workbench, previous_request, public, save_request
 from applypilot.career.worker import CareerWorker
@@ -93,6 +93,15 @@ class CareerServer(ThreadingHTTPServer):
 
 def _error(exc):
     raw = str(exc)
+    comparison_errors = {
+        "comparison_selection_invalid": (422, "请选择 2–4 条不同的求职记录进行对比。"),
+        "comparison_record_changed": (409, "所选记录已变化，请刷新后重新选择要对比的岗位。"),
+        "comparison_source_unavailable": (422, "所选记录缺少唯一的本地岗位来源，无法直接对比；请重新核对选择。"),
+        "comparison_duplicate_job": (422, "多条所选记录指向同一岗位，请选择不同岗位进行对比。"),
+    }
+    if raw in comparison_errors:
+        status, message = comparison_errors[raw]
+        return status, raw, message
     reminder_errors = {
         "reminder_store_invalid": (409, "本地提醒文件无法读取，已保留原文件。请核对文件后再编辑。"),
         "reminder_busy": (409, "另一项本地提醒编辑尚未完成，请稍后刷新清单。"),
@@ -199,7 +208,8 @@ class CareerHandler(BaseHTTPRequestHandler):
         path = urlsplit(self.path)
         filtered_query = self.command == "GET" and path.path in {
             PREFIX + "/application-inbox", PREFIX + "/job-progress", PREFIX + "/job-progress/download",
-            PREFIX + "/job-progress/reminders", PREFIX + "/job-progress/reminders/download"}
+            PREFIX + "/job-progress/reminders", PREFIX + "/job-progress/reminders/download", PREFIX + "/job-progress/compare",
+            PREFIX + "/job-progress/compare/download"}
         if (path.query and not filtered_query) or path.fragment or not path.path.startswith(PREFIX + "/"):
             raise KeyError("endpoint_not_found")
         return [unquote(part) for part in path.path[len(PREFIX) + 1:].split("/")]
@@ -235,6 +245,20 @@ class CareerHandler(BaseHTTPRequestHandler):
             return result
         except ValueError as exc:
             raise ValueError("progress_filter_invalid") from exc
+
+    def comparison_query(self, *, downloading=False):
+        try:
+            values = parse_qs(urlsplit(self.path).query, keep_blank_values=True, strict_parsing=True,
+                              max_num_fields=5 if downloading else 4)
+            if set(values) != ({"record_id", "format"} if downloading else {"record_id"}):
+                raise ValueError
+            if downloading:
+                if len(values["format"]) != 1:
+                    raise ValueError
+                return {"record_ids": values["record_id"], "format": values["format"][0]}
+            return values["record_id"]
+        except ValueError as exc:
+            raise ValueError("comparison_selection_invalid") from exc
 
     def do_GET(self):
         if not self.permitted():
@@ -293,6 +317,12 @@ class CareerHandler(BaseHTTPRequestHandler):
                     result = self.server.application_inbox.detail(conn, p[1])
                 elif p == ["job-progress"]:
                     result = job_progress.preview(conn, **self.progress_query())
+                elif p == ["job-progress", "compare"]:
+                    result = job_comparison.preview(conn, self.comparison_query())
+                elif p == ["job-progress", "compare", "download"]:
+                    body, content_type, filename = job_comparison.download(conn, **self.comparison_query(downloading=True))
+                    self.send(200, body, content_type=content_type, download_name=filename)
+                    return
                 elif p == ["job-progress", "download"]:
                     body, content_type, filename = job_progress.download(conn, **self.progress_query(downloading=True))
                     self.send(200, body, content_type=content_type, download_name=filename)

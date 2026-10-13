@@ -3,6 +3,7 @@
 import hashlib
 import json
 import sqlite3
+from pathlib import Path
 
 from typer.testing import CliRunner
 
@@ -67,3 +68,17 @@ def test_cli_invalid_inputs_do_not_initialize_or_partially_export(tmp_path, monk
         result = runner.invoke(app, [*base, *args])
         assert result.exit_code != 0
         assert not output.exists()
+
+
+def test_explicit_comparison_workspace_does_not_resolve_home(tmp_path, monkeypatch):
+    from applypilot.commands.job_compare import run
+
+    workspace = tmp_path / "workspace"
+    setup_workspace(workspace)
+    monkeypatch.setenv("APPLYPILOT_DIR", str(workspace))
+
+    def forbidden_home():
+        raise AssertionError("Explicit comparison workspace must not resolve HOME")
+
+    monkeypatch.setattr(Path, "home", forbidden_home)
+    assert run(job_ids=(), output_dir=None, list_jobs=True, query="", limit=40)["count"] == 2
