@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import replace
 
 import pytest
 
 from applypilot.apply.application_actor import ApplicationActorState, decide_recovery
+from applypilot.apply.contracts import RecoveryExecutionResult, application_actor_id
 from applypilot.apply.recovery_execution import (
     admit_recovery_decision,
     execute_recovery_command,
@@ -225,3 +227,204 @@ def test_policy_rejects_any_automatic_retry_after_submit_started() -> None:
     assert admission.admitted is False
     assert admission.command is None
     assert admission.reason == "post_submit_recovery_must_reconcile_receipt"
+
+
+def _history_at(connection, command, stage):
+    calls = []
+
+    def handler(_command):
+        calls.append("handler")
+        if stage == "started":
+            raise SystemExit("crash")
+        if stage == "failed":
+            raise RuntimeError("failed")
+        return {"mock_effect": True}
+
+    def verifier(_command, _details):
+        calls.append("verifier")
+        if stage == "executed":
+            raise SystemExit("crash")
+        return True
+
+    if stage in {"started", "executed"}:
+        with pytest.raises(SystemExit):
+            execute_recovery_command(connection, command, handler=handler, verifier=verifier)
+    else:
+        execute_recovery_command(connection, command, handler=handler, verifier=verifier)
+    return calls
+
+
+@pytest.mark.parametrize("stage", ["started", "executed", "verified", "failed"])
+@pytest.mark.parametrize("drift", ["attempt", "turn"])
+def test_recovery_id_collision_rejects_lineage_at_every_boundary_without_writes(stage, drift) -> None:
+    connection = sqlite3.connect(":memory:")
+    command = command_for("failed:site_blocked")
+    calls = _history_at(connection, command, stage)
+    changed = (
+        replace(command, attempt_id="other-attempt", actor_id=application_actor_id("other-attempt"))
+        if drift == "attempt"
+        else replace(command, run_id="other-turn", turn_id="other-turn")
+    )
+    before = connection.total_changes
+    before_calls = calls[:]
+    with pytest.raises(ValueError, match="lineage collision"):
+        execute_recovery_command(
+            connection,
+            changed,
+            handler=lambda _command: calls.append("repeated_handler") or {},
+            verifier=lambda _command, _details: calls.append("repeated_verifier") or True,
+            incomplete_started_timeout_seconds=0,
+        )
+    assert connection.total_changes == before
+    assert calls == before_calls
+
+
+@pytest.mark.parametrize("stage", ["started", "executed", "verified", "failed"])
+@pytest.mark.parametrize("drift", ["payload", "budget", "policy", "category", "next_action", "command"])
+def test_recovery_rejects_same_lineage_envelope_drift_without_writes(stage, drift) -> None:
+    connection = sqlite3.connect(":memory:")
+    command = command_for("failed:site_blocked")
+    _history_at(connection, command, stage)
+    changes = {
+        "payload": {"payload": {"application_ref": "application:other"}},
+        "budget": {"retry_budget_remaining": command.retry_budget_remaining + 1},
+        "policy": {"policy_reason": "different_policy"},
+        "category": {"failure_category": "different_failure"},
+        "next_action": {"next_action": "different_next_action"},
+        "command": {
+            "command": "retry_same_application",
+            "effect_scope": "same_application",
+            "recovery_action": "retry_same_application",
+        },
+    }
+    changed = replace(command, **changes[drift])
+    calls = []
+    before = connection.total_changes
+    with pytest.raises(ValueError, match="envelope collision"):
+        execute_recovery_command(
+            connection,
+            changed,
+            handler=lambda _command: calls.append("handler") or {},
+            verifier=lambda _command, _details: calls.append("verifier") or True,
+            incomplete_started_timeout_seconds=0,
+        )
+    assert calls == []
+    assert connection.total_changes == before
+
+
+@pytest.mark.parametrize("stage", ["started", "executed", "verified", "failed"])
+def test_legacy_recovery_history_cannot_be_signed_by_incoming_envelope(stage) -> None:
+    connection = sqlite3.connect(":memory:")
+    command = command_for("failed:site_blocked")
+    terminal_status = "completed" if stage == "verified" else "failed" if stage == "failed" else None
+    old = RecoveryExecutionResult(
+        result_id=f"{command.command_id}:{stage}",
+        command_id=command.command_id,
+        run_id=command.run_id,
+        turn_id=command.turn_id,
+        attempt_id=command.attempt_id,
+        actor_id=command.actor_id,
+        stage=stage,
+        outcome="legacy_result",
+        terminal_status=terminal_status,
+        details={"command": command.command, "effect_scope": command.effect_scope},
+    )
+    agent_control.append_recovery_result(connection, old)
+    connection.commit()
+    before = connection.total_changes
+    calls = []
+    with pytest.raises(ValueError, match="lacks durable command envelope"):
+        execute_recovery_command(
+            connection,
+            command,
+            handler=lambda _command: calls.append("handler") or {},
+            verifier=lambda _command, _details: calls.append("verifier") or True,
+            incomplete_started_timeout_seconds=0,
+        )
+    assert calls == []
+    assert connection.total_changes == before
+    assert agent_control.list_recovery_results(connection, command_id=command.command_id) == [old]
+
+
+def test_recovery_checks_all_history_even_with_valid_terminal_lineage() -> None:
+    connection = sqlite3.connect(":memory:")
+    command = command_for("failed:site_blocked")
+    _history_at(connection, command, "started")
+    foreign = RecoveryExecutionResult(
+        result_id=f"{command.command_id}:executed",
+        command_id=command.command_id,
+        run_id="other-turn",
+        turn_id="other-turn",
+        attempt_id="other-attempt",
+        actor_id=application_actor_id("other-attempt"),
+        stage="executed",
+        outcome="foreign_effect",
+    )
+    terminal = replace(
+        foreign,
+        result_id=f"{command.command_id}:verified",
+        run_id=command.run_id,
+        turn_id=command.turn_id,
+        attempt_id=command.attempt_id,
+        actor_id=command.actor_id,
+        stage="verified",
+        terminal_status="completed",
+    )
+    agent_control.append_recovery_result(connection, foreign)
+    agent_control.append_recovery_result(connection, terminal)
+    connection.commit()
+    before = connection.total_changes
+    with pytest.raises(ValueError, match="lineage collision"):
+        execute_recovery_command(connection, command)
+    assert connection.total_changes == before
+
+
+def test_executed_recovery_resumes_verification_without_repeating_effect() -> None:
+    connection = sqlite3.connect(":memory:")
+    command = command_for("failed:site_blocked")
+    _history_at(connection, command, "executed")
+    calls = []
+    result = execute_recovery_command(
+        connection,
+        command,
+        handler=lambda _command: calls.append("handler") or {},
+        verifier=lambda _command, details: calls.append("verifier") or details.get("mock_effect") is True,
+    )
+    assert result.stage == "verified"
+    assert calls == ["verifier"]
+
+
+def test_started_recovery_exact_replay_retains_owner_and_canonical_payload_order() -> None:
+    connection = sqlite3.connect(":memory:")
+    command = replace(command_for("failed:site_blocked"), payload={"first": [1, 2], "second": {"ref": "value"}})
+    _history_at(connection, command, "started")
+    original = agent_control.list_recovery_results(connection, command_id=command.command_id)[0]
+    calls = []
+    reordered = replace(command, payload={"second": {"ref": "value"}, "first": [1, 2]})
+    before = connection.total_changes
+    replay = execute_recovery_command(connection, reordered, handler=lambda _command: calls.append("handler") or {})
+    assert replay == original
+    assert calls == []
+    assert connection.total_changes == before
+
+
+def test_recovery_started_claim_race_returns_persisted_owner_without_effect(monkeypatch) -> None:
+    from applypilot.apply import recovery_execution
+
+    connection = sqlite3.connect(":memory:")
+    command = command_for("failed:site_blocked")
+    append = recovery_execution._append_durable
+    persisted = []
+
+    def concurrent_claim(connection, started):
+        if started.stage == "started" and not persisted:
+            persisted.append(started)
+            assert append(connection, started)
+        return append(connection, started)
+
+    monkeypatch.setattr(recovery_execution, "_append_durable", concurrent_claim)
+    calls = []
+    result = execute_recovery_command(connection, command, handler=lambda _command: calls.append("handler") or {})
+    assert result == persisted[0]
+    assert calls == []
+    assert len(agent_control.list_recovery_results(connection, command_id=command.command_id)) == 1

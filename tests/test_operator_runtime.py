@@ -330,6 +330,7 @@ def test_resume_exact_owner_child_and_replay_once(connection: sqlite3.Connection
     replay = runtime.resume(command, request_id="request-1")
 
     assert result.resolved is True and replay.replayed is True
+    assert agent_control.latest_actor_checkpoint(connection, ACTOR).checkpoint_id == "checkpoint-child"
     assert len(calls) == 1
     assert "answer" not in json.dumps(calls)
     assert agent_control.get_exception(connection, item.exception_id).status == "resolved"  # type: ignore[union-attr]
@@ -353,6 +354,107 @@ def test_resume_exact_owner_child_and_replay_once(connection: sqlite3.Connection
             parent_turn_id=PARENT,
             child_turn_id="child-turn",
         )
+
+
+def test_completed_resume_rejects_another_applications_request_without_writes(connection: sqlite3.Connection) -> None:
+    _, command = _resume_setup(connection)
+    calls: list[dict[str, object]] = []
+    runtime = OperatorRuntime(connection, resume_owner=_owner(connection, calls))
+    assert runtime.resume(command, request_id="request-1").resolved
+    other = HumanRequest(
+        request_id="other-request",
+        run_id="other-turn",
+        attempt_id="other-attempt",
+        request_type="availability",
+        prompt="Other application",
+        context={"actor_id": application_actor_id("other-attempt"), "turn_id": "other-turn"},
+        created_at=NOW,
+    )
+    agent_control.create_human_request(connection, other)
+    connection.commit()
+    before = connection.total_changes
+    with pytest.raises(OperatorCommandError, match="identity drifted"):
+        runtime.resume(command, request_id=other.request_id)
+    assert connection.total_changes == before
+    assert agent_control.get_human_request(connection, other.request_id).status == "open"
+    assert len(calls) == 1
+    assert runtime.resume(command, request_id="request-1").replayed
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["exception_run", "exception_attempt", "request_run", "request_attempt", "actor", "turn", "type", "time"],
+)
+def test_completed_resume_revalidates_durable_binding_before_consumption(
+    connection: sqlite3.Connection,
+    mutation: str,
+) -> None:
+    _, command = _resume_setup(connection)
+    calls: list[dict[str, object]] = []
+    runtime = OperatorRuntime(connection, resume_owner=_owner(connection, calls))
+    assert runtime.resume(command, request_id="request-1").resolved
+    if mutation == "exception_run":
+        connection.execute("UPDATE agent_exception_queue SET run_id='other-turn',turn_id='other-turn'")
+    elif mutation == "exception_attempt":
+        connection.execute(
+            "UPDATE agent_exception_queue SET attempt_id=?,actor_id=?",
+            ("other-attempt", application_actor_id("other-attempt")),
+        )
+    elif mutation == "request_run":
+        connection.execute("UPDATE agent_human_requests SET run_id='other-turn'")
+    elif mutation == "request_attempt":
+        connection.execute("UPDATE agent_human_requests SET attempt_id='other-attempt'")
+    elif mutation in {"actor", "turn"}:
+        connection.execute(
+            "UPDATE agent_human_requests SET context_json=json_set(context_json,?,?)",
+            (f"$.{mutation}_id", "other-identity"),
+        )
+    elif mutation == "type":
+        connection.execute("UPDATE agent_human_requests SET request_type='confirmation'")
+    else:
+        connection.execute("UPDATE agent_human_requests SET created_at=?", ((NOW + timedelta(days=1)).isoformat(),))
+    connection.commit()
+    before = connection.total_changes
+    with pytest.raises(OperatorCommandError, match="drifted"):
+        runtime.resume(command, request_id="request-1")
+    assert connection.total_changes == before
+    assert len(calls) == 1
+
+
+def test_completed_resume_consumes_original_request_after_crash_window(connection: sqlite3.Connection) -> None:
+    _, command = _resume_setup(connection)
+    calls: list[dict[str, object]] = []
+    runtime = OperatorRuntime(connection, resume_owner=_owner(connection, calls))
+    assert runtime.resume(command, request_id="request-1").resolved
+    # Simulate verified/exception-resolved commit preceding human consumption.
+    connection.execute("UPDATE agent_human_requests SET status='open',resolved_at=NULL")
+    connection.commit()
+    replay = runtime.resume(command, request_id="request-1")
+    assert replay.resolved and replay.replayed
+    assert agent_control.get_human_request(connection, "request-1").status == "consumed"
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("response_state", ["missing", "digest_drift"])
+def test_completed_resume_requires_its_original_response_evidence(
+    connection: sqlite3.Connection,
+    monkeypatch: pytest.MonkeyPatch,
+    response_state: str,
+) -> None:
+    from applypilot.apply import operator_runtime
+
+    _, command = _resume_setup(connection)
+    calls: list[dict[str, object]] = []
+    runtime = OperatorRuntime(connection, resume_owner=_owner(connection, calls))
+    assert runtime.resume(command, request_id="request-1").resolved
+    response = operator_runtime.load_human_response(connection, "request-1")
+    supplied = None if response_state == "missing" else replace(response, response_digest="b" * 64)
+    monkeypatch.setattr(operator_runtime, "load_human_response", lambda _connection, _request_id: supplied)
+    before = connection.total_changes
+    with pytest.raises(OperatorCommandError, match="digest drifted"):
+        runtime.resume(command, request_id="request-1")
+    assert connection.total_changes == before
+    assert len(calls) == 1
 
 
 def test_no_owner_persists_requested_then_owner_executes_exact_request(

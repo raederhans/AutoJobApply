@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import sqlite3
 import uuid
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import UTC, datetime
 
 from applypilot.apply.contracts import (
@@ -15,6 +17,7 @@ from applypilot.apply.contracts import (
     RecoveryEffectScope,
     RecoveryExecutionResult,
     RecoveryTerminalStatus,
+    ensure_persistable,
 )
 from applypilot.apply.exception_queue import exception_for_command
 from applypilot.apply.operator_binding import OPERATOR_RESUME_BINDING_KEYS
@@ -214,6 +217,32 @@ def _terminal_result(
     )
 
 
+def _command_digest(command: RecoveryCommand) -> str:
+    envelope = ensure_persistable({field.name: getattr(command, field.name) for field in fields(command)})
+    encoded = json.dumps(envelope, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(b"applypilot:recovery-command-envelope-v1\x00" + encoded).hexdigest()
+
+
+def _validate_history(command: RecoveryCommand, history: list[RecoveryExecutionResult]) -> None:
+    """Accept replay only with exact lineage and durable full-envelope evidence."""
+    lineage = (command.command_id, command.run_id, command.attempt_id, command.actor_id, command.turn_id)
+    if any((item.command_id, item.run_id, item.attempt_id, item.actor_id, item.turn_id) != lineage for item in history):
+        raise ValueError(f"recovery command lineage collision: {command.command_id}")
+    if not history:
+        return
+    started = [item for item in history if item.stage == "started"]
+    if (
+        len(started) != 1
+        or started[0].details.get("command_digest_version") != "1"
+        or not isinstance(started[0].details.get("command_sha256"), str)
+    ):
+        # Historical records cannot prove payload/policy identity. Never upgrade
+        # them with incoming data or retry their possibly completed external effect.
+        raise ValueError(f"recovery replay lacks durable command envelope: {command.command_id}")
+    if started[0].details["command_sha256"] != _command_digest(command):
+        raise ValueError(f"recovery command envelope collision: {command.command_id}")
+
+
 def _terminal_status_for_exception(exc: Exception) -> RecoveryTerminalStatus:
     if isinstance(exc, TimeoutError):
         return "timed_out"
@@ -294,6 +323,7 @@ def execute_recovery_command(
         connection,
         command_id=command.command_id,
     )
+    _validate_history(command, history)
     terminal = _terminal_result(history)
     if terminal is not None:
         return terminal
@@ -356,11 +386,21 @@ def execute_recovery_command(
             "command": command.command,
             "effect_scope": command.effect_scope,
             "policy_reason": command.policy_reason,
+            "command_digest_version": "1",
+            "command_sha256": _command_digest(command),
         },
     )
     inserted = _append_durable(connection, started)
     if not inserted:
-        return started
+        # Another connection may have claimed the command after our read. Use
+        # its durable history rather than manufacturing an incoming result.
+        return execute_recovery_command(
+            connection,
+            command,
+            handler=handler,
+            verifier=verifier,
+            incomplete_started_timeout_seconds=incomplete_started_timeout_seconds,
+        )
 
     try:
         if command.command in _QUEUE_COMMANDS:
