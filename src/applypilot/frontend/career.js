@@ -14,7 +14,7 @@
   const state = {token:null, catalog:{companies:[],jobs:[]}, materials:[], targets:[], runs:[], target:null, diagnosis:null, progress:null, stage:"materials", file:null, polling:null, retry:null, busy:false, observedRuns:new Set(),pendingResults:new Map(),selectionGeneration:0,selectionPending:false,dialogGeneration:0,dataGeneration:0};
   Object.assign(state,{inbox:null,inboxLoading:false,inboxError:null,inboxGeneration:0,inboxDrafts:new Map(),inboxQuery:{q:"",scope:"open",sort:"newest",offset:0,record_id:""},inboxDetailGeneration:0,inboxRecordLabel:null});
   Object.assign(state,{jobReport:null,jobReportLoading:false,jobReportError:null,jobReportGeneration:0,jobStatusOptionsReady:false,jobReportDownloading:false,jobReportQuery:{q:"",since:"",until:"",date_field:"updated_at",statuses:[],offset:0,record_id:""},jobReportRecordLabel:null});
-  Object.assign(state,{reminders:null,reminderLoading:false,reminderError:null,reminderGeneration:0,reminderLimit:100,reminderBusy:false,reminderUncertain:false});
+  Object.assign(state,{reminders:null,reminderLoading:false,reminderError:null,reminderGeneration:0,reminderLimit:100,reminderBusy:false,reminderUncertain:false,reminderDownloading:false});
   const stageNames = {materials:"目标与材料",diagnosis:"差距诊断",route:"学习路线",review:"产物与评审",inbox:"申请待处理","job-progress":"求职进度"};
   const validRecordId=(value)=>typeof value==="string"&&/^application-[a-f0-9]{16}$/.test(value);
   const kindNames = {resume:"简历",resume_copy:"简历副本",project_evidence:"项目证据",generated:"生成 / 练习产物",candidate_facts:"事实记录",candidate_fact_master:"求职事实主档",project_fact_context:"项目事实与贡献范围",project_fact_master:"项目事实主档"};
@@ -235,7 +235,7 @@
     recordBox.hidden=!state.jobReportQuery.record_id;
     recordBox.innerHTML=state.jobReportQuery.record_id?`<div><strong>来自提醒的记录筛选</strong><p>${e(recordLabel?.title||"所选求职记录")}${recordLabel?.company?` · ${e(recordLabel.company)}`:""}</p><small>精确限定此记录；继续筛选、分页与下载都保留此范围。</small></div><button type="button" class="button subtle" data-job-progress-clear-record>清除限定，查看全部记录</button>`:"";
     $("job-progress-apply").disabled=state.jobReportLoading;box.setAttribute("aria-busy",String(state.jobReportLoading));
-    for(const id of ["job-progress-csv","job-progress-markdown"])$(id).disabled=data?.available!==true||state.jobReportLoading||!!state.jobReportError||state.jobReportDownloading;
+    for(const id of ["job-progress-csv","job-progress-markdown","job-progress-html"])$(id).disabled=data?.available!==true||state.jobReportLoading||!!state.jobReportError||state.jobReportDownloading;
     $("job-progress-summary").innerHTML=[["record_count","匹配记录"],["todo_count","含待核对线索的记录"],["open_action_record_count","含开放行动的记录"]].map(([key,label])=>`<div class="metric"><strong>${e(data?.available===true&&Number.isFinite(summary[key])?summary[key]:"—")}</strong>${label}</div>`).join("");
     const options=data?.status_options;
     if(Array.isArray(options)){
@@ -266,15 +266,15 @@
     if(!Number.isInteger(offset)||offset<0||(direction==="next"&&page?.has_more!==true))return;state.jobReportQuery.offset=offset;await loadJobProgress();
   }
   async function downloadJobProgress(format) {
-    if(!["csv","markdown"].includes(format)||state.jobReportDownloading||state.jobReportLoading||state.jobReportError||state.jobReport?.available!==true)return;
+    if(!["csv","markdown","html"].includes(format)||state.jobReportDownloading||state.jobReportLoading||state.jobReportError||state.jobReport?.available!==true)return;
     const query=jobProgressParams(state.jobReportQuery,false);state.jobReportDownloading=true;renderJobProgress();
     let objectURL;
     try{
-      const response=await fetch(BASE+"/job-progress/download?format="+format+"&"+query,{headers:{Accept:format==="csv"?"text/csv":"text/markdown"},cache:"no-store"});
+      const response=await fetch(BASE+"/job-progress/download?format="+format+"&"+query,{headers:{Accept:format==="csv"?"text/csv":format==="html"?"text/html":"text/markdown"},cache:"no-store"});
       if(!response.ok){let data;try{data=await response.json();}catch{}throw new Error(data?.error?.message||"下载未完成，请检查本地服务。");}
       const blob=await response.blob();objectURL=URL.createObjectURL(blob);const link=document.createElement("a");
       const filename=/filename="?([^";]+)/i.exec(response.headers.get("Content-Disposition")||"")?.[1]?.trim();
-      link.href=objectURL;link.download=filename&&!/[\\/]/.test(filename)?filename:`job-progress.${format==="csv"?"csv":"md"}`;document.body.append(link);link.click();link.remove();
+      link.href=objectURL;link.download=filename&&!/[\\/]/.test(filename)?filename:`job-progress.${format==="csv"?"csv":format==="html"?"html":"md"}`;document.body.append(link);link.click();link.remove();
       feedback("已生成并下载全部匹配记录。未发送、投递或分享。");
     }catch(error){feedback(error.message||"下载连接中断，请检查本地服务后重试。",{error:true});}
     finally{if(objectURL)setTimeout(()=>URL.revokeObjectURL(objectURL),1000);state.jobReportDownloading=false;renderJobProgress();}
@@ -290,6 +290,7 @@
   }
   function renderReminders() {
     const data=state.reminders,counts=data?.counts||{},groups=data?.groups||{},labels={overdue:"逾期",today:"今天",future:"未来",undated:"未定日期"},box=$("reminder-content");
+    $("reminder-html").disabled=!data||state.reminderLoading||!!state.reminderError||state.reminderDownloading;
     $("reminder-date").textContent=`清单日期：${data?.date||"未记录"}（UTC） · 各组计数为全量；本清单不受上方进度筛选影响`;
     $("reminder-counts").innerHTML=Object.entries(labels).map(([key,label])=>`<div class="metric"><strong>${e(Number.isFinite(counts[key])?counts[key]:"—")}</strong>${label}</div>`).join("");
     box.setAttribute("aria-busy",String(state.reminderLoading));
@@ -312,6 +313,18 @@
     finally{if(generation===state.reminderGeneration){state.reminderLoading=false;renderReminders();}}
   }
   function findReminder(id) {return Object.values(state.reminders?.groups||{}).flatMap((items)=>Array.isArray(items)?items:[]).find((item)=>item.reminder_id===id);}
+  async function downloadReminders() {
+    if(!state.reminders||state.reminderLoading||state.reminderError||state.reminderDownloading)return;
+    const bucket=$("reminder-download-bucket").value||"all";if(!["all","overdue","today","future","undated"].includes(bucket))return;
+    state.reminderDownloading=true;renderReminders();let objectURL;
+    try{
+      const response=await fetch(BASE+"/job-progress/reminders/download?format=html&bucket="+segment(bucket),{headers:{Accept:"text/html"},cache:"no-store"});
+      if(!response.ok){let data;try{data=await response.json();}catch{}throw new Error(data?.error?.message||"提醒下载未完成，请检查本地服务。");}
+      objectURL=URL.createObjectURL(await response.blob());const link=document.createElement("a");link.href=objectURL;link.download="followup-reminders.html";document.body.append(link);link.click();link.remove();
+      feedback("已下载所选组的全部提醒，可离线打开或打印。");
+    }catch(error){feedback(error.message||"提醒下载连接中断，请检查本地服务后重试。",{error:true});}
+    finally{if(objectURL)setTimeout(()=>URL.revokeObjectURL(objectURL),1000);state.reminderDownloading=false;renderReminders();}
+  }
   async function writeReminder(path,body,{closeDialog=false,message="本地提醒已保存。"}={}) {
     if(state.reminderBusy||state.reminderUncertain)return;
     if(!state.token){feedback("工作空间正在连接，请稍后再操作。",{error:true});return;}
@@ -609,6 +622,7 @@
     if(button.dataset.reminderRecord)await viewReminderRecord(button.dataset.reminderRecord);
     if(button.dataset.inboxRecord)await viewAssociatedApplications(button.dataset.inboxRecord);
     if(button.hasAttribute("data-reminder-refresh")){$("job-reminders-section").open=true;await loadReminders({reconcile:true});}
+    if(button.hasAttribute("data-reminder-download"))await downloadReminders();
     if(button.hasAttribute("data-reminder-more")&&!state.reminderLoading&&state.reminderLimit<500){state.reminderLimit+=100;await loadReminders();}
     if(button.dataset.reminderCreate)openReminder("create",button.dataset.reminderCreate);
     if(button.dataset.reminderSnooze)openReminder("snooze",button.dataset.reminderSnooze);
