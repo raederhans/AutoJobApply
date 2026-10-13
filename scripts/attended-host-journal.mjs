@@ -5,7 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { ControlNotReady } from './browser-form-state.mjs';
 
 const sha = value => createHash('sha256').update(value).digest('hex');
-const uuid = value => typeof value === 'string' && /^[a-f0-9-]{36}$/.test(value);
+const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(value);
 const form = inspection => {
   const forms = inspection.content.flatMap(block => {
     if (block.type !== 'text') return [];
@@ -30,24 +30,34 @@ export async function createAttendedHostJournal({ root, binding, adapter, writeJ
     }
     return value;
   };
-  const validate = request => {
-    if (!uuid(request.request_id) || request.session_id !== binding.session_id ||
+  const validate = (request, requestId = request?.request_id) => {
+    if (!request || request.schema_version !== 1 || !uuid(request.request_id) || request.request_id !== requestId ||
+        request.session_id !== binding.session_id ||
         request.token_epoch !== binding.token_epoch || request.surface !== binding.surface ||
         request.phase !== binding.phase || JSON.stringify(request.target) !== JSON.stringify(binding.target) ||
         !Number.isFinite(request.deadline_at) || request.deadline_at <= Date.now() / 1000) {
       throw Error('Expired or mismatched continuity request');
     }
   };
+  const readPermit = async (requestId, bound) => {
+    const { value: permit } = await read(path.join(base, 'permits', `${requestId}.json`));
+    if (permit.schema_version !== 1 || !uuid(permit.review_id) || permit.attempt_id !== bound.attempt_id ||
+        permit.job_url !== bound.job_url || permit.tab_id !== binding.target.tab_id || permit.request_id !== requestId ||
+        permit.host_session_id !== binding.session_id || permit.host_token_epoch !== binding.token_epoch ||
+        !Number.isFinite(permit.expires_at) || permit.expires_at <= Date.now() / 1000) {
+      throw Error('Invalid or expired attended permit');
+    }
+    return permit;
+  };
   return {
     async check(requestId) {
-      await owner();
-      await fs.access(path.join(base, 'permits', `${requestId}.json`));
+      await readPermit(requestId, await owner());
     },
     async review(requestId) {
       if (!uuid(requestId)) throw Error('Invalid request id');
       const bound = await owner();
       const request = await read(path.join(root, 'pending', `${requestId}.json`));
-      validate(request.value);
+      validate(request.value, requestId);
       const inspection = await inspect();
       form(inspection);
       const review = { schema_version: 1, review_id: randomUUID(), attempt_id: bound.attempt_id,
@@ -60,10 +70,7 @@ export async function createAttendedHostJournal({ root, binding, adapter, writeJ
       validate(request);
       const bound = await owner();
       const permitPath = path.join(base, 'permits', `${request.request_id}.json`);
-      const { value: permit } = await read(permitPath);
-      if (!uuid(permit.review_id) || permit.attempt_id !== bound.attempt_id || permit.request_id !== request.request_id ||
-          permit.host_session_id !== binding.session_id || permit.host_token_epoch !== binding.token_epoch ||
-          permit.expires_at <= Date.now() / 1000) throw Error('Invalid or expired attended permit');
+      const permit = await readPermit(request.request_id, bound);
       const review = await read(path.join(base, 'reviews', `${permit.review_id}.json`));
       const pending = await read(path.join(root, 'claimed', `${request.request_id}.json`));
       if (review.sha !== permit.review_sha256 || pending.sha !== permit.request_sha256 ||
@@ -74,6 +81,11 @@ export async function createAttendedHostJournal({ root, binding, adapter, writeJ
       const current = await inspect();
       if (JSON.stringify(form(current)) !== JSON.stringify(form(review.value.inspection))) {
         throw new ControlNotReady('Page changed after owner review; no input performed');
+      }
+      // Independent observation may await a slow surface. Consuming a permit
+      // does not extend its owner deadline or authorize later browser input.
+      if (permit.expires_at <= Date.now() / 1000) {
+        throw new ControlNotReady('Attended permit expired during observation; no input performed');
       }
       return permit;
     },

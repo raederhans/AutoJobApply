@@ -133,7 +133,7 @@ export async function createVisualHost({ directory, adapter, target, phase = 'pr
     },
     async execute(requestId) {
       if (busy || closed || paused) throw Error('Host unavailable, paused or already executing');
-      if (!/^[a-f0-9-]{36}$/.test(requestId)) throw Error('Invalid request id');
+      if (typeof requestId !== 'string' || !/^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(requestId)) throw Error('Invalid request id');
       busy = true;
       let request;
       let claimed = false;
@@ -147,6 +147,11 @@ export async function createVisualHost({ directory, adapter, target, phase = 'pr
         await heartbeat();
         const source = path.join(root, 'pending', `${requestId}.json`);
         request = JSON.parse(await fs.readFile(source, 'utf8'));
+        if (!request || request.schema_version !== 1 || request.request_id !== requestId ||
+            !Number.isFinite(request.deadline_at) || typeof request.operation !== 'string' ||
+            !request.arguments || typeof request.arguments !== 'object' || Array.isArray(request.arguments)) {
+          throw Error('Invalid request envelope; no input performed');
+        }
         if (request.session_id !== binding.session_id || request.token_epoch !== binding.token_epoch ||
             request.surface !== binding.surface || request.phase !== binding.phase ||
             JSON.stringify(request.target) !== JSON.stringify(binding.target)) throw Error('Target/session mismatch');

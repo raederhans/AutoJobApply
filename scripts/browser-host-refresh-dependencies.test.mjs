@@ -186,7 +186,7 @@ async function hostFixture(t) {
     const id = randomUUID();
     const b = host.binding;
     await fs.writeFile(path.join(directory, 'pending', `${id}.json`), JSON.stringify({
-      request_id: id, session_id: b.session_id, token_epoch: b.token_epoch,
+      schema_version: 1, request_id: id, session_id: b.session_id, token_epoch: b.token_epoch,
       surface: b.surface, phase: b.phase, target: b.target, observation_id,
       created_at: Date.now() / 1000, deadline_at: Date.now() / 1000 + 30,
       operation, arguments: args,
