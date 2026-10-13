@@ -6,6 +6,19 @@
 
 States: `in-progress`, `blocked`, `ready-for-review`, `ready-for-integration`, `integrated`, `abandoned`.
 
+## Interview management and owner recovery (2026-10-13)
+
+Both new trees start at verified merged main `9d46199de6f5773096e68d1b190e9271f262859a`.
+Root owns local commits and integration; no deployment or remote merge is authorized this round.
+
+| Worktree | Branch | Ownership/state |
+| --- | --- | --- |
+| `task-3/AutoJobApply-interview-management` | `codex/interview-management-20261013` | Root: verified local combined candidate; owner patch integrated as `2730551`; interview batch ready for local commit. No push/deploy. |
+| `task-3/AutoJobApply-owner-ats-integration` | `codex/owner-ats-integration-20261013` | Owner batch `c34f72c`, clean; 14 focused checks plus privacy repairs and independent PASS_WITH_NOTES. Retained. |
+
+See [active task](interview-and-recovery-20261013/task.md). The four former release trees
+remain removed; original dirty source, combined and publication/delivery material remain protected.
+
 ## Career workbench delivery (2026-10-11)
 
 - Worktree: sibling `career-integration-20261011`; branch `codex/career-workbench-20261011`, based on owner `fork/main` at `357e805`.
