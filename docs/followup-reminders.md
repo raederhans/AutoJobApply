@@ -17,6 +17,11 @@ The page sends each edit once. If the connection drops, refresh the list to chec
 the saved state before another edit. A damaged reminder file is preserved and
 reported. The editor requires the local workbench session and matching origin.
 
+The download group also supports an [ICS calendar file](local-reminder-calendar.md)
+of the current local reminder dates. Missing dates and unavailable source records
+are skipped with visible counts. This is a manual snapshot download; importing
+it later is separate from editing the workbench's reminder list.
+
 Inspect existing local actions together with manually scheduled reminders:
 
 ```powershell

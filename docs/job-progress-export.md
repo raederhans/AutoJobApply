@@ -4,7 +4,7 @@ The local career workbench also exposes this projection under **求职进度**.
 Start it for the intended workspace (`applypilot --workspace C:\local-data career serve`)
 and select that stage. A career learning target is not required. Search role,
 company or location, choose inclusive UTC dates and any execution/recruiting
-statuses, then apply the filters. The table has 100 records per page; both download
+statuses, then apply the filters. The table has 100 records per page; all three download
 buttons include **all matching records**, using the applied filters rather than
 unsaved form edits. Downloads go to the browser's normal download location.
 

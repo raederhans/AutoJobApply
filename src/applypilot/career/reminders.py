@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from applypilot import followup_reminders, local_report_html
+from applypilot.career.reminder_calendar import render_calendar
 
 
 def _call(function, *args, **kwargs):
@@ -32,11 +33,21 @@ def list_items(workspace, *, limit=100):
     return {**_call(followup_reminders.list_reminders, workspace, limit=limit), "limit": limit}
 
 
-def download(workspace, *, format="html", bucket="all"):
-    if format != "html" or bucket not in {"all", *followup_reminders.BUCKETS}:
+def _report(workspace, bucket):
+    if bucket not in {"all", *followup_reminders.BUCKETS}:
         raise ValueError("reminder_input_invalid")
-    report = _call(local_report_html.collect_reminder_report, workspace, on=None, bucket=bucket,
-                   since=None, until=None, statuses=())
+    return _call(local_report_html.collect_reminder_report, workspace, on=None, bucket=bucket,
+                 since=None, until=None, statuses=())
+
+
+def download_calendar(workspace, *, bucket="all"):
+    return render_calendar(_report(workspace, bucket))
+
+
+def download(workspace, *, format="html", bucket="all"):
+    if format != "html":
+        raise ValueError("reminder_input_invalid")
+    report = _report(workspace, bucket)
     return local_report_html.render_reminder_html(report).encode("utf-8"), "text/html; charset=utf-8", "followup-reminders.html"
 
 

@@ -147,13 +147,18 @@ class CareerHandler(BaseHTTPRequestHandler):
         # Avoid writing private target/material contents or session tokens to logs.
         pass
 
-    def send(self, status, value, *, content_type="application/json; charset=utf-8", download_name=None):
+    def send(self, status, value, *, content_type="application/json; charset=utf-8", download_name=None,
+             calendar_counts=None):
         body = value if isinstance(value, bytes) else json.dumps(public(value), ensure_ascii=False, allow_nan=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         if download_name is not None:
             self.send_header("Content-Disposition", f'attachment; filename="{download_name}"')
+        if calendar_counts is not None:
+            for key, header in (("events", "Events"), ("omitted_undated", "Omitted-Undated"),
+                                ("omitted_unavailable", "Omitted-Unavailable")):
+                self.send_header("X-ApplyPilot-Calendar-" + header, str(calendar_counts[key]))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
@@ -264,6 +269,11 @@ class CareerHandler(BaseHTTPRequestHandler):
                         raise ValueError
                 except ValueError as exc:
                     raise ValueError("reminder_input_invalid") from exc
+                if options["format"] == "ics":
+                    body, counts = reminders.download_calendar(self.server.workspace, bucket=options.get("bucket", "all"))
+                    self.send(200, body, content_type="text/calendar; charset=utf-8",
+                              download_name="followup-reminders.ics", calendar_counts=counts)
+                    return
                 body, content_type, filename = reminders.download(self.server.workspace, **options)
                 self.send(200, body, content_type=content_type, download_name=filename)
                 return
