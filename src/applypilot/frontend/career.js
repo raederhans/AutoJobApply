@@ -13,7 +13,8 @@
   };
   const state = {token:null, catalog:{companies:[],jobs:[]}, materials:[], targets:[], runs:[], target:null, diagnosis:null, progress:null, stage:"materials", file:null, polling:null, retry:null, busy:false, observedRuns:new Set(),pendingResults:new Map(),selectionGeneration:0,selectionPending:false,dialogGeneration:0,dataGeneration:0};
   Object.assign(state,{inbox:null,inboxLoading:false,inboxError:null,inboxGeneration:0,inboxDrafts:new Map(),inboxQuery:{q:"",scope:"open",sort:"newest",offset:0},inboxDetailGeneration:0});
-  const stageNames = {materials:"目标与材料",diagnosis:"差距诊断",route:"学习路线",review:"产物与评审",inbox:"申请待处理"};
+  Object.assign(state,{jobReport:null,jobReportLoading:false,jobReportError:null,jobReportGeneration:0,jobStatusOptionsReady:false,jobReportDownloading:false,jobReportQuery:{q:"",since:"",until:"",date_field:"updated_at",statuses:[],offset:0}});
+  const stageNames = {materials:"目标与材料",diagnosis:"差距诊断",route:"学习路线",review:"产物与评审",inbox:"申请待处理","job-progress":"求职进度"};
   const kindNames = {resume:"简历",resume_copy:"简历副本",project_evidence:"项目证据",generated:"生成 / 练习产物",candidate_facts:"事实记录",candidate_fact_master:"求职事实主档",project_fact_context:"项目事实与贡献范围",project_fact_master:"项目事实主档"};
   const roleNames={ux_design_research:"用户体验设计与研究",software:"软件工程",software_engineering:"软件工程",frontend:"前端开发",frontend_engineering:"前端开发",backend:"后端开发",fullstack:"全栈开发",data_analytics:"数据分析",data_analysis:"数据分析",data_science:"数据科学",machine_learning:"机器学习",ai_engineering:"AI 工程",product_management:"产品管理",business_analysis:"商业分析",technical_build:"技术开发",design:"设计",ux:"用户体验",sales_engineering:"售前技术"};
   const companyName=(id)=>state.catalog.companies.find((c)=>c.company_id===id)?.name||"公司未提供";
@@ -95,8 +96,9 @@
     document.querySelectorAll("[data-stage]").forEach((button)=>{if(button.dataset.stage===stage)button.setAttribute("aria-current","step");else button.removeAttribute("aria-current");});
     Object.keys(stageNames).forEach((name)=>{$("stage-"+name).hidden=name!==stage;});
     $("page-title").textContent=stageNames[stage];remember();if(focus)$("main").focus();
-    $("target-strip").hidden=stage==="inbox";renderRuns();
+    $("target-strip").hidden=["inbox","job-progress"].includes(stage);renderRuns();
     if(stage==="inbox")loadInbox();
+    if(stage==="job-progress")loadJobProgress();
   }
   function renderInbox() {
     const data=state.inbox, counts=data?.counts||{};
@@ -176,6 +178,73 @@
     });
     dialog.showModal();answer.focus();
   }
+  function jobProgressParams(query=state.jobReportQuery, withOffset=true) {
+    const parts=["q="+segment(query.q),"date_field="+segment(query.date_field)];
+    if(query.since)parts.push("since="+segment(query.since));if(query.until)parts.push("until="+segment(query.until));
+    query.statuses.forEach((status)=>parts.push("status="+segment(status)));
+    if(withOffset)parts.push("offset="+query.offset);return parts.join("&");
+  }
+  function progressStatus(value) {
+    const labels={not_started:"未开始",in_progress:"执行中",applying:"执行中",applied:"记录为已投递",already_applied:"已有投递记录",failed:"执行未完成",previewed:"仅预览",submission_uncertain:"投递结果待核对",expired:"已过期",skipped:"已跳过",blocked:"需要处理",needs_human:"需要人工处理",manual:"需要人工处理",captcha:"需要人工验证",duplicate:"重复记录",submission_unverified:"投递尚未核实",unknown:"状态未核实",contacted:"已联系",assessment:"测评阶段",offer:"收到 offer",accepted:"已接受",declined:"已谢绝",rejected:"已拒绝",withdrawn:"已撤回",conflict:"记录存在冲突",interview_unknown:"面试轮次未记录"};
+    const interview=/^interview_([1-9][0-9]*)$/.exec(String(value||""));if(interview)return `第 ${interview[1]} 轮面试`;
+    return labels[value]||state.jobReport?.status_options?.find((option)=>option.value===value)?.label||(value?"状态待核对":"未记录");
+  }
+  function progressDate(value) {
+    if(typeof value!=="string"||!value.trim())return "未记录";const date=new Date(value);
+    return Number.isNaN(date.getTime())?"未记录":new Intl.DateTimeFormat("zh-CN",{timeZone:"UTC",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}).format(date);
+  }
+  function progressTodo(value) {
+    const labels={submission_confirmation_missing:"投递回执待核对",followup_action_pending:"存在尚未完成的后续行动",retry_blocked_requires_review:"原流程阻止重试，需人工核对",application_readiness_requires_review:"申请准备情况待核对",expired:"岗位或申请已过期",already_applied:"已有投递记录，需核对重复情况",duplicate:"存在重复申请线索",not_a_job_application:"申请入口性质待核对",explicit_do_not_apply:"原记录注明不应申请",security_challenge_required:"安全验证需要人工处理",human_verification_required:"登录或人机验证需要人工处理",assessment_required:"需要处理测评",sensitive_identity_boundary:"敏感身份或财务步骤需要人工核对",unsupported_legal_declaration:"法律声明需要真实信息与人工核对",required_material_missing:"必要申请材料待补",cover_letter_missing:"求职信材料待核对",resume_upload_failed:"简历附件上传结果待核对",credential_relay_missing:"登录能力尚未就绪",mailbox_route_unavailable:"邮箱申请流程尚未就绪",visual_control_unavailable:"页面操作能力尚未就绪",browser_interaction_unavailable:"浏览器交互尚未就绪",browser_mcp_unavailable:"浏览器连接尚未就绪",agent_result_conflict:"执行记录相互矛盾，需核对",site_blocked:"网站访问受阻",runtime_budget_exhausted:"原执行时间预算已用尽",unknown:"原流程结果待核对"};
+    if(!value)return "暂无待核对线索";
+    return String(value).split(";").map((reason)=>labels[reason.trim()]||"存在需要核对的原流程线索").join("；");
+  }
+  function renderJobProgress() {
+    const data=state.jobReport,summary=data?.summary||{},box=$("job-progress-content");
+    $("job-progress-apply").disabled=state.jobReportLoading;box.setAttribute("aria-busy",String(state.jobReportLoading));
+    for(const id of ["job-progress-csv","job-progress-markdown"])$(id).disabled=data?.available!==true||state.jobReportLoading||!!state.jobReportError||state.jobReportDownloading;
+    $("job-progress-summary").innerHTML=[["record_count","匹配记录"],["todo_count","含待核对线索的记录"],["open_action_record_count","含开放行动的记录"]].map(([key,label])=>`<div class="metric"><strong>${e(data?.available===true&&Number.isFinite(summary[key])?summary[key]:"—")}</strong>${label}</div>`).join("");
+    const options=data?.status_options;
+    if(Array.isArray(options)){
+      const selected=state.jobStatusOptionsReady?[...$("job-progress-status-options").querySelectorAll("input:checked")].map((input)=>input.value):state.jobReportQuery.statuses;
+      $("job-progress-status-options").innerHTML=options.length?options.map((option)=>`<label><input type="checkbox" value="${e(option.value)}" ${selected.includes(option.value)?"checked":""}><span>${e(option.label||progressStatus(option.value))}</span></label>`).join(""):'<p class="hint">暂无可选状态。</p>';state.jobStatusOptionsReady=true;
+    }
+    const page=data?.pagination,nav=$("job-progress-pagination");nav.hidden=data?.available!==true||!page;
+    if(page){const offset=Number.isInteger(page.offset)?page.offset:0,length=data.rows.length,total=Number.isFinite(page.total)?page.total:"—";
+      const previous=Number.isInteger(page.previous_offset)&&page.previous_offset>=0,next=Number.isInteger(page.next_offset)&&page.next_offset>=0&&page.has_more===true,unavailable=state.jobReportLoading||state.jobReportError;
+      nav.innerHTML=`<p class="hint">${length?`第 ${e(offset+1)}–${e(offset+length)} 条`:"本页没有记录"} · 共 ${e(total)} 条<span>摘要与下载覆盖全部匹配记录</span></p><div class="actions"><button type="button" class="button subtle" data-job-progress-page="previous" ${!previous||unavailable?"disabled":""}>← 上一页</button><button type="button" class="button subtle" data-job-progress-page="next" ${!next||unavailable?"disabled":""}>下一页 →</button></div>`;
+    }
+    if(state.jobReportLoading&&!data){box.innerHTML='<div class="empty"><span class="spinner" aria-hidden="true"></span>正在读取求职记录…</div>';return;}
+    const error=state.jobReportError?`<div class="notice" role="alert">${e(state.jobReportError)}${data?" 下方保留上次读取的记录。":""}<button class="button subtle" type="button" data-job-progress-refresh>重新读取</button></div>`:"";
+    if(!data){box.innerHTML=error;return;}if(data.available!==true){box.innerHTML=error+'<div class="empty"><h3>求职进度暂不可用</h3><p>请确认本地工作空间已就绪后刷新。</p></div>';return;}
+    const filters=data.filters||{},dateNames={updated_at:"最近观察更新",submitted_at:"记录的投递日期",discovered_at:"发现日期"};
+    const applied=`关键词：${filters.q||"不限"} · ${dateNames[filters.date_field]||"最近观察更新"}：${filters.since||"不限起始"} 至 ${filters.until||"不限结束"}（UTC） · 状态：${filters.statuses?.length?filters.statuses.map(progressStatus).join("、"):"全部"}`;
+    const bases={verified:"已核验记录",user_confirmed:"用户已确认",reported:"仅报告，待核实",unverified:"尚未核实",uncertain:"结果不确定"};
+    box.innerHTML=error+`<p class="hint job-progress-applied">已应用筛选 · ${e(applied)}<br>汇总生成时间：${e(progressDate(data.generated_at))}（UTC）</p>`+(data.rows.length?`<div class="job-progress-table-wrap" role="region" aria-label="本页求职记录，可横向滚动" tabindex="0"><table class="job-progress-table"><thead><tr><th scope="col">岗位</th><th scope="col">公司</th><th scope="col">执行状态</th><th scope="col">招聘阶段</th><th scope="col">投递依据</th><th scope="col">日期（UTC）</th><th scope="col">待核对线索</th><th scope="col">关联的开放行动</th></tr></thead><tbody>${data.rows.map((row)=>`<tr><td><strong>${e(row.title||"岗位未提供")}</strong>${row.location?`<small>${e(row.location)}</small>`:""}</td><td>${e(row.company||"公司未提供")}</td><td>${e(progressStatus(row.application_status))}</td><td>${e(progressStatus(row.recruiting_stage))}</td><td>${e(bases[row.submission_basis]||"未记录")}</td><td class="job-progress-dates"><span>最近观察更新：${e(progressDate(row.updated_at))}</span><span>记录的投递：${e(progressDate(row.submitted_at))}</span><span>发现：${e(progressDate(row.discovered_at))}</span></td><td>${e(progressTodo(row.todo_reason))}${row.todo_due_at?`<small>关联行动期限：${e(progressDate(row.todo_due_at))}（UTC）</small>`:""}</td><td>${e(Number.isFinite(row.open_action_count)?row.open_action_count:"—")}</td></tr>`).join("")}</tbody></table></div>`:'<div class="empty"><h3>没有匹配的求职记录</h3><p>调整关键词、日期或状态后点击“应用筛选”。</p></div>');
+  }
+  async function loadJobProgress() {
+    const generation=++state.jobReportGeneration;state.jobReportLoading=true;state.jobReportError=null;renderJobProgress();
+    try{const data=await api("/job-progress?"+jobProgressParams());if(generation===state.jobReportGeneration)state.jobReport={...data,rows:Array.isArray(data.rows)?data.rows:[]};}
+    catch(error){if(generation===state.jobReportGeneration)state.jobReportError=error.message||"求职记录读取失败。";}
+    finally{if(generation===state.jobReportGeneration){state.jobReportLoading=false;renderJobProgress();}}
+  }
+  async function jobProgressPage(direction) {
+    if(state.jobReportLoading||state.jobReportError)return;const page=state.jobReport?.pagination,offset=direction==="next"?page?.next_offset:page?.previous_offset;
+    if(!Number.isInteger(offset)||offset<0||(direction==="next"&&page?.has_more!==true))return;state.jobReportQuery.offset=offset;await loadJobProgress();
+  }
+  async function downloadJobProgress(format) {
+    if(!["csv","markdown"].includes(format)||state.jobReportDownloading||state.jobReportLoading||state.jobReportError||state.jobReport?.available!==true)return;
+    const query=jobProgressParams(state.jobReportQuery,false);state.jobReportDownloading=true;renderJobProgress();
+    let objectURL;
+    try{
+      const response=await fetch(BASE+"/job-progress/download?format="+format+"&"+query,{headers:{Accept:format==="csv"?"text/csv":"text/markdown"},cache:"no-store"});
+      if(!response.ok){let data;try{data=await response.json();}catch{}throw new Error(data?.error?.message||"下载未完成，请检查本地服务。");}
+      const blob=await response.blob();objectURL=URL.createObjectURL(blob);const link=document.createElement("a");
+      const filename=/filename="?([^";]+)/i.exec(response.headers.get("Content-Disposition")||"")?.[1]?.trim();
+      link.href=objectURL;link.download=filename&&!/[\\/]/.test(filename)?filename:`job-progress.${format==="csv"?"csv":"md"}`;document.body.append(link);link.click();link.remove();
+      feedback("已生成并下载全部匹配记录。未发送、投递或分享。");
+    }catch(error){feedback(error.message||"下载连接中断，请检查本地服务后重试。",{error:true});}
+    finally{if(objectURL)setTimeout(()=>URL.revokeObjectURL(objectURL),1000);state.jobReportDownloading=false;renderJobProgress();}
+  }
   function checkedMaterials(container) {return [...$(container).querySelectorAll("input:checked")].map((input)=>input.value);}
   function materialPicks(selected=[]) {
     return state.materials.length ? state.materials.map((m)=>`<label class="pick"><input type="checkbox" value="${e(m.id)}" ${selected.includes(m.id)?"checked":""}><span>${e(friendlyMaterialTitle(m))}<small>${e(kindNames[m.kind]||m.kind)} · ${e(m.claim_count??0)} 条记录</small></span></label>`).join("") : '<p class="hint">尚无材料。请在右侧添加可回源原文。</p>';
@@ -253,7 +322,7 @@
     const box=$("run-region"), visible=state.runs.filter((r)=>!state.target||!r.result_refs?.target_id||r.result_refs.target_id===state.target.target_id);
     const alerts=visible.filter((r)=>!goodRun(r)&&r.status!=="cancelled");
     const history=visible.filter((r)=>goodRun(r)||r.status==="cancelled");
-    box.hidden=state.stage==="inbox"||!visible.length;
+    box.hidden=["inbox","job-progress"].includes(state.stage)||!visible.length;
     const row=(r)=>`<div class="run-row"><div>${activeRun(r)?'<span class="spinner" aria-hidden="true"></span>':""}<strong>${e(r.cancel_requested?"正在取消":runStatuses[r.status]||"状态待核对")}</strong> · ${e({diagnose:"差距诊断",diagnosis:"差距诊断",route:"学习路线",plan:"学习路线",rediagnose:"更新诊断与路线",supplement:"补充材料"}[r.operation||r.kind||r.operation_type]||"职业分析")}<p>${e(r.error?.message||(r.error?({interrupted:"运行已中断，可恢复处理。",input_changed:"输入已经变化，请刷新后重新核对。",cancelled:"运行已取消。"}[r.error]||"处理未完成，请核对目标与材料后恢复。"):""))}</p></div><div class="run-actions">${activeRun(r)?`<button class="text-button" type="button" data-run-action="cancel" data-run="${e(runId(r))}" ${r.cancel_requested?"disabled":""}>取消运行</button>`:""}${["interrupted","failed","blocked","cancelled"].includes(r.status)?`<button class="text-button" type="button" data-run-action="resume" data-run="${e(runId(r))}">恢复运行</button>`:""}${goodRun(r)?`<button class="text-button" type="button" data-run-action="view" data-run="${e(runId(r))}">查看结果 →</button>`:""}</div></div>`;
     box.innerHTML=`<div class="run-box">${alerts.length?`<div class="run-head"><strong>后台处理</strong><span class="muted">可继续浏览材料</span></div>${alerts.map(row).join("")}`:""}${history.length?`<details class="run-history"><summary>后台记录（${e(history.length)}）</summary>${history.map(row).join("")}</details>`:""}</div>`;
   }
@@ -322,10 +391,10 @@
       return false;
     }
   }
-  async function refresh() {return state.stage==="inbox"?loadInbox():loadBootstrap();}
+  async function refresh() {return state.stage==="inbox"?loadInbox():state.stage==="job-progress"?loadJobProgress():loadBootstrap();}
   async function resultOfRun(run, navigate=false) {
     const refs=run.result_refs||{}, selectedId=state.target?.target_id;
-    if(!navigate&&(state.stage==="inbox"||state.busy||state.selectionPending||(refs.target_id&&selectedId&&refs.target_id!==selectedId)))return false;
+    if(!navigate&&(["inbox","job-progress"].includes(state.stage)||state.busy||state.selectionPending||(refs.target_id&&selectedId&&refs.target_id!==selectedId)))return false;
     const generation=navigate?beginSelection():state.selectionGeneration, dataGeneration=state.dataGeneration;
     try {
       const targets=await api("/targets");
@@ -439,6 +508,9 @@
     if(button.hasAttribute("data-inbox-refresh"))await loadInbox();
     if(button.dataset.inboxPage)await inboxPage(button.dataset.inboxPage);
     if(button.dataset.inboxProgress)await showInboxProgress(button.dataset.inboxProgress);
+    if(button.hasAttribute("data-job-progress-refresh"))await loadJobProgress();
+    if(button.dataset.jobProgressPage)await jobProgressPage(button.dataset.jobProgressPage);
+    if(button.dataset.jobProgressDownload)await downloadJobProgress(button.dataset.jobProgressDownload);
     if(button.dataset.inboxAction)await inboxAction(button.dataset.inboxAction,button.dataset.inboxId,button);
     if(button.dataset.material)await viewMaterial(button.dataset.material);
     if(button.dataset.action)await handleAction(button.dataset.action,button);
@@ -461,6 +533,12 @@
     await loadInbox();
   });
   $("inbox-progress-dialog").addEventListener("close",()=>{state.inboxDetailGeneration++;});
+  $("job-progress-form").addEventListener("submit",async(event)=>{
+    event.preventDefault();if(state.jobReportLoading)return;
+    const since=$("job-progress-since").value,until=$("job-progress-until").value;
+    if(since&&until&&since>until){feedback("起始日期不能晚于结束日期。",{error:true});$("job-progress-since").focus();return;}
+    state.jobReportQuery={q:$("job-progress-query").value.trim(),since,until,date_field:$("job-progress-date-field").value||"updated_at",statuses:[...$("job-progress-status-options").querySelectorAll("input:checked")].map((input)=>input.value),offset:0};await loadJobProgress();
+  });
   $("company").addEventListener("change",renderJobs);$("job").addEventListener("change",renderJobContext);
   $("current-target").addEventListener("change",async(event)=>{try{if(await loadTarget(event.target.value))showStage(state.stage);}catch(err){showError(err);}});
   $("target-form").addEventListener("submit",async(event)=>{

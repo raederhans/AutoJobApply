@@ -20,6 +20,7 @@
         <button type="button" data-stage="route"><span class="step">03</span><span>学习路线<small>按优先级与前置项推进</small></span></button>
         <button type="button" data-stage="review"><span class="step">04</span><span>产物与评审<small>逐项观察，保留原句</small></span></button>
         <button type="button" data-stage="inbox"><span class="step">05</span><span>申请待处理<small>答复暂停项，申请继续</small></span></button>
+        <button type="button" data-stage="job-progress"><span class="step">06</span><span>求职进度<small>查看记录，筛选与下载</small></span></button>
       </nav>
       <div class="sidebar-bottom"><span class="local-dot"></span>本地工作空间<p id="workspace-label">正在连接…</p><small>书面证据 ≠ 实际能力测量</small></div>
     </aside>
@@ -52,6 +53,14 @@
           <div class="inbox-toolbar"><div><label for="inbox-filter">本页状态</label><select id="inbox-filter"><option value="all">本页全部状态</option><option value="awaiting_response">待答复</option><option value="ready_to_resume">可申请继续</option><option value="resume_requested">等待流程接续</option><option value="blocked">需要另行处理</option><option value="expired">已过期</option><option value="resolved">已解决</option><option value="failed">流程未完成</option></select></div><p class="hint">只在你点击时保存答复或申请继续；列表不会自动刷新。</p></div>
           <div id="inbox-content" aria-live="polite"><div class="empty">正在读取待处理申请…</div></div>
           <nav id="inbox-pagination" class="inbox-pagination" aria-label="申请记录分页" hidden></nav>
+        </section>
+        <section id="stage-job-progress" class="stage" hidden>
+          <div class="intro"><div><h2>看清记录，再安排下一步。</h2><p>执行状态与招聘阶段分开查看；筛选已有记录，下载全部匹配结果。</p></div><span class="section-number" aria-hidden="true">06</span></div>
+          <div class="notice info">本页日期均为 UTC。更新时间来自已有观察或记录，不等于申请状态发生变化。待核对线索可能来自历史失败，不代表当前可重试。</div>
+          <form id="job-progress-form" class="job-progress-query"><div class="job-progress-search"><label for="job-progress-query">岗位、公司关键词</label><input type="search" id="job-progress-query" maxlength="200" placeholder="搜索已有求职记录"></div><div><label for="job-progress-date-field">筛选日期字段</label><select id="job-progress-date-field"><option value="updated_at">最近观察更新</option><option value="submitted_at">记录的投递日期</option><option value="discovered_at">发现日期</option></select></div><div><label for="job-progress-since">起始日期（UTC）</label><input type="date" id="job-progress-since"></div><div><label for="job-progress-until">结束日期（UTC）</label><input type="date" id="job-progress-until"></div><fieldset class="job-progress-statuses"><legend>状态多选 · 满足任一所选状态</legend><div id="job-progress-status-options" class="job-progress-status-options"></div><p class="hint">不选择时显示全部状态。日期为空时不限制日期。</p></fieldset><button class="button secondary" id="job-progress-apply" type="submit">应用筛选</button></form>
+          <div id="job-progress-summary" class="metrics" aria-label="全部匹配记录摘要"></div>
+          <div class="job-progress-downloads"><p class="hint">下载当前已应用筛选的全部匹配记录，包含其它分页；只生成本地文件。</p><div class="actions"><button class="button subtle" type="button" id="job-progress-csv" data-job-progress-download="csv" disabled>下载 CSV</button><button class="button subtle" type="button" id="job-progress-markdown" data-job-progress-download="markdown" disabled>下载 Markdown</button></div></div>
+          <div id="job-progress-content" aria-live="polite"></div><nav id="job-progress-pagination" class="inbox-pagination" aria-label="求职记录分页" hidden></nav>
         </section>
         <footer>材料关联、任务观察与通用技能等级分别记录。此工作台不作录用判断。</footer>
       </main>
