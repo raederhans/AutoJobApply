@@ -15,6 +15,7 @@
   Object.assign(state,{inbox:null,inboxLoading:false,inboxError:null,inboxGeneration:0,inboxDrafts:new Map(),inboxQuery:{q:"",scope:"open",sort:"newest",offset:0,record_id:""},inboxDetailGeneration:0,inboxRecordLabel:null});
   Object.assign(state,{jobReport:null,jobReportLoading:false,jobReportError:null,jobReportGeneration:0,jobStatusOptionsReady:false,jobReportDownloading:false,jobReportQuery:{q:"",since:"",until:"",date_field:"updated_at",statuses:[],offset:0,record_id:""},jobReportRecordLabel:null});
   Object.assign(state,{reminders:null,reminderLoading:false,reminderError:null,reminderGeneration:0,reminderLimit:100,reminderBusy:false,reminderUncertain:false,reminderDownloading:false});
+  Object.assign(state,{jobCompareSelection:[],jobCompareGeneration:0});
   const stageNames = {materials:"目标与材料",diagnosis:"差距诊断",route:"学习路线",review:"产物与评审",inbox:"申请待处理","job-progress":"求职进度"};
   const validRecordId=(value)=>typeof value==="string"&&/^application-[a-f0-9]{16}$/.test(value);
   const kindNames = {resume:"简历",resume_copy:"简历副本",project_evidence:"项目证据",generated:"生成 / 练习产物",candidate_facts:"事实记录",candidate_fact_master:"求职事实主档",project_fact_context:"项目事实与贡献范围",project_fact_master:"项目事实主档"};
@@ -231,6 +232,7 @@
   }
   function renderJobProgress() {
     const data=state.jobReport,summary=data?.summary||{},box=$("job-progress-content");
+    renderJobCompareSelection();
     const recordBox=$("job-progress-record-filter"),recordLabel=state.jobReportRecordLabel;
     recordBox.hidden=!state.jobReportQuery.record_id;
     recordBox.innerHTML=state.jobReportQuery.record_id?`<div><strong>来自提醒的记录筛选</strong><p>${e(recordLabel?.title||"所选求职记录")}${recordLabel?.company?` · ${e(recordLabel.company)}`:""}</p><small>精确限定此记录；继续筛选、分页与下载都保留此范围。</small></div><button type="button" class="button subtle" data-job-progress-clear-record>清除限定，查看全部记录</button>`:"";
@@ -253,7 +255,38 @@
     const filters=data.filters||{},dateNames={updated_at:"最近观察更新",submitted_at:"记录的投递日期",discovered_at:"发现日期"};
     const applied=`关键词：${filters.q||"不限"} · ${dateNames[filters.date_field]||"最近观察更新"}：${filters.since||"不限起始"} 至 ${filters.until||"不限结束"}（UTC） · 状态：${filters.statuses?.length?filters.statuses.map(progressStatus).join("、"):"全部"}`;
     const bases={verified:"已核验记录",user_confirmed:"用户已确认",reported:"仅报告，待核实",unverified:"尚未核实",uncertain:"结果不确定"};
-    box.innerHTML=error+`<p class="hint job-progress-applied">已应用筛选 · ${e(applied)}<br>汇总生成时间：${e(progressDate(data.generated_at))}（UTC）</p>`+(data.rows.length?`<div class="job-progress-table-wrap" role="region" aria-label="本页求职记录，可横向滚动" tabindex="0"><table class="job-progress-table"><thead><tr><th scope="col">岗位</th><th scope="col">公司</th><th scope="col">执行状态</th><th scope="col">招聘阶段</th><th scope="col">投递依据</th><th scope="col">日期（UTC）</th><th scope="col">待核对线索</th><th scope="col">关联的开放行动</th><th scope="col">记录操作</th></tr></thead><tbody>${data.rows.map((row)=>`<tr><td><strong>${e(row.title||"岗位未提供")}</strong>${row.location?`<small>${e(row.location)}</small>`:""}</td><td>${e(row.company||"公司未提供")}</td><td>${e(progressStatus(row.application_status))}</td><td>${e(progressStatus(row.recruiting_stage))}</td><td>${e(bases[row.submission_basis]||"未记录")}</td><td class="job-progress-dates"><span>最近观察更新：${e(progressDate(row.updated_at))}</span><span>记录的投递：${e(progressDate(row.submitted_at))}</span><span>发现：${e(progressDate(row.discovered_at))}</span></td><td>${e(progressTodo(row.todo_reason))}${row.todo_due_at?`<small>关联行动期限：${e(progressDate(row.todo_due_at))}（UTC）</small>`:""}</td><td>${e(Number.isFinite(row.open_action_count)?row.open_action_count:"—")}</td><td><div class="actions">${validRecordId(row.record_id)?`<button type="button" class="button subtle" data-inbox-record="${e(row.record_id)}">查看关联申请</button>`:""}${typeof row.record_id==="string"&&row.record_id?`<button type="button" class="button subtle" data-reminder-create="${e(row.record_id)}" data-reminder-write ${state.reminderBusy||state.reminderUncertain?"disabled":""}>设置提醒</button>`:"未提供可用记录"}</div></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty"><h3>没有匹配的求职记录</h3><p>${state.jobReportQuery.record_id?"当前限定下没有匹配记录。若原记录已变化，请刷新提醒后重新选择，或清除记录限定查看全部。":"调整关键词、日期或状态后点击应用筛选。"}</p>${state.jobReportQuery.record_id?'<button class="button subtle" type="button" data-reminder-refresh>刷新提醒，重新选择</button>':""}</div>`);
+    box.innerHTML=error+`<p class="hint job-progress-applied">已应用筛选 · ${e(applied)}<br>汇总生成时间：${e(progressDate(data.generated_at))}（UTC）</p>`+(data.rows.length?`<div class="job-progress-table-wrap" role="region" aria-label="本页求职记录，可横向滚动" tabindex="0"><table class="job-progress-table"><thead><tr><th scope="col">岗位</th><th scope="col">公司</th><th scope="col">执行状态</th><th scope="col">招聘阶段</th><th scope="col">投递依据</th><th scope="col">日期（UTC）</th><th scope="col">待核对线索</th><th scope="col">关联的开放行动</th><th scope="col">记录操作</th></tr></thead><tbody>${data.rows.map((row)=>`<tr><td><strong>${e(row.title||"岗位未提供")}</strong>${row.location?`<small>${e(row.location)}</small>`:""}</td><td>${e(row.company||"公司未提供")}</td><td>${e(progressStatus(row.application_status))}</td><td>${e(progressStatus(row.recruiting_stage))}</td><td>${e(bases[row.submission_basis]||"未记录")}</td><td class="job-progress-dates"><span>最近观察更新：${e(progressDate(row.updated_at))}</span><span>记录的投递：${e(progressDate(row.submitted_at))}</span><span>发现：${e(progressDate(row.discovered_at))}</span></td><td>${e(progressTodo(row.todo_reason))}${row.todo_due_at?`<small>关联行动期限：${e(progressDate(row.todo_due_at))}（UTC）</small>`:""}</td><td>${e(Number.isFinite(row.open_action_count)?row.open_action_count:"—")}</td><td><div class="actions">${validRecordId(row.record_id)?`<button type="button" class="button subtle" data-inbox-record="${e(row.record_id)}">查看关联申请</button><button type="button" class="button subtle" data-job-compare-record="${e(row.record_id)}" aria-pressed="${state.jobCompareSelection.some((record)=>record.record_id===row.record_id)}">${state.jobCompareSelection.some((record)=>record.record_id===row.record_id)?"移出对比":"加入对比"}</button>`:""}${typeof row.record_id==="string"&&row.record_id?`<button type="button" class="button subtle" data-reminder-create="${e(row.record_id)}" data-reminder-write ${state.reminderBusy||state.reminderUncertain?"disabled":""}>设置提醒</button>`:"未提供可用记录"}</div></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty"><h3>没有匹配的求职记录</h3><p>${state.jobReportQuery.record_id?"当前限定下没有匹配记录。若原记录已变化，请刷新提醒后重新选择，或清除记录限定查看全部。":"调整关键词、日期或状态后点击应用筛选。"}</p>${state.jobReportQuery.record_id?'<button class="button subtle" type="button" data-reminder-refresh>刷新提醒，重新选择</button>':""}</div>`);
+  }
+  function renderJobCompareSelection() {
+    const selected=state.jobCompareSelection;$("job-compare-count").textContent=`已选 ${selected.length} / 4`;
+    $("job-compare-view").disabled=selected.length<2;$("job-compare-clear").disabled=!selected.length;
+    $("job-compare-selection").innerHTML=selected.length?selected.map((record)=>`<div class="job-compare-pick"><div><strong>${e(record.title||"岗位未提供")}</strong><span>${e(record.company||"公司未提供")}</span></div><button type="button" class="text-button" data-job-compare-remove="${e(record.record_id)}" aria-label="移出对比：${e(record.title||"此岗位")}">移除</button></div>`).join(""):'<p class="hint">从下方求职记录逐行加入对比。其它分页上的选择会保留。</p>';
+  }
+  function toggleJobComparison(id,{fromRow=false}={}) {
+    if(!validRecordId(id))return;const index=state.jobCompareSelection.findIndex((record)=>record.record_id===id);
+    if(index>=0)state.jobCompareSelection.splice(index,1);
+    else{
+      const row=state.jobReport?.rows.find((record)=>record.record_id===id);if(!row)return;
+      if(state.jobCompareSelection.length>=4){feedback("最多选择 4 条记录，请先移除一条再加入。",{error:true});return;}
+      state.jobCompareSelection.push({record_id:id,title:row.title,company:row.company});
+    }
+    renderJobProgress();
+    if(fromRow)document.querySelector(`[data-job-compare-record="${id}"]`)?.focus();else $("job-compare-region").focus({preventScroll:true});
+  }
+  function comparisonTable(records,body) {
+    return `<div class="job-compare-table-wrap" role="region" aria-label="并排岗位记录，可横向滚动" tabindex="0"><table class="job-compare-table"><thead><tr><th scope="col">记录项目</th>${records.map((record)=>`<th scope="col">${e(record.title||"岗位未提供")}<small>${e(record.company||"公司未提供")}</small></th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>`;
+  }
+  async function showJobComparison() {
+    const selected=state.jobCompareSelection.map((record)=>({...record}));if(selected.length<2||selected.length>4){feedback("请先选择 2–4 条岗位记录。",{error:true});return;}
+    const dialog=$("job-compare-dialog"),box=$("job-compare-content"),generation=++state.jobCompareGeneration;
+    box.setAttribute("aria-busy","true");box.innerHTML=comparisonTable(selected,`<tr><td colspan="${selected.length+1}"><span class="spinner" aria-hidden="true"></span>正在读取所选记录…</td></tr>`);if(!dialog.open)dialog.showModal();
+    try{
+      const data=await api("/job-progress/compare?"+selected.map((record)=>"record_id="+segment(record.record_id)).join("&"));
+      if(generation!==state.jobCompareGeneration||!dialog.open)return;
+      if(!data||!Array.isArray(data.records)||data.records.length!==selected.length||data.records.some((record,index)=>!record||record.record_id!==selected[index].record_id)||!Array.isArray(data.fields)||data.fields.some((field)=>!field||typeof field.label!=="string"||!Array.isArray(field.values)||field.values.length!==selected.length||field.values.some((value)=>value!==null&&typeof value!=="string"))||!Array.isArray(data.notes)||data.notes.some((note)=>typeof note!=="string"))throw new Error("返回的记录或列顺序与选择不一致，请关闭后重新核对所选记录。");
+      box.innerHTML=comparisonTable(data.records,data.fields.length?data.fields.map((field)=>`<tr><th scope="row">${e(field.label)}</th>${field.values.map((value)=>`<td>${e(value===null?"未记录":value)}</td>`).join("")}</tr>`).join(""):`<tr><td colspan="${selected.length+1}">这些记录尚无可展示的对比字段。</td></tr>`)+(data.notes.length?`<div class="job-compare-notes"><h3>记录说明</h3><ul>${data.notes.map((note)=>`<li>${e(note)}</li>`).join("")}</ul></div>`:"");
+    }catch(error){if(generation===state.jobCompareGeneration&&dialog.open)box.innerHTML=`<div class="notice" role="alert">${e(error.message||"对比读取失败。")} 请关闭弹窗后重新核对选中记录；当前选择全部保留。</div>`+comparisonTable(selected,`<tr><td colspan="${selected.length+1}">对比信息未加载，可关闭后移除或重新选择记录。</td></tr>`);}
+    finally{if(generation===state.jobCompareGeneration)box.setAttribute("aria-busy","false");}
   }
   async function loadJobProgress() {
     const generation=++state.jobReportGeneration;state.jobReportLoading=true;state.jobReportError=null;renderJobProgress();
@@ -638,6 +671,10 @@
     if(button.dataset.inboxRecord)await viewAssociatedApplications(button.dataset.inboxRecord);
     if(button.hasAttribute("data-reminder-refresh")){$("job-reminders-section").open=true;await loadReminders({reconcile:true});}
     if(button.hasAttribute("data-reminder-download"))await downloadReminders(button.dataset.reminderDownload||"html");
+    if(button.dataset.jobCompareRecord)toggleJobComparison(button.dataset.jobCompareRecord,{fromRow:true});
+    if(button.dataset.jobCompareRemove)toggleJobComparison(button.dataset.jobCompareRemove);
+    if(button.hasAttribute("data-job-compare-clear")){state.jobCompareSelection=[];renderJobProgress();$("job-compare-region").focus({preventScroll:true});}
+    if(button.hasAttribute("data-job-compare-read"))await showJobComparison();
     if(button.hasAttribute("data-reminder-more")&&!state.reminderLoading&&state.reminderLimit<500){state.reminderLimit+=100;await loadReminders();}
     if(button.dataset.reminderCreate)openReminder("create",button.dataset.reminderCreate);
     if(button.dataset.reminderSnooze)openReminder("snooze",button.dataset.reminderSnooze);
@@ -664,6 +701,7 @@
     await loadInbox();
   });
   $("inbox-progress-dialog").addEventListener("close",()=>{state.inboxDetailGeneration++;});
+  $("job-compare-dialog").addEventListener("close",()=>{state.jobCompareGeneration++;});
   $("job-progress-form").addEventListener("submit",async(event)=>{
     event.preventDefault();if(state.jobReportLoading)return;
     const since=$("job-progress-since").value,until=$("job-progress-until").value;
