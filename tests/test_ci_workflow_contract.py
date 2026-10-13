@@ -1,5 +1,7 @@
 from pathlib import Path
+import tomllib
 
+import pytest
 import yaml
 
 REPOSITORY_ROOT = Path(__file__).parents[1]
@@ -97,3 +99,32 @@ def test_ci_exposes_all_required_checks() -> None:
     assert bind_step["shell"] == "pwsh"
     assert "$env:RUNNER_TEMP" in bind_step["run"]
     assert "$env:GITHUB_ENV" in bind_step["run"]
+
+
+@pytest.mark.parametrize(
+    ("workflow_name", "job_id"),
+    [("ci.yml", "core"), ("ci.yml", "windows-install-smoke"), ("publish.yml", "verify-and-build")],
+)
+def test_release_build_reuses_preinstalled_backend(workflow_name: str, job_id: str) -> None:
+    project = tomllib.loads((REPOSITORY_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    dev_dependencies = project["project"]["optional-dependencies"]["dev"]
+    assert any(dependency.startswith("build>=") for dependency in dev_dependencies)
+    backend_requirements = project["build-system"]["requires"]
+    assert all(
+        any(dependency.split(">=")[0] == requirement for dependency in dev_dependencies)
+        for requirement in backend_requirements
+    ), "Non-isolated release builds need every PEP 517 backend requirement in the dev extra"
+
+    steps = _load_workflow(WORKFLOW_DIRECTORY / workflow_name)["jobs"][job_id]["steps"]
+    installed_dev = False
+    builds = []
+    for step in steps:
+        command = step.get("run", "")
+        if "python -m pip install -e" in command and "[dev" in command:
+            installed_dev = True
+        for line in command.splitlines():
+            if line.strip().startswith("python scripts/build_release.py"):
+                assert installed_dev, "Install the dev extra before a non-isolated release build"
+                assert "--no-isolation" in line.split()
+                builds.append(line)
+    assert len(builds) == 1, "Each release-building job must build and audit exactly once"
