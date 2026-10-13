@@ -167,10 +167,14 @@ def main():
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    from applypilot.apply.harness_evaluation import bound_source_manifest, digest
+    try:
+        source = bound_source_manifest(args.root.resolve(),
+            entry_module="applypilot.apply.harness_experiment_plan", entry_file=__file__)
+    except (ValueError, OSError, ImportError) as exc:
+        parser.error(str(exc))
     config = json.loads(args.template.read_text(encoding="utf-8"))
     plan = plan_experiment(config)
-    from applypilot.apply.harness_evaluation import digest, source_manifest
-    source = source_manifest(args.root.resolve())
     plan.update(source_hashes=source, source_digest=digest(source))
     args.output.mkdir(parents=True, exist_ok=False)
     (args.output / "experiment-plan.json").write_text(json.dumps(plan, indent=2, allow_nan=False), encoding="utf-8")

@@ -243,6 +243,20 @@ def test_missing_or_duplicate_arm_is_not_silently_dropped():
     result = paired_comparisons(rows)
     assert result[0]["autonomous_rate_delta"] == 0
     assert result[0]["task_bootstrap_95_interval"] is None
+    assert result[0]["evaluation_schema"] == rows[0]["schema_version"]
+
+
+def test_complete_pairs_of_different_schemas_cannot_be_pooled():
+    rows = paired_rows()
+    legacy = [dict(row, schema_version="interactive-preparation-evaluation/v1", pair_id="legacy", task_id="legacy",
+                   autonomous_complete=row["arm"] != "basic_skill") for row in rows]
+    with pytest.raises(ValueError, match="mixed evaluation schemas"):
+        paired_comparisons(rows + legacy)
+    same_schema = [dict(row, pair_id="second", task_id="second") for row in rows]
+    comparisons = paired_comparisons(rows + same_schema)
+    assert len(comparisons) == 2
+    assert all(row["paired_trials"] == 2 and row["task_clusters"] == 2 for row in comparisons)
+    assert all(row["evaluation_schema"] == rows[0]["schema_version"] for row in comparisons)
 
 
 def reference_driver(payload, timeout):

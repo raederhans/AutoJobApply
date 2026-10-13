@@ -216,3 +216,32 @@ Reference tests prove the measurement/fixture contract, not real-model quality,
 speed or actual paid cost. Unknown production boundaries remain explicitly listed
 above; real empirical execution still needs the configuration and budget decisions
 in the pilot checklist.
+
+## Source identity and archive comparison boundary (2026-10-13)
+
+E and the offline planner require a complete source checkout, including the lab
+fixture and scripts. Before creating output, each entry checks its own executing
+file, loaded Python dependencies and lazy module origins against `--root/src`.
+A different checkout, or an installed evaluator claiming a checkout's hashes,
+is rejected even when the files currently have identical bytes. Preflight stays
+`not_run` with zero model calls and does not import the client or profile config.
+The source manifest includes package initializers and the full local browser
+import closure, including `browser-observation-feedback.mjs`.
+
+The model subprocess uses the parent's verified source directory explicitly with
+isolated Python flags. It verifies the same root and frozen source digest, then
+verifies the imported client before `get_client`, including for a configuration
+probe. Calling the internal decision/worker entry without that binding fails.
+Keep the source tree unchanged throughout an experiment; this is source-path and
+file-digest provenance, not an attestation against in-process code patching or
+concurrent modification while Python is importing files.
+
+A normal installation remains supported for production commands and packaged
+Browser Host assets. This fixture evaluator is not a wheel-only experiment
+runner: an installed interpreter may run it by explicitly selecting the desired
+checkout's `src` before importing E, with matching `--root`. It never silently
+changes a wrongly selected package or root, and does not use cwd as a fallback.
+
+Archive arm comparisons reject complete triples spanning different evaluation
+schemas, and include `evaluation_schema` in valid output. Incomplete and duplicate
+cells remain errors; same-schema complete triples retain task-cluster pairing.

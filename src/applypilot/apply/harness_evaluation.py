@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import copy
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -192,11 +193,18 @@ def parse_action(raw):
     return raw
 
 
-def model_decision(payload, timeout):
+def model_decision(payload, timeout, *, runtime_identity=None):
     """One isolated existing-client call; no hidden retry or model fallback."""
+    root = verify_runtime_identity(runtime_identity)
+    # A fresh -m lookup can select a different editable install. The parent has
+    # already checked this root; pin it explicitly, then recheck in the worker.
+    bootstrap = ("import runpy, sys; sys.path.insert(0, sys.argv[1]); "
+                 "sys.argv = ['applypilot.apply.harness_evaluation', '--model-worker']; "
+                 "runpy.run_module('applypilot.apply.harness_evaluation', run_name='__main__')")
     try:
-        result = subprocess.run([sys.executable, "-m", "applypilot.apply.harness_evaluation", "--model-worker"],
-                                input=json.dumps(payload), text=True, encoding="utf-8", capture_output=True,
+        result = subprocess.run([sys.executable, "-I", "-B", "-c", bootstrap, str(root / "src")],
+                                input=json.dumps({**payload, "runtime_identity": runtime_identity}),
+                                text=True, encoding="utf-8", capture_output=True,
                                 timeout=timeout, check=False)
     except subprocess.TimeoutExpired as exc:
         raise TimeoutError("model deadline") from exc
@@ -209,9 +217,13 @@ def model_decision(payload, timeout):
 
 
 def model_worker():
-    from applypilot.llm import get_client
     payload = json.load(sys.stdin)
-    client = get_client()
+    verify_runtime_identity(payload.get("runtime_identity"))
+    from applypilot import llm
+    # Check the loaded client as well as its pre-import resolution, before any
+    # provider configuration/credentials are read or a client is constructed.
+    verify_runtime_identity(payload.get("runtime_identity"))
+    client = llm.get_client()
     config = payload["config"]
     if client.model != config["model"]:
         raise ValueError("configured model differs from frozen experiment")
@@ -504,6 +516,9 @@ def paired_comparisons(results):
     for row in results:
         if row.get("pair_id"):
             groups[(row["driver_mode"], row["split"], row["cohort"])].append(row)
+    schemas = {row.get("schema_version") for rows in groups.values() for row in rows}
+    if len(schemas) > 1:
+        raise ValueError("mixed evaluation schemas (schema_version)")
     comparisons = []
     for group, rows in sorted(groups.items()):
         pairs = defaultdict(dict)
@@ -532,6 +547,7 @@ def paired_comparisons(results):
             samples = sorted(sum(rng.choice(cluster_means) for _ in cluster_means) / len(cluster_means)
                              for _ in range(1000)) if cluster_means else []
             comparisons.append({"driver_mode": group[0], "split": group[1], "cohort": group[2],
+                "evaluation_schema": rows[0]["schema_version"],
                 "baseline": left, "candidate": right, "paired_trials": len(pairs), "task_clusters": len(clusters),
                 "autonomous_rate_delta": sum(cluster_means) / len(cluster_means) if cluster_means else None,
                 "task_bootstrap_95_interval": [samples[24], samples[974]] if len(cluster_means) > 1 else None,
@@ -556,16 +572,62 @@ def schedule(task_list, *, repeats=2, seed=17):
     return result
 
 
+PYTHON_SOURCES = {
+    "applypilot": "src/applypilot/__init__.py",
+    "applypilot.apply": "src/applypilot/apply/__init__.py",
+    "applypilot.apply.harness_evaluation": "src/applypilot/apply/harness_evaluation.py",
+    "applypilot.apply.harness_measurement": "src/applypilot/apply/harness_measurement.py",
+    "applypilot.apply.harness_experiment_plan": "src/applypilot/apply/harness_experiment_plan.py",
+    "applypilot.apply.procedure_experience": "src/applypilot/apply/procedure_experience.py",
+    "applypilot.apply.recipe_experience": "src/applypilot/apply/recipe_experience.py",
+    "applypilot.llm": "src/applypilot/llm.py",
+    "applypilot.apply.application_consistency": "src/applypilot/apply/application_consistency.py",
+    "applypilot.apply.visual_bridge_mcp": "src/applypilot/apply/visual_bridge_mcp.py",
+}
+
+
 def source_manifest(root):
+    """Hash public fixture sources; execution entry points must also bind paths."""
     paths = ["scripts/harness-evaluation-browser.mjs", "scripts/browser-form-state.mjs", "scripts/browser-form-semantics.mjs",
              "scripts/browser-field-batch.mjs", "scripts/browser-preparation-subgoals.mjs", "scripts/visual-bridge-host.mjs",
-             "scripts/attended-host-journal.mjs",
-             "tests/fixtures/apply/semantic-preparation-lab.html", "src/applypilot/apply/harness_evaluation.py",
-             "src/applypilot/apply/harness_measurement.py", "src/applypilot/apply/harness_experiment_plan.py",
-             "src/applypilot/apply/procedure_experience.py", "src/applypilot/apply/recipe_experience.py",
-             "src/applypilot/llm.py", "src/applypilot/apply/application_consistency.py",
-             "src/applypilot/apply/visual_bridge_mcp.py"]
+             "scripts/attended-host-journal.mjs", "scripts/browser-observation-feedback.mjs",
+             "tests/fixtures/apply/semantic-preparation-lab.html", *PYTHON_SOURCES.values()]
     return {p: hashlib.sha256((root / p).read_bytes()).hexdigest() for p in paths}
+
+
+def bound_source_manifest(root, *, entry_module="applypilot.apply.harness_evaluation", entry_file=__file__):
+    """Require E's source checkout, including already-loaded and lazy modules.
+
+    Resolving specs does not import llm or load provider/profile configuration.
+    The explicit entry file also covers modules executed as __main__ by -m.
+    """
+    root = Path(root).resolve()
+    for name, filename in (("applypilot.apply.harness_evaluation", __file__), (entry_module, entry_file)):
+        if name not in PYTHON_SOURCES or Path(filename).resolve() != (root / PYTHON_SOURCES[name]).resolve():
+            raise ValueError("source root/runtime mismatch: " + name)
+    for name, relative in PYTHON_SOURCES.items():
+        expected = (root / relative).resolve()
+        module = sys.modules.get(name)
+        spec = importlib.util.find_spec(name)
+        paths = [getattr(spec, "origin", None)]
+        if module is not None:
+            paths.append(getattr(module, "__file__", None))
+        if any(not path or Path(path).resolve() != expected for path in paths):
+            raise ValueError("source root/runtime mismatch: " + name)
+    return source_manifest(root)
+
+
+def verify_runtime_identity(identity):
+    """Fail closed before any model probe/call if the frozen source changed."""
+    if (not isinstance(identity, dict) or set(identity) != {"schema_version", "source_root", "source_digest"}
+            or identity.get("schema_version") != "harness-source-runtime/v1"
+            or not isinstance(identity.get("source_root"), str)
+            or not Path(identity["source_root"]).is_absolute()):
+        raise ValueError("bound source runtime identity required")
+    root = Path(identity["source_root"]).resolve()
+    if digest(bound_source_manifest(root)) != identity["source_digest"]:
+        raise ValueError("source runtime digest changed")
+    return root
 
 
 def main():
@@ -603,24 +665,31 @@ def main():
     if not math.isfinite(args.temperature) or not 0 <= args.temperature <= 2:
         parser.error("invalid temperature")
     root = args.root.resolve()
-    source = source_manifest(root)
+    try:
+        source = bound_source_manifest(root)
+    except (ValueError, OSError, ImportError) as exc:
+        parser.error(str(exc))
+    runtime_identity = {"schema_version": "harness-source-runtime/v1", "source_root": str(root),
+                        "source_digest": digest(source)}
     training, holdout = tasks("train"), tasks("holdout")
     validate_splits(training, holdout)
     plan = schedule(holdout, repeats=args.repeats, seed=args.seed)
     args.output.mkdir(parents=True, exist_ok=False)
     config = {"model": args.model, "temperature": args.temperature, "max_tokens": args.max_tokens,
               "reasoning_effort": args.reasoning_effort}
-    manifest = {"source_hashes": source, "source_digest": digest(source), "config": config, "safety": SAFETY,
+    manifest = {"source_hashes": source, "source_digest": digest(source), "runtime_identity": runtime_identity,
+                "config": config, "safety": SAFETY,
                 "safety_digest": digest(SAFETY), "tools_digest": digest(TOOL_CONTRACT), "seed": args.seed,
                 "planned_trials": len(plan), "maximum_model_decisions": args.max_decisions, "training": training, "holdout": holdout,
                 "max_turns": args.max_turns, "trial_seconds": args.trial_seconds, "driver_mode": "live_model", "pricing": pricing,
-                "status": "not_run", "evaluation_scope": "browser_preparation; shared guards retained; C/D orchestration not ablated"}
+                "status": "not_run", "model_calls": 0,
+                "evaluation_scope": "browser_preparation; shared guards retained; C/D orchestration not ablated"}
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     if not args.run_model:
-        print(json.dumps({"status": "not_run", "planned_trials": len(plan), "maximum_model_decisions": args.max_decisions, "reason": "explicit_run_model_required"}))
+        print(json.dumps({"status": "not_run", "model_calls": 0, "planned_trials": len(plan), "maximum_model_decisions": args.max_decisions, "reason": "explicit_run_model_required"}))
         return
     try:
-        probe = model_decision({"config": config, "probe": True}, 15)
+        probe = model_decision({"config": config, "probe": True}, 15, runtime_identity=runtime_identity)
     except (RuntimeError, TimeoutError, TypeError, ValueError):
         manifest.update(status="not_run", reason="configured_model_driver_unavailable")
         (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
@@ -629,6 +698,7 @@ def main():
     config["binding"] = probe["binding"]
     manifest["config"] = config
     manifest["status"] = "running"
+    manifest.pop("model_calls")  # Only the not_run state establishes zero calls.
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     memory = FrozenProcedureMemory(())
     store = ProcedureExperienceStore(args.output / "training-procedures.db")
@@ -639,7 +709,7 @@ def main():
         if decisions_used >= args.max_decisions:
             raise RuntimeError("experiment decision budget exhausted")
         decisions_used += 1
-        return model_decision(payload, timeout)
+        return model_decision(payload, timeout, runtime_identity=runtime_identity)
     with (args.output / "trials.jsonl").open("x", encoding="utf-8") as stream:
         def record(row):
             stream.write(json.dumps(row, allow_nan=False) + "\n")
