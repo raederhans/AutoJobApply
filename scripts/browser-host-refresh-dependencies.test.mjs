@@ -9,8 +9,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { ControlNotReady, createInputGuard } from './browser-form-state.mjs';
 
-class ControlNotReady extends Error {}
 const copy = value => structuredClone(value);
 const structuralState = form => JSON.stringify(form?.fields.map(f =>
   [f.field_key, f.selector, f.control, f.dom_identity, f.options]));
@@ -36,7 +36,7 @@ async function operateObservedControl(tab, _before, operation, args, beforeInput
     invalid: field.invalid, validation_message: field.validation_message };
 }
 mock.module(new URL('./browser-form-state.mjs', import.meta.url).href, {
-  namedExports: { observeForm, operateObservedControl, ControlNotReady, structureChanges,
+  namedExports: { observeForm, operateObservedControl, ControlNotReady, createInputGuard, structureChanges,
     changedFields: () => [] },
 });
 const { browserAdapter, createVisualHost } = await import('./visual-bridge-host.mjs');

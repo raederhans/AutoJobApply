@@ -11,6 +11,10 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+CONTINUITY_CONTRACTS = (
+    "scripts/attended-host-journal.test.mjs",
+    "scripts/browser-host-deadline.test.mjs",
+)
 CONTRACTS = (
     "scripts/browser-form-state.test.mjs",
     "scripts/browser-complex-controls.test.mjs",
@@ -18,6 +22,7 @@ CONTRACTS = (
     "scripts/browser-host-group.test.mjs",
     "scripts/visual-bridge-host.test.mjs",
     "scripts/browser-observation-feedback.test.mjs",
+    *CONTINUITY_CONTRACTS,
 )
 
 
@@ -52,6 +57,11 @@ def _run_node(files: tuple[str, ...], extra_env: dict[str, str] | None = None) -
 
 def test_attended_host_node_contracts() -> None:
     _run_node(CONTRACTS)
+
+
+@pytest.mark.browser
+def test_attended_continuity_node_contracts() -> None:
+    _run_node(CONTINUITY_CONTRACTS)
 
 
 @pytest.mark.windows

@@ -105,7 +105,7 @@ export async function operatePreparationSubgoal(tab, snapshot, args, { deadlineA
           throw new ControlNotReady('Subgoal dependencies changed before input');
         }
         validatePreparationSubgoal(fresh, plan);
-      });
+      }, { deadlineAt });
     } catch (error) {
       if (!(error instanceof ControlNotReady)) throw error; // Unknown effects stop the outer Host.
       return finish('parked', 'preinput_rejected');

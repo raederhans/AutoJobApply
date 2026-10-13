@@ -85,7 +85,7 @@ export function validateFieldBatch(snapshot, steps) {
   }
 }
 
-export async function operateFieldBatch(tab, snapshot, steps, operate = operateObservedControl) {
+export async function operateFieldBatch(tab, snapshot, steps, operate = operateObservedControl, context = {}) {
   validateFieldBatch(snapshot, steps); // Validate the whole plan before any write.
   let current = snapshot;
   const results = [];
@@ -102,12 +102,13 @@ export async function operateFieldBatch(tab, snapshot, steps, operate = operateO
             rejectedDependencies = changes.dependency_changes;
             throw new ControlNotReady('Batch dependencies changed; observe again before input');
           }
-        });
+        }, context);
     } catch (error) {
       if (!(error instanceof ControlNotReady)) throw error; // Unknown write outcome stops the host.
       if (!results.length) throw error;
       return { observation: rejectedObservation || current, batch_result: { status: 'parked', completed: results.length,
-        requested: steps.length, results, reason: 'control_changed', reobserve_required: true,
+        requested: steps.length, results,
+        reason: error.code === 'INPUT_DEADLINE_REACHED' ? 'deadline_reached' : 'control_changed', reobserve_required: true,
         ...(rejectedDependencies ? { dependency_changes: rejectedDependencies } : {}) } };
     }
     const { observation: after, ...report } = result;

@@ -6,7 +6,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createAttendedHostJournal } from './attended-host-journal.mjs';
-import { observeForm, changedFields, structureChanges, operateObservedControl, ControlNotReady } from './browser-form-state.mjs';
+import { observeForm, changedFields, structureChanges, operateObservedControl, createInputGuard, ControlNotReady } from './browser-form-state.mjs';
 import { operateFieldBatch, fieldBatchChanges } from './browser-field-batch.mjs';
 import { operatePreparationSubgoal } from './browser-preparation-subgoals.mjs';
 import { BridgeMetrics, canReuseActionReadback, observationCoverage, observationSizes,
@@ -161,11 +161,12 @@ export async function createVisualHost({ directory, adapter, target, phase = 'pr
         // Cancellation and claiming compete for the same file: only one wins.
         await fs.rename(source, path.join(root, 'claimed', `${requestId}.json`));
         claimed = true;
-        if (journal) await journal.admit(request);
+        const permit = journal ? await journal.admit(request) : null;
+        const deadlineAt = Math.min(request.deadline_at, permit?.expires_at ?? request.deadline_at);
         if (!journal && request.operation !== 'observe' && request.observation_id !== observationId) {
           throw Error('Stale observation; observe again before input');
         }
-        if (request.deadline_at <= Date.now() / 1000) throw Error('Expired before execution');
+        if (deadlineAt <= Date.now() / 1000) throw Error('Expired before execution');
         if (['fill_batch', 'prepare_subgoal'].includes(request.operation) && (phase !== 'prepare' || target.runtime !== 'iab')) {
           throw new ControlNotReady('Field batch requires an IAB prepare host');
         }
@@ -178,9 +179,7 @@ export async function createVisualHost({ directory, adapter, target, phase = 'pr
           sample.outcome = 'outcome_unknown';
           const started = performance.now();
           try {
-            actionResult = request.operation === 'prepare_subgoal'
-              ? await adapter.act(request.operation, request.arguments, { deadlineAt: request.deadline_at })
-              : await adapter.act(request.operation, request.arguments);
+            actionResult = await adapter.act(request.operation, request.arguments, { deadlineAt });
             actionCompleted = true;
           }
           finally { sample.action_ms = performance.now() - started; }
@@ -373,6 +372,7 @@ export function browserAdapter(tab, { artifacts = {}, reuseFormObservations = fa
       return content;
     },
     async act(operation, args, context = {}) {
+      const input = createInputGuard(context.deadlineAt);
       // Any new input attempt ends attribution to the preceding upload, even if
       // rejected before input. Consecutive read-only observations keep it alive.
       uploadBaseline = null;
@@ -395,14 +395,14 @@ export function browserAdapter(tab, { artifacts = {}, reuseFormObservations = fa
       }
       if (operation === 'fill_batch') {
         if (!allowFieldBatch) throw new ControlNotReady('Field batch is not enabled on this host');
-        const result = await operateFieldBatch(tab, formSnapshot, args.steps);
+        const result = await operateFieldBatch(tab, formSnapshot, args.steps, undefined, context);
         lastBatchResult = result.batch_result;
         lastBatchObservation = result.observation;
         lastControlResult = null;
         return;
       }
       if (['fill_control', 'select_control', 'open_control', 'search_control', 'set_checked'].includes(operation)) {
-        const result = await operateObservedControl(tab, formSnapshot, operation, args);
+        const result = await operateObservedControl(tab, formSnapshot, operation, args, undefined, context);
         const { observation, ...report } = result;
         lastControlResult = report;
         // Pass a private identity ticket directly to this action's reply, never to the worker.
@@ -469,37 +469,37 @@ export function browserAdapter(tab, { artifacts = {}, reuseFormObservations = fa
         const chooserPromise = tab.playwright.waitForEvent('filechooser', { timeoutMs: 10000 });
         // Click may fail first; the pending waiter must still have a rejection handler.
         chooserPromise.catch(() => {});
-        await click();
+        await input(click);
         const chooser = await chooserPromise;
-        await chooser.setFiles([file]);
+        await input(() => chooser.setFiles([file]));
         lastUploadResult = { artifact_id: args.artifact_id, [targetKey]: args[targetKey],
           status: 'file_selection_done', webpage_acceptance: 'unverified' };
         return;
       }
       if (operation === 'navigate') {
         if (!observedLinks.has(args.url)) throw Error('Navigation requires an exact link from the current observation');
-        return tab.goto(args.url);
+        return input(() => tab.goto(args.url));
       }
       if (operation === 'click') {
-        if (args.node_id) return tab.dom_cua.click({ node_id: args.node_id });
+        if (args.node_id) return input(() => tab.dom_cua.click({ node_id: args.node_id }));
         if (lastMode !== 'screenshot') throw Error('Observe screenshot before coordinate input');
-        return tab.cua.click({ x: args.x, y: args.y });
+        return input(() => tab.cua.click({ x: args.x, y: args.y }));
       }
       if (operation === 'scroll') {
         if (args.x !== undefined && args.y !== undefined) {
           if (lastMode !== 'screenshot') throw Error('Observe screenshot before coordinate scroll');
-          return tab.cua.scroll({ x: args.x, y: args.y, scrollX: args.scroll_x || 0, scrollY: args.scroll_y });
+          return input(() => tab.cua.scroll({ x: args.x, y: args.y, scrollX: args.scroll_x || 0, scrollY: args.scroll_y }));
         }
-        return tab.dom_cua.scroll({ x: args.scroll_x || 0, y: args.scroll_y });
+        return input(() => tab.dom_cua.scroll({ x: args.scroll_x || 0, y: args.scroll_y }));
       }
       if (operation === 'type_text') {
         if (args.node_id) {
           if (!observedInputs.has(args.node_id)) throw Error('Targeted typing requires an observed text input');
-          await tab.dom_cua.click({ node_id: args.node_id });
+          await input(() => tab.dom_cua.click({ node_id: args.node_id }));
         }
-        return tab.dom_cua.type({ text: args.text });
+        return input(() => tab.dom_cua.type({ text: args.text }));
       }
-      if (operation === 'press_key') return tab.dom_cua.keypress({ keys: args.keys || [args.key] });
+      if (operation === 'press_key') return input(() => tab.dom_cua.keypress({ keys: args.keys || [args.key] }));
       throw Error('Unsupported browser operation');
     },
   };

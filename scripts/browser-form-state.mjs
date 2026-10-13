@@ -534,7 +534,32 @@ export function structureChanges(before, after) {
     truncated: Object.values(counts).some(count => count > limit) };
 }
 
-export async function operateObservedControl(tab, snapshot, operation, args, validateFresh) {
+// A runtime failure after dispatch may already have changed the page. Do not
+// let its error type turn that uncertainty into permission to retry input.
+async function inputOutcome(action) {
+  try { return await action(); }
+  catch (error) {
+    if (error instanceof ControlNotReady) throw new Error('Control input outcome unknown', { cause: error });
+    throw error;
+  }
+}
+
+/** Trusted deadline, checked synchronously immediately before each dispatch. */
+export function createInputGuard(deadlineAt) {
+  let started = false;
+  return action => {
+    if (deadlineAt !== undefined && (!Number.isFinite(deadlineAt) || Date.now() / 1000 >= deadlineAt)) {
+      const error = started ? new Error('Input deadline reached after earlier input; outcome unknown')
+        : new ControlNotReady('Input deadline reached before input');
+      error.code = 'INPUT_DEADLINE_REACHED';
+      throw error;
+    }
+    started = true;
+    return inputOutcome(action);
+  };
+}
+
+export async function operateObservedControl(tab, snapshot, operation, args, validateFresh, { deadlineAt } = {}) {
   // Trusted host callback, never part of worker-supplied args. Reuses the same
   // live preflight so a batch can reject changed dependencies before any input.
   if (validateFresh !== undefined && typeof validateFresh !== 'function') {
@@ -557,16 +582,9 @@ export async function operateObservedControl(tab, snapshot, operation, args, val
   if (field.disabled || field.readonly) throw new ControlNotReady('Control is not writable');
   const locator = tab.playwright.locator(field.selector);
   if (await locator.count() !== 1) throw new ControlNotReady('Form control is ambiguous');
-  // ControlNotReady is reserved for proven pre-input rejection. A typed error
-  // from the runtime or readback after input must still stop the host.
-  const input = async action => {
-    try { return await action(); }
-    catch (error) {
-      if (error instanceof ControlNotReady) throw new Error('Control input outcome unknown', { cause: error });
-      throw error;
-    }
-  };
-  const readAfterInput = () => input(() => observeForm(tab));
+  const input = createInputGuard(deadlineAt);
+  // Readback remains allowed after expiry; it cannot extend input permission.
+  const readAfterInput = () => inputOutcome(() => observeForm(tab));
   let expected;
   if (operation === 'open_control' || operation === 'search_control') {
     if (field.control !== 'combobox' || field.multiple || selectedDisplay(field).length > 1) {
