@@ -41,15 +41,20 @@ def _required(data, key):
     return value
 
 
-def _observation(data):
+def _observation(data, *, allow_stale=False):
     if data.get("source") != "attending_host":
         raise ValueError("independent attending_host observation required")
     refs = data.get("evidence_refs")
     if not isinstance(refs, list) or not refs or any(not isinstance(x, str) or not x.strip() for x in refs):
         raise ValueError("evidence_refs required; do not include raw credentials")
-    observed = datetime.fromisoformat(_required(data, "observed_at"))
-    if observed.tzinfo is None or not 0 <= (datetime.now(UTC) - observed).total_seconds() <= 300:
+    try:
+        observed = datetime.fromisoformat(_required(data, "observed_at"))
+    except ValueError:
+        raise ValueError("valid observation timestamp required") from None
+    age = (datetime.now(UTC) - observed).total_seconds() if observed.tzinfo is not None else -1
+    if age < 0 or (not allow_stale and age > 300):
         raise ValueError("observation must be timezone-aware and within five minutes")
+    return observed
 
 
 def _validate_query_identity(expected_url, observed_url):
@@ -248,6 +253,9 @@ def _execute(conn, req, profile, *, host_transport=False):
             and not (action == "recover" and host_transport)):
         raise ValueError("outstanding Host input must be completed or reconciled first")
     if attempt_row["status"] != "in_progress":
+        if action == "resume" and host_transport:
+            return dict(state, blocked="attempt_terminal", next_action="host_effect_reconciliation_only",
+                        browser_write_authority=False, submit_authority=False)
         raise ValueError("attempt terminal")
     if action == "fail":
         state["phase"] = "submission_uncertain" if submission_barrier else "failed"
@@ -263,6 +271,9 @@ def _execute(conn, req, profile, *, host_transport=False):
     if submission_barrier:
         raise ValueError("submit already started; reconcile receipt only")
     if datetime.fromisoformat(attempt_row["lease_expires_at"]) <= datetime.now(UTC):
+        if action == "resume" and host_transport:
+            return dict(state, blocked="attempt_lease_expired", next_action="host_effect_reconciliation_only",
+                        browser_write_authority=False, submit_authority=False)
         raise ValueError("attempt lease expired; finalize before starting another attempt")
     if state["phase"] == "material_changed":
         return dict(state, blocked="material_changed; finalize and begin again")
@@ -279,7 +290,8 @@ def _execute(conn, req, profile, *, host_transport=False):
     if action in {"resume", "recover"} and state.get("recovery", {}).get("unknown_effect_latched"):
         return dict(state, next_action="manual_effect_reconciliation_no_replay", browser_write_authority=False)
     if action == "resume":
-        ledger.update_attempt(conn, attempt, phase=attempt_row["phase"], submit_started=False)
+        if not host_transport:
+            ledger.update_attempt(conn, attempt, phase=attempt_row["phase"], submit_started=False)
         return dict(state, next_action="fresh_host_inspection_before_input", browser_write_authority=False)
     if action == "recover":
         if state.get("gate_id"):
