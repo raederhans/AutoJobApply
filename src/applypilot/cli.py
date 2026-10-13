@@ -2079,6 +2079,24 @@ def dashboard(
         generate_dashboard(str(output) if output else None)
 
 
+@app.command("browser-host-path")
+def browser_host_path(
+    json_output: bool = typer.Option(False, "--json", help="Include artifact origin and module paths."),
+) -> None:
+    """Print the supervised Browser Host module URI without opening a browser."""
+    from applypilot.apply.browser_runtime import browser_host_info
+
+    try:
+        info = browser_host_info()
+    except OSError as exc:
+        console.print(str(exc), markup=False)
+        raise typer.Exit(code=2) from exc
+    if json_output:
+        _print_json(data=info)
+    else:
+        typer.echo(info["module_uri"])
+
+
 @app.command("attended-application")
 def attended_application_command(
     db: Path = typer.Option(..., "--db", exists=True, dir_okay=False),

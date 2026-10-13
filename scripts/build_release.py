@@ -34,6 +34,13 @@ FORBIDDEN_PARTS = {
 }
 FORBIDDEN_NAMES = {".env", "applypilot.db", "profile.json", "resume.pdf", "resume.txt"}
 FORBIDDEN_SUFFIXES = {".db", ".key", ".p12", ".pem", ".pfx", ".sqlite", ".sqlite3"}
+BROWSER_RUNTIME_MEMBERS = {
+    "applypilot/browser_runtime/" + name for name in (
+        "visual-bridge-host.mjs", "attended-host-journal.mjs", "browser-form-state.mjs",
+        "browser-form-semantics.mjs", "browser-field-batch.mjs", "browser-preparation-subgoals.mjs",
+        "browser-observation-feedback.mjs",
+    )
+}
 SDIST_ALLOWED_ROOTS = {
     ".env.example",
     ".gitignore",
@@ -104,6 +111,9 @@ def audit_wheel(path: Path, expected_name: str, expected_version: str) -> None:
                 raise RuntimeError(f"Unexpected wheel member: {member}")
         if "applypilot/frontend/dashboard.html" not in members:
             raise RuntimeError("Wheel is missing the packaged dashboard frontend")
+        missing_runtime = BROWSER_RUNTIME_MEMBERS - set(members)
+        if missing_runtime:
+            raise RuntimeError("Wheel is missing Browser Host modules: " + ", ".join(sorted(missing_runtime)))
         metadata_member = next((name for name in members if name.endswith(metadata_suffix)), None)
         if metadata_member is None:
             raise RuntimeError("Wheel is missing METADATA")

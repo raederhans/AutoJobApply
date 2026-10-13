@@ -307,6 +307,21 @@ The worker receives the actual observation and continues its own turn.
 
 ## Attach and operate
 
+The installed CLI locates its own shipped Host module with
+`applypilot browser-host-path`. It prints a file URI, including correct escaping
+for spaces and non-ASCII installation paths. Use `--json` for the absolute path,
+artifact origin and module list. This lookup is read-only and does not load a
+profile, create a workspace, launch a browser or grant operation authority.
+In a source checkout it locates the modules beside that imported source; in a
+wheel installation it uses packaged modules without searching the current
+working directory. An incomplete installation fails explicitly.
+
+Before importing that URI, follow the current Browser tool's setup and supported
+JavaScript/module-loading contract. Artifact availability alone does not verify
+that the current Codex Browser surface supports this Host adapter. Keep any
+already-running Host's version and pending requests separate from a newly
+installed artifact; locating a newer module does not update a live Host.
+
 After supported Browser setup and reading its documentation, import
 `scripts/visual-bridge-host.mjs` in that same supported JavaScript session.
 Call `createVisualHost({directory, adapter: browserAdapter(tab), target})` with

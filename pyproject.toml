@@ -100,6 +100,16 @@ only-include = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/applypilot"]
 
+[tool.hatch.build.targets.wheel.force-include]
+# Explicit production Host closure; no tests, fixtures or local script output.
+"scripts/visual-bridge-host.mjs" = "applypilot/browser_runtime/visual-bridge-host.mjs"
+"scripts/attended-host-journal.mjs" = "applypilot/browser_runtime/attended-host-journal.mjs"
+"scripts/browser-form-state.mjs" = "applypilot/browser_runtime/browser-form-state.mjs"
+"scripts/browser-form-semantics.mjs" = "applypilot/browser_runtime/browser-form-semantics.mjs"
+"scripts/browser-field-batch.mjs" = "applypilot/browser_runtime/browser-field-batch.mjs"
+"scripts/browser-preparation-subgoals.mjs" = "applypilot/browser_runtime/browser-preparation-subgoals.mjs"
+"scripts/browser-observation-feedback.mjs" = "applypilot/browser_runtime/browser-observation-feedback.mjs"
+
 [tool.hatch.build]
 artifacts = [
     "src/applypilot/config/*.yaml",

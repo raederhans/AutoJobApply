@@ -56,15 +56,21 @@ RuntimeCellMode = Literal["off", "shadow", "canary"]
 
 
 def source_manifest_identity(source_root: Path | str) -> str:
-    """Hash the executable ApplyPilot Python source used by this generation."""
+    """Hash a checkout or installed package with the existing v1 path rules.
+
+    ``src/applypilot/...`` is the canonical manifest namespace, including for
+    wheels. Identical Python bytes therefore retain the same identity after
+    installation; neither cwd nor repository metadata selects installed code.
+    """
 
     root = Path(source_root).expanduser().resolve()
-    if not (root / "pyproject.toml").is_file():
-        raise ValueError("source_root must be the ApplyPilot repository root")
-    files = sorted((root / "src" / "applypilot").rglob("*.py"))
+    package = root / "src" / "applypilot" if (root / "pyproject.toml").is_file() else root
+    if not (package / "__init__.py").is_file() or not (package / "apply" / "runtime_cell_coordinator.py").is_file():
+        raise ValueError("source_root must contain the ApplyPilot repository or Python package")
+    files = sorted(package.rglob("*.py"))
     manifest = [
         {
-            "path": path.relative_to(root).as_posix(),
+            "path": "src/applypilot/" + path.relative_to(package).as_posix(),
             "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         }
         for path in files
