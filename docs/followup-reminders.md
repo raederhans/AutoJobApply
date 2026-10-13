@@ -1,5 +1,22 @@
 # Local followup reminders
 
+In the local career workbench, choose **求职进度** and use a record's **设置提醒**
+button. Enter a UTC date and a short next step, then save explicitly. The same
+page's local reminder list groups overdue, today, future and undated entries;
+each entry supports postponing its date or hiding it from that list. A missing
+or ambiguous source record stays visible for review instead of being guessed.
+
+The list initially displays at most 100 entries per group and can show up to 500;
+counts still cover the full groups, and the page identifies any remaining hidden
+entries. The HTTP editor uses the same local JSON store as the CLI. It does not
+mark an application contacted or change an existing action's completion/deadline
+in SQLite. For existing actions, an overridden date affects only this reminder
+list; other progress and calendar views retain the original source date.
+
+The page sends each edit once. If the connection drops, refresh the list to check
+the saved state before another edit. A damaged reminder file is preserved and
+reported. The editor requires the local workbench session and matching origin.
+
 Inspect existing local actions together with manually scheduled reminders:
 
 ```powershell

@@ -16,7 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from applypilot.career import job_progress, learning, service
+from applypilot.career import job_progress, learning, reminders, service
 from applypilot.career.application_inbox import ApplicationInbox
 from applypilot.career.workbench import Workbench, previous_request, public, save_request
 from applypilot.career.worker import CareerWorker
@@ -93,6 +93,19 @@ class CareerServer(ThreadingHTTPServer):
 
 def _error(exc):
     raw = str(exc)
+    reminder_errors = {
+        "reminder_store_invalid": (409, "本地提醒文件无法读取，已保留原文件。请核对文件后再编辑。"),
+        "reminder_busy": (409, "另一项本地提醒编辑尚未完成，请稍后刷新清单。"),
+        "reminder_record_changed": (409, "这条记录或提醒已变化，请刷新清单后重新选择。"),
+        "reminder_ambiguous": (409, "同一记录关联了多个本地提醒，请从清单选择具体提醒。"),
+        "reminder_date_before_current": (422, "延后日期不能早于当前提醒日期。"),
+        "reminder_step_invalid": (422, "请输入 1–200 字的下一步短标签，不要填写凭据或仅填写链接。"),
+        "reminder_date_invalid": (422, "请选择有效的 UTC 日期。"),
+        "reminder_input_invalid": (422, "请核对提醒日期、下一步和所选记录。"),
+    }
+    if raw in reminder_errors:
+        status, message = reminder_errors[raw]
+        return status, raw, message
     if raw == "progress_filter_invalid":
         return 422, "invalid_progress_filter", "请核对关键词、UTC 日期范围、日期字段和状态选项。"
     if raw == "progress_report_unavailable":
@@ -175,7 +188,8 @@ class CareerHandler(BaseHTTPRequestHandler):
     def parts(self):
         path = urlsplit(self.path)
         filtered_query = self.command == "GET" and path.path in {
-            PREFIX + "/application-inbox", PREFIX + "/job-progress", PREFIX + "/job-progress/download"}
+            PREFIX + "/application-inbox", PREFIX + "/job-progress", PREFIX + "/job-progress/download",
+            PREFIX + "/job-progress/reminders"}
         if (path.query and not filtered_query) or path.fragment or not path.path.startswith(PREFIX + "/"):
             raise KeyError("endpoint_not_found")
         return [unquote(part) for part in path.path[len(PREFIX) + 1:].split("/")]
@@ -224,6 +238,17 @@ class CareerHandler(BaseHTTPRequestHandler):
             p = self.parts()
             if p == ["health"]:
                 self.send(200, {"instance_id": self.server.instance_id})
+                return
+            if p == ["job-progress", "reminders"]:
+                try:
+                    query = parse_qs(urlsplit(self.path).query, keep_blank_values=True, strict_parsing=True, max_num_fields=1)
+                    value = query.get("limit", ["100"])[0]
+                    if set(query) - {"limit"} or not value.isascii() or not value.isdigit() or len(value) > 3:
+                        raise ValueError
+                    limit = int(value)
+                except ValueError as exc:
+                    raise ValueError("reminder_input_invalid") from exc
+                self.send(200, reminders.list_items(self.server.workspace, limit=limit))
                 return
             wb = self.server.workbench
             with self.server.connection() as conn:
@@ -289,6 +314,12 @@ class CareerHandler(BaseHTTPRequestHandler):
             if len(p) == 3 and p[0] == "runs" and p[2] in {"cancel", "resume"}:
                 result = worker.cancel(p[1]) if p[2] == "cancel" else worker.resume(p[1], data.get("request_key"))
                 self.send(200 if p[2] == "cancel" else 202, result)
+                return
+            if p == ["job-progress", "reminders"]:
+                self.send(200, reminders.mutate(self.server.workspace, "set", data))
+                return
+            if len(p) == 4 and p[:2] == ["job-progress", "reminders"] and p[3] in {"snooze", "dismiss"}:
+                self.send(200, reminders.mutate(self.server.workspace, p[3], data, reminder_id=p[2]))
                 return
             with worker.mutation(), self.server.connection(writing=True) as conn:
                 if len(p) == 3 and p[0] == "application-inbox" and p[2] in {"respond", "resume"}:
