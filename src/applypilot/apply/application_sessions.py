@@ -422,8 +422,15 @@ def _windows_exact_listener_owner(process_id: int, host: str, port: int) -> bool
         check=False,
         capture_output=True,
         text=True,
+        # Localized headers use the Windows code page even in Python UTF-8 mode.
+        # Listener addresses, states and PIDs are ASCII; never drop corrupt bytes
+        # from those identity fields, since that could manufacture a match.
+        encoding="ascii",
+        errors="replace",
         timeout=2,
     )
+    if completed.returncode != 0:
+        return False
     endpoint = f"{host}:{port}"
     for raw_line in completed.stdout.splitlines():
         columns = raw_line.split()

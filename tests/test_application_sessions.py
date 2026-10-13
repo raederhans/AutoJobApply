@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import socket
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from applypilot.apply import application_sessions
 from applypilot.apply.agent_runtime import _current_working_set_bytes
 from applypilot.apply.application_sessions import (
     ApplicationSupervisor,
@@ -449,6 +452,61 @@ def test_default_owner_probe_attests_exact_local_child_pid(tmp_path: Path) -> No
         assert manager.health() == descriptor
     finally:
         manager.shutdown()
+
+
+@pytest.mark.parametrize(
+    ("listener", "returncode", "expected"),
+    [
+        (b"TCP 127.0.0.1:52345 0.0.0.0:0 LISTENING 101", 0, True),
+        (b"TCP 127.0.0.1:52345 0.0.0.0:0 LISTENING 103", 0, True),
+        (b"TCP 127.0.0.1:52345 0.0.0.0:0 LISTENING 999", 0, False),
+        (b"TCP 127.0.0.1:52346 0.0.0.0:0 LISTENING 101", 0, False),
+        (b"TCP 0.0.0.0:52345 0.0.0.0:0 LISTENING 101", 0, False),
+        (b"TCP 127.0.0.1:52345 0.0.0.0:0 ESTABLISHED 101", 0, False),
+        (b"TCP 127.0.0.1:52345 0.0.0.0:0 LISTENING 10\xbb1", 0, False),
+        (b"TCP 127.0.0.1:52\xbb345 0.0.0.0:0 LISTENING 101", 0, False),
+        (b"TCP 127.0.0.1:52345 0.0.0.0:0 LISTENING 101", 1, False),
+    ],
+    ids=["owner", "descendant", "unrelated-pid", "wrong-port", "wrong-host",
+         "not-listening", "invalid-pid-byte", "invalid-endpoint-byte", "command-failed"],
+)
+def test_windows_owner_probe_tolerates_localized_header_and_requires_exact_listener(
+    monkeypatch: pytest.MonkeyPatch, listener: bytes, returncode: int, expected: bool,
+) -> None:
+    import ctypes
+
+    # Exercise the Windows parser on every platform without using the local process
+    # list. The expected root owns a child and grandchild, but not PID 999.
+    parents = iter(((101, 100), (102, 101), (103, 102), (999, 100)))
+
+    def next_process(_snapshot, pointer):
+        process = next(parents, None)
+        if process is None:
+            return False
+        pointer._obj.th32ProcessID, pointer._obj.th32ParentProcessID = process
+        return True
+
+    kernel32 = SimpleNamespace(
+        CreateToolhelp32Snapshot=lambda *_args: 1,
+        Process32FirstW=next_process,
+        Process32NextW=next_process,
+        CloseHandle=lambda *_args: True,
+    )
+    monkeypatch.setattr(ctypes, "WinDLL", lambda *_args, **_kwargs: kernel32, raising=False)
+    # cp936 Chinese netstat headers are invalid UTF-8. Run a real pipe reader so
+    # this also catches subprocess decoding errors under PYTHONUTF8=1.
+    output = b"\r\n\xbb\xee\xb6\xaf\xc1\xac\xbd\xd3\r\n" + listener + b"\r\n"
+    real_run = subprocess.run
+
+    def localized_netstat(command, **kwargs):
+        assert command == ["netstat", "-ano", "-p", "tcp"]
+        return real_run(
+            [sys.executable, "-c", f"import sys;sys.stdout.buffer.write({output!r});sys.exit({returncode})"],
+            **kwargs,
+        )
+
+    monkeypatch.setattr(application_sessions.subprocess, "run", localized_netstat)
+    assert application_sessions._windows_exact_listener_owner(101, "127.0.0.1", 52345) is expected
 
 
 def test_occupied_reserved_port_cannot_masquerade_as_endpoint_child(
