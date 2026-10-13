@@ -1,0 +1,62 @@
+{
+  "date": "2026-10-13",
+  "timezone": "UTC",
+  "counts": {
+    "overdue": 1,
+    "today": 1,
+    "future": 1,
+    "undated": 0
+  },
+  "groups": {
+    "overdue": [
+      {
+        "reminder_id": "reminder-da2acd7d68e436dd",
+        "source": "local_reminder",
+        "record_id": "application-eb18490d60b1336f",
+        "target_available": true,
+        "title": "Operations Intern",
+        "company": "Example Services (fictional)",
+        "application_status": "not_started",
+        "recruiting_stage": "",
+        "due_date": "2026-10-12",
+        "bucket": "overdue",
+        "next_step": "Review role requirements and decide whether to prepare materials"
+      }
+    ],
+    "today": [
+      {
+        "reminder_id": "reminder-f8cfc89381ca1fad",
+        "source": "local_reminder",
+        "record_id": "application-d714051269a4556d",
+        "target_available": true,
+        "title": "Data Intern",
+        "company": "Harbor Research (fictional)",
+        "application_status": "failed",
+        "recruiting_stage": "submission_unverified",
+        "due_date": "2026-10-13",
+        "bucket": "today",
+        "next_step": "Review the local verification requirement"
+      }
+    ],
+    "future": [
+      {
+        "reminder_id": "action-cbde888f10471377",
+        "source": "existing_action",
+        "record_id": "application-2ca7c11a970c9382",
+        "target_available": true,
+        "title": "Analyst Intern",
+        "company": "North Star Labs (fictional)",
+        "application_status": "applied",
+        "recruiting_stage": "interview_1",
+        "due_date": "2026-10-16",
+        "bucket": "future",
+        "next_step": "Review the saved application progress, then dismiss or postpone this local reminder."
+      }
+    ],
+    "undated": []
+  },
+  "unscheduled_count": 0,
+  "unscheduled": [],
+  "target_unavailable_count": 0,
+  "next_step": "Use set-reminder with a record_id, due date and brief next step; use snooze-reminder or dismiss-reminder for a listed reminder_id."
+}

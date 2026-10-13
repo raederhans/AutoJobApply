@@ -83,6 +83,8 @@ only-include = [
     "docs/file-upload-validation-20261009.md",
     "docs/followup.md",
     "docs/job-progress-export.md",
+    "docs/followup-reminders.md",
+    "docs/examples/reminder-checklist.json",
     "docs/examples/job-progress.csv",
     "docs/examples/job-progress.md",
     "docs/interview-prep.md",
