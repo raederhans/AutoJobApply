@@ -12,7 +12,7 @@
     return Number.isNaN(date.getTime()) ? String(value || "") : new Intl.DateTimeFormat("zh-CN", {month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}).format(date);
   };
   const state = {token:null, catalog:{companies:[],jobs:[]}, materials:[], targets:[], runs:[], target:null, diagnosis:null, progress:null, stage:"materials", file:null, polling:null, retry:null, busy:false, observedRuns:new Set(),pendingResults:new Map(),selectionGeneration:0,selectionPending:false,dialogGeneration:0,dataGeneration:0};
-  Object.assign(state,{inbox:null,inboxLoading:false,inboxError:null,inboxGeneration:0,inboxDrafts:new Map()});
+  Object.assign(state,{inbox:null,inboxLoading:false,inboxError:null,inboxGeneration:0,inboxDrafts:new Map(),inboxQuery:{q:"",scope:"open",sort:"newest",offset:0},inboxDetailGeneration:0});
   const stageNames = {materials:"目标与材料",diagnosis:"差距诊断",route:"学习路线",review:"产物与评审",inbox:"申请待处理"};
   const kindNames = {resume:"简历",resume_copy:"简历副本",project_evidence:"项目证据",generated:"生成 / 练习产物",candidate_facts:"事实记录",candidate_fact_master:"求职事实主档",project_fact_context:"项目事实与贡献范围",project_fact_master:"项目事实主档"};
   const roleNames={ux_design_research:"用户体验设计与研究",software:"软件工程",software_engineering:"软件工程",frontend:"前端开发",frontend_engineering:"前端开发",backend:"后端开发",fullstack:"全栈开发",data_analytics:"数据分析",data_analysis:"数据分析",data_science:"数据科学",machine_learning:"机器学习",ai_engineering:"AI 工程",product_management:"产品管理",business_analysis:"商业分析",technical_build:"技术开发",design:"设计",ux:"用户体验",sales_engineering:"售前技术"};
@@ -100,24 +100,56 @@
   }
   function renderInbox() {
     const data=state.inbox, counts=data?.counts||{};
-    $("inbox-counts").innerHTML=[["open","待处理"],["needs_response","待答复"],["resume_requested","等待流程接续"],["blocked","需另行处理 / 已过期"]].map(([key,label])=>`<div class="metric"><strong>${e(data?.available===true&&Number.isFinite(counts[key])?counts[key]:"—")}</strong>${label}${data?.truncated?` <span class="hint">（仅前 ${e(data.limit||100)} 条）</span>`:""}</div>`).join("");
+    $("inbox-search-submit").disabled=state.inboxLoading;
+    $("inbox-counts").innerHTML=[["shown","本页条目"],["open","本页开放"],["needs_response","本页待答复"],["resume_requested","本页等待接续"],["blocked","本页需另行处理"]].map(([key,label])=>`<div class="metric"><strong>${e(data?.available===true&&Number.isFinite(counts[key])?counts[key]:"—")}</strong>${label}${data?.truncated?` <span class="hint">（仅本页 ${e(data.limit||100)} 条以内）</span>`:""}</div>`).join("");
+    const pagination=data?.pagination, nav=$("inbox-pagination");
+    nav.hidden=data?.available!==true||!pagination;
+    if(pagination){
+      const offset=Number.isInteger(pagination.offset)?pagination.offset:0,total=Number.isFinite(pagination.total)?pagination.total:"—",length=data.items.length;
+      const previous=Number.isInteger(pagination.previous_offset)&&pagination.previous_offset>=0,next=Number.isInteger(pagination.next_offset)&&pagination.next_offset>=0&&pagination.has_more===true;
+      nav.innerHTML=`<p class="hint">${length?`第 ${e(offset+1)}–${e(offset+length)} 条`:"本页没有记录"} · 匹配共 ${e(total)} 条<span>概览计数与状态筛选仅限本页</span></p><div class="actions"><button type="button" class="button subtle" data-inbox-page="previous" ${!previous||state.inboxLoading||state.inboxError?"disabled":""}>← 上一页</button><button type="button" class="button subtle" data-inbox-page="next" ${!next||state.inboxLoading||state.inboxError?"disabled":""}>下一页 →</button></div>`;
+    }
     const box=$("inbox-content");box.setAttribute("aria-busy",String(state.inboxLoading));
     if(state.inboxLoading&&!data){box.innerHTML='<div class="empty"><span class="spinner" aria-hidden="true"></span>正在读取待处理申请…</div>';return;}
-    const error=state.inboxError?`<div class="notice" role="alert">${e(state.inboxError)} <button type="button" class="button subtle" data-inbox-refresh>重新读取</button></div>`:"";
+    const error=state.inboxError?`<div class="notice" role="alert">${e(state.inboxError)}${data?" 下方保留上次读取的列表。":""} <button type="button" class="button subtle" data-inbox-refresh>重新读取</button></div>`:"";
     if(!data){box.innerHTML=error;return;}
     if(data.available!==true){box.innerHTML=error+'<div class="empty"><h3>申请待处理暂不可用</h3><p>请确认本地申请工作空间已就绪，再刷新列表。</p></div>';return;}
     const filter=$("inbox-filter").value||"all", items=data.items.filter((item)=>filter==="all"||item.status===filter);
-    const statusNames={awaiting_response:"待答复",ready_to_resume:"可申请继续",resume_requested:"等待申请进程接续",blocked:"需要另行处理 / 已过期"};
+    const statusNames={awaiting_response:"待答复",ready_to_resume:"可申请继续",resume_requested:"等待申请进程接续",blocked:"需要另行处理",expired:"已过期",resolved:"已解决",failed:"流程未完成"};
     box.innerHTML=error+(items.length?`<div class="inbox-list">${items.map((item)=>{
-      const job=item.job||{},url=safeURL(job.url),tone=item.status==="blocked"?"warn":item.status==="ready_to_resume"?"good":"";
-      return `<article class="inbox-card"><div class="inbox-card-head"><div><p class="inbox-company">${e(job.company||"公司未提供")}</p><h3>${e(job.title||"岗位未提供")}</h3></div><span class="tag ${tone}">${e(item.status_label||statusNames[item.status]||"状态待核对")}</span></div><div class="inbox-meta"><span>${e(item.kind_label||"申请暂停项")}</span>${item.created_at?`<span>${e(displayDate(item.created_at))}</span>`:""}${url?`<a href="${e(url)}" target="_blank" rel="noopener noreferrer">查看岗位 ↗</a>`:""}</div><p class="inbox-prompt">${e(item.prompt||"请查看下一步说明。")}</p><div class="inbox-next"><strong>${e(item.next_action?.label||"下一步")}</strong><p>${e(item.next_action?.description||"请在原申请流程核对当前状态。")}</p></div>${item.status==="resume_requested"?'<p class="inbox-wait">已请求继续，等待申请进程接续。可手动刷新查看变化。</p>':""}<div class="actions">${item.can_respond===true?`<button type="button" class="button ${item.response_recorded?"subtle":"primary"}" data-inbox-action="respond" data-inbox-id="${e(item.id)}">${item.response_recorded?"修改答复":"填写答复"}</button>`:""}${item.can_resume===true?`<button type="button" class="button secondary" data-inbox-action="resume" data-inbox-id="${e(item.id)}">申请继续 →</button>`:""}${item.response_recorded?'<span class="hint">答复已保存</span>':""}</div></article>`;
-    }).join("")}</div>`:`<div class="empty"><h3>${data.items.length?"此筛选下没有待处理项":"当前没有待处理申请"}</h3><p>${data.items.length?"切换显示范围，查看其它暂停项。":"已解决的条目会从列表移除；新的暂停项出现后可手动刷新。"}</p></div>`)+(data.truncated?`<p class="hint">仅显示前 ${e(data.limit||100)} 项。请先处理当前条目，再刷新查看。</p>`:"");
+      const job=item.job||{},url=safeURL(job.url),tone=["blocked","expired","failed"].includes(item.status)?"warn":item.status==="ready_to_resume"?"good":"";
+      return `<article class="inbox-card"><div class="inbox-card-head"><div><p class="inbox-company">${e(job.company||"公司未提供")}</p><h3>${e(job.title||"岗位未提供")}</h3></div><span class="tag ${tone}">${e(item.status_label||statusNames[item.status]||"状态待核对")}</span></div><div class="inbox-meta"><span>${e(item.kind_label||"申请暂停项")}</span>${item.created_at?`<span>${e(displayDate(item.created_at))}</span>`:""}${url?`<a href="${e(url)}" target="_blank" rel="noopener noreferrer">查看岗位 ↗</a>`:""}</div><p class="inbox-prompt">${e(item.prompt||"请查看下一步说明。")}</p><div class="inbox-next"><strong>${e(item.next_action?.label||"下一步")}</strong><p>${e(item.next_action?.description||"请在原申请流程核对当前状态。")}</p></div>${item.status==="resume_requested"?'<p class="inbox-wait">已请求继续，等待申请进程接续。可手动刷新查看变化。</p>':""}<div class="actions"><button type="button" class="button subtle" data-inbox-progress="${e(item.id)}">查看进度</button>${item.can_respond===true?`<button type="button" class="button ${item.response_recorded?"subtle":"primary"}" data-inbox-action="respond" data-inbox-id="${e(item.id)}">${item.response_recorded?"修改答复":"填写答复"}</button>`:""}${item.can_resume===true?`<button type="button" class="button secondary" data-inbox-action="resume" data-inbox-id="${e(item.id)}">申请继续 →</button>`:""}${item.response_recorded?'<span class="hint">答复已保存</span>':""}</div></article>`;
+    }).join("")}</div>`:`<div class="empty"><h3>${data.items.length?"本页没有符合此状态的记录":"没有匹配的申请记录"}</h3><p>${data.items.length?"切换本页状态，或翻页查看其它记录。":"调整关键词与范围后点击搜索；已解决的条目可在历史记录中查看。"}</p></div>`)+(data.truncated?`<p class="hint">列表与概览计数仅覆盖本页，最多 ${e(data.limit||100)} 条。可翻页继续查看。</p>`:"");
   }
   async function loadInbox() {
     const generation=++state.inboxGeneration;state.inboxLoading=true;state.inboxError=null;renderInbox();
-    try {const data=await api("/application-inbox");if(generation!==state.inboxGeneration)return;state.inbox={...data,items:Array.isArray(data.items)?data.items:[]};}
+    const query=state.inboxQuery;
+    try {const data=await api("/application-inbox?q="+segment(query.q)+"&scope="+segment(query.scope)+"&sort="+segment(query.sort)+"&offset="+query.offset);if(generation!==state.inboxGeneration)return;state.inbox={...data,items:Array.isArray(data.items)?data.items:[]};}
     catch(error){if(generation===state.inboxGeneration)state.inboxError=error.message||"申请列表读取失败，请重试。";}
     finally {if(generation===state.inboxGeneration){state.inboxLoading=false;renderInbox();}}
+  }
+  async function inboxPage(direction) {
+    if(state.inboxLoading||state.inboxError)return;
+    const page=state.inbox?.pagination, offset=direction==="next"?page?.next_offset:page?.previous_offset;
+    if(!Number.isInteger(offset)||offset<0||(direction==="next"&&page?.has_more!==true))return;
+    state.inboxQuery.offset=offset;await loadInbox();
+  }
+  async function showInboxProgress(id) {
+    const dialog=$("inbox-progress-dialog"), box=$("inbox-progress-content"),generation=++state.inboxDetailGeneration;
+    box.innerHTML='<p><span class="spinner" aria-hidden="true"></span>正在读取申请进度…</p>';box.setAttribute("aria-busy","true");
+    if(!dialog.open)dialog.showModal();
+    try {
+      const data=await api("/application-inbox/"+segment(id));
+      if(generation!==state.inboxDetailGeneration||!dialog.open)return;
+      const item=data.item||{},timeline=Array.isArray(data.timeline)?data.timeline:[];
+      const dateText=(event)=>{
+        if(!["recorded","deadline"].includes(event.time_basis)||!event.occurred_at)return "未记录";
+        const date=new Date(event.occurred_at);
+        return Number.isNaN(date.getTime())?"未记录":new Intl.DateTimeFormat("zh-CN",{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false}).format(date);
+      };
+      box.innerHTML=`<p class="inbox-company">${e(item.job?.company||"公司未提供")}</p><h3>${e(item.job?.title||"岗位未提供")}</h3><p><span class="tag">${e(item.status_label||"状态待核对")}</span></p><div class="inbox-next"><strong>${e(item.next_action?.label||"当前下一步")}</strong><p>${e(item.next_action?.description||"请在原申请流程核对当前状态。")}</p></div><p class="hint">此视图只读取已有进度。请求继续表示等待原申请进程接续，不表示已经恢复或完成投递。</p><h3 class="inbox-timeline-title">已记录的时间线</h3>${timeline.length?`<ol class="inbox-timeline">${timeline.map((event)=>`<li><p class="inbox-event-time">${event.time_basis==="deadline"?"期限：":"记录时间："}${e(dateText(event))}</p><h4>${e(event.label||"进度记录")}</h4><p>${e(event.description||"未提供说明")}</p></li>`).join("")}</ol>`:'<p class="hint">尚无可展示的时间线记录。</p>'}${timeline.some((event)=>event.time_basis==="deadline")?'<p class="notice info">期限是约定截止时间，不代表申请进程已在该时刻处理过期状态。</p>':""}${data.timeline_truncated?'<p class="hint">时间线仅展示部分记录。</p>':""}`;
+    } catch(error){if(generation===state.inboxDetailGeneration&&dialog.open)box.innerHTML=`<div class="notice" role="alert">${e(error.message||"进度读取失败。")}</div><button type="button" class="button subtle" data-inbox-progress="${e(id)}">重试读取</button>`;}
+    finally {if(generation===state.inboxDetailGeneration)box.setAttribute("aria-busy","false");}
   }
   async function inboxAction(action,id,button) {
     const item=state.inbox?.items.find((item)=>item.id===id);if(!item||state.busy)return;
@@ -405,6 +437,8 @@
     if(button.dataset.go)showStage(button.dataset.go,true);
     if(button.dataset.close){state.dialogGeneration++;$(button.dataset.close).close();}
     if(button.hasAttribute("data-inbox-refresh"))await loadInbox();
+    if(button.dataset.inboxPage)await inboxPage(button.dataset.inboxPage);
+    if(button.dataset.inboxProgress)await showInboxProgress(button.dataset.inboxProgress);
     if(button.dataset.inboxAction)await inboxAction(button.dataset.inboxAction,button.dataset.inboxId,button);
     if(button.dataset.material)await viewMaterial(button.dataset.material);
     if(button.dataset.action)await handleAction(button.dataset.action,button);
@@ -421,6 +455,12 @@
   });
   document.addEventListener("keydown",(event)=>{if(event.key==="Escape")state.dialogGeneration++;});
   $("refresh").addEventListener("click",refresh);
+  $("inbox-search-form").addEventListener("submit",async(event)=>{
+    event.preventDefault();if(state.inboxLoading)return;
+    state.inboxQuery={q:$("inbox-query").value.trim(),scope:$("inbox-scope").value||"open",sort:$("inbox-sort").value||"newest",offset:0};
+    await loadInbox();
+  });
+  $("inbox-progress-dialog").addEventListener("close",()=>{state.inboxDetailGeneration++;});
   $("company").addEventListener("change",renderJobs);$("job").addEventListener("change",renderJobContext);
   $("current-target").addEventListener("change",async(event)=>{try{if(await loadTarget(event.target.value))showStage(state.stage);}catch(err){showError(err);}});
   $("target-form").addEventListener("submit",async(event)=>{

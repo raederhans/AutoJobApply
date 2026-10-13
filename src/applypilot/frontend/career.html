@@ -46,9 +46,12 @@
         <section id="stage-review" class="stage" hidden><div class="intro"><div><h2>让每个结论都有原句。</h2><p>提交产物后逐条评审。观察只限当前任务、情境与实际协助。</p></div><span class="section-number" aria-hidden="true">04</span></div><div id="review-content"></div></section>
         <section id="stage-inbox" class="stage" hidden>
           <div class="intro"><div><h2>把暂停的申请，接着往下走。</h2><p>查看原申请需要的答复与下一步。保存答复后，再明确申请继续。</p></div><span class="section-number" aria-hidden="true">05</span></div>
-          <div id="inbox-counts" class="metrics" aria-label="待处理申请概览"></div>
-          <div class="inbox-toolbar"><div><label for="inbox-filter">显示</label><select id="inbox-filter"><option value="all">全部待处理</option><option value="awaiting_response">待答复</option><option value="ready_to_resume">可申请继续</option><option value="resume_requested">等待流程接续</option><option value="blocked">需要另行处理 / 已过期</option></select></div><p class="hint">只在你点击时保存答复或申请继续；列表不会自动刷新。</p></div>
+          <form id="inbox-search-form" class="inbox-query"><div class="inbox-search-field"><label for="inbox-query">岗位、公司或问题关键词</label><input id="inbox-query" type="search" maxlength="200" placeholder="搜索申请记录"></div><div><label for="inbox-scope">范围</label><select id="inbox-scope"><option value="open">开放项</option><option value="history">历史记录</option><option value="all">全部记录</option></select></div><div><label for="inbox-sort">时间排序</label><select id="inbox-sort"><option value="newest">从新到旧</option><option value="oldest">从旧到新</option></select></div><button type="submit" id="inbox-search-submit" class="button secondary">搜索 / 应用</button></form>
+          <p class="hint">修改关键词、范围或排序后点击“搜索 / 应用”。查看列表与进度不会改变申请状态。</p>
+          <div id="inbox-counts" class="metrics" aria-label="本页申请概览"></div>
+          <div class="inbox-toolbar"><div><label for="inbox-filter">本页状态</label><select id="inbox-filter"><option value="all">本页全部状态</option><option value="awaiting_response">待答复</option><option value="ready_to_resume">可申请继续</option><option value="resume_requested">等待流程接续</option><option value="blocked">需要另行处理</option><option value="expired">已过期</option><option value="resolved">已解决</option><option value="failed">流程未完成</option></select></div><p class="hint">只在你点击时保存答复或申请继续；列表不会自动刷新。</p></div>
           <div id="inbox-content" aria-live="polite"><div class="empty">正在读取待处理申请…</div></div>
+          <nav id="inbox-pagination" class="inbox-pagination" aria-label="申请记录分页" hidden></nav>
         </section>
         <footer>材料关联、任务观察与通用技能等级分别记录。此工作台不作录用判断。</footer>
       </main>
@@ -57,6 +60,7 @@
   <dialog id="source-dialog"><div class="dialog-head"><h2 id="source-title">材料原文</h2><button type="button" class="button subtle" data-close="source-dialog">关闭</button></div><pre id="source-text"></pre></dialog>
   <dialog id="task-dialog"><div class="dialog-head"><h2 id="task-dialog-title">任务操作</h2><button type="button" class="button subtle" data-close="task-dialog">关闭</button></div><div id="task-dialog-content"></div></dialog>
   <dialog id="inbox-dialog" aria-labelledby="inbox-dialog-title"><div class="dialog-head"><h2 id="inbox-dialog-title">答复申请暂停项</h2><button type="button" class="button subtle" data-close="inbox-dialog">关闭</button></div><div id="inbox-dialog-content"></div></dialog>
+  <dialog id="inbox-progress-dialog" aria-labelledby="inbox-progress-title"><div class="dialog-head"><h2 id="inbox-progress-title">申请进度</h2><button type="button" class="button subtle" data-close="inbox-progress-dialog">关闭</button></div><div id="inbox-progress-content" aria-live="polite"></div></dialog>
   <noscript><p class="notice">请启用 JavaScript 以使用本地工作台。</p></noscript>
 </body>
 </html>
