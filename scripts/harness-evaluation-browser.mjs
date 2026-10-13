@@ -23,7 +23,7 @@ async function launch(spec) {
       !['lab-a', 'lab-b'].includes(spec.employer)) throw Error('Unknown controlled fixture');
   task = spec;
   const python = process.env.APPLYPILOT_TEST_PYTHON || 'python';
-  const location = spawnSync(python, ['-c', 'import pathlib,playwright;print(pathlib.Path(playwright.__file__).parent / "driver" / "package")'],
+  const location = spawnSync(python, ['-X', 'utf8', '-c', 'import pathlib,playwright;print(pathlib.Path(playwright.__file__).parent / "driver" / "package")'],
     { encoding: 'utf8', timeout: 15000, windowsHide: true });
   if (location.status !== 0) throw Error('Playwright installation unavailable');
   const { chromium } = createRequire(import.meta.url)(location.stdout.trim());
