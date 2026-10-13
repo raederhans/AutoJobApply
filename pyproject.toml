@@ -97,6 +97,7 @@ only-include = [
     "docs/career.md",
     "docs/application-writing.md",
     "docs/application-writing-evaluation.md",
+    "docs/local-reminder-calendar.md",
     ".env.example",
     "CHANGELOG.md",
     "CONTRIBUTING.md",
