@@ -15,7 +15,7 @@
   Object.assign(state,{inbox:null,inboxLoading:false,inboxError:null,inboxGeneration:0,inboxDrafts:new Map(),inboxQuery:{q:"",scope:"open",sort:"newest",offset:0,record_id:""},inboxDetailGeneration:0,inboxRecordLabel:null});
   Object.assign(state,{jobReport:null,jobReportLoading:false,jobReportError:null,jobReportGeneration:0,jobStatusOptionsReady:false,jobReportDownloading:false,jobReportQuery:{q:"",since:"",until:"",date_field:"updated_at",statuses:[],offset:0,record_id:""},jobReportRecordLabel:null});
   Object.assign(state,{reminders:null,reminderLoading:false,reminderError:null,reminderGeneration:0,reminderLimit:100,reminderBusy:false,reminderUncertain:false,reminderDownloading:false});
-  Object.assign(state,{jobCompareSelection:[],jobCompareGeneration:0});
+  Object.assign(state,{jobCompareSelection:[],jobCompareGeneration:0,jobCompareDownloading:false});
   const stageNames = {materials:"目标与材料",diagnosis:"差距诊断",route:"学习路线",review:"产物与评审",inbox:"申请待处理","job-progress":"求职进度"};
   const validRecordId=(value)=>typeof value==="string"&&/^application-[a-f0-9]{16}$/.test(value);
   const kindNames = {resume:"简历",resume_copy:"简历副本",project_evidence:"项目证据",generated:"生成 / 练习产物",candidate_facts:"事实记录",candidate_fact_master:"求职事实主档",project_fact_context:"项目事实与贡献范围",project_fact_master:"项目事实主档"};
@@ -260,6 +260,7 @@
   function renderJobCompareSelection() {
     const selected=state.jobCompareSelection;$("job-compare-count").textContent=`已选 ${selected.length} / 4`;
     $("job-compare-view").disabled=selected.length<2;$("job-compare-clear").disabled=!selected.length;
+    $("job-compare-html").disabled=$("job-compare-markdown").disabled=selected.length<2||state.jobCompareDownloading;
     $("job-compare-selection").innerHTML=selected.length?selected.map((record)=>`<div class="job-compare-pick"><div><strong>${e(record.title||"岗位未提供")}</strong><span>${e(record.company||"公司未提供")}</span></div><button type="button" class="text-button" data-job-compare-remove="${e(record.record_id)}" aria-label="移出对比：${e(record.title||"此岗位")}">移除</button></div>`).join(""):'<p class="hint">从下方求职记录逐行加入对比。其它分页上的选择会保留。</p>';
   }
   function toggleJobComparison(id,{fromRow=false}={}) {
@@ -287,6 +288,20 @@
       box.innerHTML=comparisonTable(data.records,data.fields.length?data.fields.map((field)=>`<tr><th scope="row">${e(field.label)}</th>${field.values.map((value)=>`<td>${e(value===null?"未记录":value)}</td>`).join("")}</tr>`).join(""):`<tr><td colspan="${selected.length+1}">这些记录尚无可展示的对比字段。</td></tr>`)+(data.notes.length?`<div class="job-compare-notes"><h3>记录说明</h3><ul>${data.notes.map((note)=>`<li>${e(note)}</li>`).join("")}</ul></div>`:"");
     }catch(error){if(generation===state.jobCompareGeneration&&dialog.open)box.innerHTML=`<div class="notice" role="alert">${e(error.message||"对比读取失败。")} 请关闭弹窗后重新核对选中记录；当前选择全部保留。</div>`+comparisonTable(selected,`<tr><td colspan="${selected.length+1}">对比信息未加载，可关闭后移除或重新选择记录。</td></tr>`);}
     finally{if(generation===state.jobCompareGeneration)box.setAttribute("aria-busy","false");}
+  }
+  async function downloadJobComparison(format) {
+    if(!["html","markdown"].includes(format)||state.jobCompareDownloading)return;
+    const selected=state.jobCompareSelection.map((record)=>record.record_id);if(selected.length<2||selected.length>4)return;
+    const query=selected.map((id)=>"record_id="+segment(id)).join("&");state.jobCompareDownloading=true;renderJobCompareSelection();let objectURL;
+    try{
+      const response=await fetch(BASE+"/job-progress/compare/download?format="+format+"&"+query,{headers:{Accept:format==="html"?"text/html":"text/markdown"},cache:"no-store"});
+      if(!response.ok){let data;try{data=await response.json();}catch{}throw new Error(data?.error?.message||"对比下载未完成，请核对所选记录。");}
+      objectURL=URL.createObjectURL(await response.blob());const link=document.createElement("a");
+      const filename=/filename="?([^";]+)/i.exec(response.headers.get("Content-Disposition")||"")?.[1]?.trim();
+      link.href=objectURL;link.download=filename&&!/[\\/]/.test(filename)?filename:`job-comparison.${format==="html"?"html":"md"}`;document.body.append(link);link.click();link.remove();
+      feedback(`已下载 ${selected.length} 条所选记录的对比文件；选择仍保留。`);
+    }catch(error){feedback((error.message||"对比下载连接中断。")+" 请核对后再操作；当前选择全部保留。",{error:true});}
+    finally{if(objectURL)setTimeout(()=>URL.revokeObjectURL(objectURL),1000);state.jobCompareDownloading=false;renderJobCompareSelection();}
   }
   async function loadJobProgress() {
     const generation=++state.jobReportGeneration;state.jobReportLoading=true;state.jobReportError=null;renderJobProgress();
@@ -675,6 +690,7 @@
     if(button.dataset.jobCompareRemove)toggleJobComparison(button.dataset.jobCompareRemove);
     if(button.hasAttribute("data-job-compare-clear")){state.jobCompareSelection=[];renderJobProgress();$("job-compare-region").focus({preventScroll:true});}
     if(button.hasAttribute("data-job-compare-read"))await showJobComparison();
+    if(button.dataset.jobCompareDownload)await downloadJobComparison(button.dataset.jobCompareDownload);
     if(button.hasAttribute("data-reminder-more")&&!state.reminderLoading&&state.reminderLimit<500){state.reminderLimit+=100;await loadReminders();}
     if(button.dataset.reminderCreate)openReminder("create",button.dataset.reminderCreate);
     if(button.dataset.reminderSnooze)openReminder("snooze",button.dataset.reminderSnooze);
