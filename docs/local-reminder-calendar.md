@@ -16,7 +16,8 @@ The download result gives the number of exported events and skipped entries.
 Missing/invalid dates are counted separately from unavailable source records;
 an unavailable source takes precedence so the same entry is not counted twice.
 Those entries stay visible in the workbench for review. An empty or entirely
-undated group produces an empty calendar with truthful omission counts.
+undated group displays zero exportable events and omission counts; it creates
+no calendar file. RFC 5545 requires at least one calendar component.
 
 Each download is a new snapshot with fresh event identifiers. Changes in the
 workbench do not update files already downloaded or calendars already imported.
@@ -27,7 +28,8 @@ update behavior and notification preferences have not been exercised here.
 The browser endpoint is
 `GET /api/career/v1/job-progress/reminders/download?format=ics&bucket=all`.
 It returns `followup-reminders.ics`, `text/calendar; charset=utf-8`, with no-store
-headers and integer event/omission counts for the download message. It reuses
+headers and integer event/omission counts for the download message. With zero
+events it returns HTTP 204, the same counts and no attachment/body. It reuses
 the existing complete public reminder projection and performs no writes. URLs,
 source IDs, application answers, private action summaries and credentials are
 not added. Event text contains only the projection's public role/company labels

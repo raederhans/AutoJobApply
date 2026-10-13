@@ -61,6 +61,10 @@ def render_calendar(report: dict) -> tuple[bytes, dict[str, int]]:
                 "CLASS:PRIVATE", "TRANSP:TRANSPARENT", "END:VEVENT",
             ])
             counts["events"] += 1
+    if counts["events"] == 0:
+        # An RFC 5545 object needs at least one component. Keep the omission
+        # report but do not manufacture an empty, unimportable calendar file.
+        return b"", counts
     lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//ApplyPilot//Local Reminder Snapshot//ZH",
         "CALSCALE:GREGORIAN",
         f"X-APPLYPILOT-EXPORTED-COUNT:{counts['events']}",

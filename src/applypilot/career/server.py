@@ -151,8 +151,9 @@ class CareerHandler(BaseHTTPRequestHandler):
              calendar_counts=None):
         body = value if isinstance(value, bytes) else json.dumps(public(value), ensure_ascii=False, allow_nan=False).encode("utf-8")
         self.send_response(status)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
+        if status != 204:
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
         if download_name is not None:
             self.send_header("Content-Disposition", f'attachment; filename="{download_name}"')
         if calendar_counts is not None:
@@ -271,8 +272,8 @@ class CareerHandler(BaseHTTPRequestHandler):
                     raise ValueError("reminder_input_invalid") from exc
                 if options["format"] == "ics":
                     body, counts = reminders.download_calendar(self.server.workspace, bucket=options.get("bucket", "all"))
-                    self.send(200, body, content_type="text/calendar; charset=utf-8",
-                              download_name="followup-reminders.ics", calendar_counts=counts)
+                    self.send(200 if counts["events"] else 204, body, content_type="text/calendar; charset=utf-8",
+                              download_name="followup-reminders.ics" if counts["events"] else None, calendar_counts=counts)
                     return
                 body, content_type, filename = reminders.download(self.server.workspace, **options)
                 self.send(200, body, content_type=content_type, download_name=filename)

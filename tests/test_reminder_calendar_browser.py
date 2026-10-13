@@ -53,10 +53,7 @@ def test_unknown_dates_and_unavailable_targets_are_counted_without_invented_even
     ]}}
     body, counts = render_calendar(report)
     assert counts == {"events": 0, "omitted_undated": 3, "omitted_unavailable": 1}
-    text = unfolded(body)
-    assert "BEGIN:VEVENT" not in text and "DTSTART" not in text
-    assert "X-APPLYPILOT-OMITTED-UNDATED:3\r\n" in text
-    assert "X-APPLYPILOT-OMITTED-UNAVAILABLE:1\r\n" in text
+    assert body == b""  # Zero events must not produce an invalid empty calendar.
 
 
 def test_http_calendar_uses_complete_selected_group_and_local_overrides_without_writes(progress):
@@ -90,9 +87,10 @@ def test_http_calendar_uses_complete_selected_group_and_local_overrides_without_
     assert selected.headers["X-ApplyPilot-Calendar-Events"] == "1"
     assert unfolded(selected.content).count("BEGIN:VEVENT\r\n") == 1
     empty = client.get(ROUTE + "/download?format=ics&bucket=undated")
+    assert empty.status_code == 204
     assert empty.headers["X-ApplyPilot-Calendar-Events"] == "0"
     assert empty.headers["X-ApplyPilot-Calendar-Omitted-Undated"] == "1"
-    assert "BEGIN:VEVENT" not in unfolded(empty.content)
+    assert not empty.content and "Content-Disposition" not in empty.headers and "Content-Length" not in empty.headers
     assert (db.read_bytes(), (db.parent / "followup-reminders.json").read_bytes()) == before
     followup_reminders.dismiss_reminder(db.parent, reminder_id=reminder_id)
     assert client.get(ROUTE + "/download?format=ics&bucket=future").headers["X-ApplyPilot-Calendar-Events"] == "0"
@@ -107,7 +105,7 @@ def test_calendar_bad_scopes_and_unavailable_target_are_explicit(progress):
         conn.execute("DELETE FROM jobs WHERE title=?", (row["title"],))
     before = db.read_bytes(), (db.parent / "followup-reminders.json").read_bytes()
     response = client.get(ROUTE + "/download?format=ics&bucket=all")
-    assert response.status_code == 200 and response.headers["X-ApplyPilot-Calendar-Events"] == "0"
+    assert response.status_code == 204 and response.headers["X-ApplyPilot-Calendar-Events"] == "0"
     assert response.headers["X-ApplyPilot-Calendar-Omitted-Unavailable"] == "1"
     for query in ("format=ics&bucket=invalid", "format=ics&limit=1", "format=ics&format=html", "format=ics&record_id=made-up"):
         assert client.get(ROUTE + "/download?" + query).status_code == 422
