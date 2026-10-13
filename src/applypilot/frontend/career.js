@@ -13,7 +13,7 @@
   };
   const state = {token:null, catalog:{companies:[],jobs:[]}, materials:[], targets:[], runs:[], target:null, diagnosis:null, progress:null, stage:"materials", file:null, polling:null, retry:null, busy:false, observedRuns:new Set(),pendingResults:new Map(),selectionGeneration:0,selectionPending:false,dialogGeneration:0,dataGeneration:0};
   Object.assign(state,{inbox:null,inboxLoading:false,inboxError:null,inboxGeneration:0,inboxDrafts:new Map(),inboxQuery:{q:"",scope:"open",sort:"newest",offset:0,record_id:""},inboxDetailGeneration:0,inboxRecordLabel:null});
-  Object.assign(state,{jobReport:null,jobReportLoading:false,jobReportError:null,jobReportGeneration:0,jobStatusOptionsReady:false,jobReportDownloading:false,jobReportQuery:{q:"",since:"",until:"",date_field:"updated_at",statuses:[],offset:0,record_id:""},jobReportRecordLabel:null});
+  Object.assign(state,{jobReport:null,jobReportLoading:false,jobReportError:null,jobReportGeneration:0,jobReportStatusDraft:null,jobReportDownloading:false,jobReportQuery:{q:"",since:"",until:"",date_field:"updated_at",statuses:[],offset:0,record_id:""},jobReportRecordLabel:null,sessionExpired:false});
   Object.assign(state,{reminders:null,reminderLoading:false,reminderError:null,reminderGeneration:0,reminderLimit:100,reminderBusy:false,reminderUncertain:false,reminderDownloading:false});
   Object.assign(state,{jobCompareSelection:[],jobCompareGeneration:0,jobCompareDownloading:false});
   const stageNames = {materials:"目标与材料",diagnosis:"差距诊断",route:"学习路线",review:"产物与评审",inbox:"申请待处理","job-progress":"求职进度"};
@@ -76,8 +76,8 @@
     return data;
   }
   function showError(err, retry) {
-    if(err.status===409) { state.retry=null;feedback("数据已发生变化，本次操作没有重新提交。刷新后请核对最新内容。",{error:true,action:()=>{$("task-dialog").close();refresh();},label:"刷新最新数据"});return; }
-    if(err.status===403&&err.code==="session_required") {feedback("页面会话已变化，请刷新后核对再操作。",{error:true,action:()=>{$("task-dialog").close();loadBootstrap();},label:"刷新会话"});return;}
+    if(err.status===409) { state.retry=null;feedback("数据已发生变化，本次操作没有重新提交。刷新后请核对最新内容。"+($("inbox-dialog").open?" 答复草稿保留在本页，请重新打开条目后核对保存。":""),{error:true,action:()=>{$("task-dialog").close();$("inbox-dialog").close();return refresh();},label:"刷新最新数据"});return; }
+    if(err.status===403&&err.code==="session_required") {state.retry=null;state.sessionExpired=true;feedback("页面会话已变化，请刷新后核对再操作。",{error:true,action:()=>{$("task-dialog").close();return refreshSession();},label:"刷新会话"});return;}
     feedback(err.message || "操作未完成。",{error:true,...(err.network&&retry?{action:retry,label:"重试本次操作"}:{})});
   }
   // A retry retains the exact intent payload and request key; conflicts require a fresh user action.
@@ -196,6 +196,7 @@
   }
   function syncJobRecordInputs() {
     const query=state.jobReportQuery;$("job-progress-query").value=query.q;$("job-progress-since").value=query.since;$("job-progress-until").value=query.until;$("job-progress-date-field").value=query.date_field;
+    state.jobReportStatusDraft=[...query.statuses];
     $("job-progress-status-options").querySelectorAll("input[type=checkbox]").forEach((input)=>{input.checked=query.statuses.includes(input.value);});
   }
   function syncInboxRecordInputs() {
@@ -241,8 +242,9 @@
     $("job-progress-summary").innerHTML=[["record_count","匹配记录"],["todo_count","含待核对线索的记录"],["open_action_record_count","含开放行动的记录"]].map(([key,label])=>`<div class="metric"><strong>${e(data?.available===true&&Number.isFinite(summary[key])?summary[key]:"—")}</strong>${label}</div>`).join("");
     const options=data?.status_options;
     if(Array.isArray(options)){
-      const selected=state.jobStatusOptionsReady?[...$("job-progress-status-options").querySelectorAll("input:checked")].map((input)=>input.value):state.jobReportQuery.statuses;
-      $("job-progress-status-options").innerHTML=options.length?options.map((option)=>`<label><input type="checkbox" value="${e(option.value)}" ${selected.includes(option.value)?"checked":""}><span>${e(option.label||progressStatus(option.value))}</span></label>`).join(""):'<p class="hint">暂无可选状态。</p>';state.jobStatusOptionsReady=true;
+      const selected=state.jobReportStatusDraft??state.jobReportQuery.statuses;
+      const choices=[...options,...selected.filter((value)=>!options.some((option)=>option.value===value)).map((value)=>({value,label:progressStatus(value)}))];
+      $("job-progress-status-options").innerHTML=choices.length?choices.map((option)=>`<label><input type="checkbox" value="${e(option.value)}" ${selected.includes(option.value)?"checked":""}><span>${e(option.label||progressStatus(option.value))}</span></label>`).join(""):'<p class="hint">暂无可选状态。</p>';
     }
     const page=data?.pagination,nav=$("job-progress-pagination");nav.hidden=data?.available!==true||!page;
     if(page){const offset=Number.isInteger(page.offset)?page.offset:0,length=data.rows.length,total=Number.isFinite(page.total)?page.total:"—";
@@ -395,6 +397,7 @@
     try{await api(path,body);if(closeDialog)$("job-reminder-dialog").close();await loadReminders();feedback(message);}
     catch(error){
       if(error.network){state.reminderUncertain=true;feedback("写入结果暂不确定。刷新清单核对后再操作；不会自动重试。",{error:true,action:()=>loadReminders({reconcile:true}),label:"刷新提醒清单"});}
+      else if(error.status===403&&error.code==="session_required")showError(error);
       else feedback(error.message||"提醒未保存，请核对输入。",{error:true});
     }finally{state.reminderBusy=false;renderReminders();syncReminderControls();}
   }
@@ -551,6 +554,7 @@
       try {bundle=await readTargetBundle(id,{routeId:id===selected?selectedRoute:null,generation});}
       catch(error) {if(currentGeneration(generation)&&selectedRoute&&error.status===404)bundle=await readTargetBundle(id,{generation});else throw error;}
       if(!publishSelection(bundle,generation,{token:data.token,catalog:data.catalog||{companies:[],jobs:[]},materials:data.materials||[],targets,runs:data.runs||[]}))return false;
+      state.sessionExpired=false;
       observeHistoricalRuns();$("workspace-label").textContent=data.workspace_label||"本地工作空间";renderCatalog();
       showStage(restoreStage&&stageNames[saved.stage]?saved.stage:state.stage);schedulePoll();
       if(!restoreStage)feedback("数据已刷新。");
@@ -560,7 +564,12 @@
       return false;
     }
   }
-  async function refresh() {return state.stage==="inbox"?loadInbox():state.stage==="job-progress"?Promise.all([loadJobProgress(),loadReminders({reconcile:true})]):loadBootstrap();}
+  async function refreshSession() {
+    const refreshed=await loadBootstrap();
+    if(refreshed)feedback("会话已刷新。请核对保留的草稿，再次点击保存；不会自动重新提交。");
+    return refreshed;
+  }
+  async function refresh() {return state.sessionExpired?refreshSession():state.stage==="inbox"?loadInbox():state.stage==="job-progress"?Promise.all([loadJobProgress(),loadReminders({reconcile:true})]):loadBootstrap();}
   async function resultOfRun(run, navigate=false) {
     const refs=run.result_refs||{}, selectedId=state.target?.target_id;
     if(!navigate&&(["inbox","job-progress"].includes(state.stage)||state.busy||state.selectionPending||(refs.target_id&&selectedId&&refs.target_id!==selectedId)))return false;
@@ -718,11 +727,14 @@
   });
   $("inbox-progress-dialog").addEventListener("close",()=>{state.inboxDetailGeneration++;});
   $("job-compare-dialog").addEventListener("close",()=>{state.jobCompareGeneration++;});
+  $("job-progress-status-options").addEventListener("change",()=>{
+    state.jobReportStatusDraft=[...$("job-progress-status-options").querySelectorAll("input:checked")].map((input)=>input.value);
+  });
   $("job-progress-form").addEventListener("submit",async(event)=>{
     event.preventDefault();if(state.jobReportLoading)return;
     const since=$("job-progress-since").value,until=$("job-progress-until").value;
     if(since&&until&&since>until){feedback("起始日期不能晚于结束日期。",{error:true});$("job-progress-since").focus();return;}
-    state.jobReportQuery={q:$("job-progress-query").value.trim(),since,until,date_field:$("job-progress-date-field").value||"updated_at",statuses:[...$("job-progress-status-options").querySelectorAll("input:checked")].map((input)=>input.value),offset:0,record_id:state.jobReportQuery.record_id||""};await loadJobProgress();
+    state.jobReportQuery={q:$("job-progress-query").value.trim(),since,until,date_field:$("job-progress-date-field").value||"updated_at",statuses:[...(state.jobReportStatusDraft??state.jobReportQuery.statuses)],offset:0,record_id:state.jobReportQuery.record_id||""};await loadJobProgress();
   });
   $("company").addEventListener("change",renderJobs);$("job").addEventListener("change",renderJobContext);
   $("current-target").addEventListener("change",async(event)=>{try{if(await loadTarget(event.target.value))showStage(state.stage);}catch(err){showError(err);}});

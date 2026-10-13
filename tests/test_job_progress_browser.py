@@ -91,6 +91,45 @@ def test_utc_status_filters_and_bad_browser_queries(progress):
         assert response.json()["error"]["code"] == "invalid_progress_filter"
 
 
+@pytest.mark.parametrize("extra_filter", [{"q": "No matching role"}, {"since": "2099-01-01"},
+                                         {"until": "2000-01-01"}])
+def test_interview_options_survive_empty_filters_and_keep_other_rounds_available(progress, extra_filter):
+    from applypilot import application_progress, followup
+
+    client, db = progress
+    with sqlite3.connect(db) as conn:
+        for index in (1, 2):
+            url = f"https://example.test/{index}?token=PRIVATE"
+            identity = application_progress.application_for_url(conn, url)
+            if not identity:
+                identity = application_progress.register_application(
+                    conn, source_key=f"filter-round-{index}", company="Fictional Co", title=f"Role {index}",
+                    job_url=url, submission_basis="reported",
+                )["application_id"]
+            followup.import_events(conn, [{
+                "provider": "synthetic", "message_id": f"round-{index}",
+                "application_id": identity, "job_url": url,
+                "event_type": "interview_invited", "round": index, "occurred_at": "2026-10-13T00:00:00Z",
+                "evidence_ref": "synthetic-evidence", "summary": "Synthetic interview invitation",
+            }])
+    original = db.read_bytes()
+    route = PREFIX + "/job-progress"
+    initial = client.get(route).json()
+    expected_options = initial["status_options"]
+    assert {"interview_1", "interview_2"} <= {option["value"] for option in expected_options}
+    empty = client.get(route, params={"status": "interview_1", **extra_filter}).json()
+    assert empty["rows"] == [] and empty["filters"]["statuses"] == ["interview_1"]
+    assert empty["status_options"] == expected_options
+    restored = client.get(route, params={"status": "interview_1"}).json()
+    assert [row["title"] for row in restored["rows"]] == ["Analyst 001"]
+    exported = client.get(route + "/download", params={"status": "interview_1", "format": "csv"})
+    assert [row["title"] for row in csv.DictReader(io.StringIO(exported.content.decode("utf-8-sig")))] == ["Analyst 001"]
+    # A selected round remains representable even after its last record disappears.
+    absent = client.get(route, params={"status": "interview_99"}).json()
+    assert absent["rows"] == [] and "interview_99" in {option["value"] for option in absent["status_options"]}
+    assert db.read_bytes() == original
+
+
 def test_absent_progress_tables_keep_unknown_counts_and_no_schema_writes():
     with sqlite3.connect(":memory:") as conn:
         result = job_progress.preview(conn)

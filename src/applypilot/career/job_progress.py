@@ -22,7 +22,8 @@ _LABELS = {
 }
 
 
-def _report(conn, *, q="", since=None, until=None, date_field="updated_at", statuses=(), record_id=None):
+def _report(conn, *, q="", since=None, until=None, date_field="updated_at", statuses=(), record_id=None,
+            include_status_options=False):
     if not isinstance(q, str) or len(q) > 200 or len(statuses) > 30:
         raise ValueError("progress_filter_invalid")
     if any(not isinstance(value, str) or len(value) > 80 for value in statuses):
@@ -37,6 +38,11 @@ def _report(conn, *, q="", since=None, until=None, date_field="updated_at", stat
         try:
             report = progress_report.collect_report(conn, since=since, until=until,
                                                     statuses=statuses, date_field=date_field)
+            if include_status_options:
+                # Read the available rounds in the same snapshot, before any
+                # result filters. An empty result must not remove filter choices.
+                unfiltered = progress_report.collect_report(conn) if since or until or statuses else report
+                report["available_recruiting_stages"] = list(unfiltered["recruiting_stage_counts"])
         except (ValueError, TypeError) as exc:
             raise ValueError("progress_filter_invalid") from exc
     finally:
@@ -60,11 +66,12 @@ def _report(conn, *, q="", since=None, until=None, date_field="updated_at", stat
 def preview(conn, *, offset=0, **filters):
     if type(offset) is not int or not 0 <= offset <= 1_000_000:
         raise ValueError("progress_filter_invalid")
-    report, available = _report(conn, **filters)
+    report, available = _report(conn, include_status_options=True, **filters)
     rows, total = report["rows"], len(report["rows"])
     offset = min(offset, ((total - 1) // LIMIT) * LIMIT) if total else 0
     has_more = offset + LIMIT < total
-    codes = progress_report.APPLICATION_STATUSES | progress_report.RECRUITING_STAGES | set(report["recruiting_stage_counts"])
+    codes = (progress_report.APPLICATION_STATUSES | progress_report.RECRUITING_STAGES
+             | set(report["available_recruiting_stages"]) | set(report["filters"]["statuses"]))
     options = [{"value": code, "label": _LABELS.get(code, "第 " + code.removeprefix("interview_") + " 轮面试")}
                for code in sorted(codes)]
     return {"available": available, "generated_at": report["generated_at"], "timezone": "UTC",
