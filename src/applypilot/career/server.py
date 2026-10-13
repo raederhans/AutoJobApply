@@ -17,6 +17,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 from applypilot.career import learning, service
+from applypilot.career.application_inbox import ApplicationInbox
 from applypilot.career.workbench import Workbench, previous_request, public, save_request
 from applypilot.career.worker import CareerWorker
 from applypilot.database import close_connection, init_db
@@ -58,6 +59,7 @@ class CareerServer(ThreadingHTTPServer):
         self.workspace = Path(workspace).resolve()
         self.db_path = self.workspace / "applypilot.db"
         self.workbench = Workbench(self.workspace)
+        self.application_inbox = ApplicationInbox(self.workspace)
         self.token, self.instance_id = secrets.token_urlsafe(32), secrets.token_hex(16)
         # Migration is startup-only. Request handlers never call init_db.
         init_db(self.db_path)
@@ -187,6 +189,8 @@ class CareerHandler(BaseHTTPRequestHandler):
             with self.server.connection() as conn:
                 if p == ["bootstrap"]:
                     result = {**wb.bootstrap(conn), "token": self.server.token, "runs": self.server.worker.list_jobs()}
+                elif p == ["application-inbox"]:
+                    result = self.server.application_inbox.list_items(conn)
                 elif p == ["materials"]:
                     result = {"materials": wb.materials(conn)}
                 elif len(p) == 2 and p[0] == "materials":
@@ -239,6 +243,10 @@ class CareerHandler(BaseHTTPRequestHandler):
                 self.send(200 if p[2] == "cancel" else 202, result)
                 return
             with worker.mutation(), self.server.connection(writing=True) as conn:
+                if len(p) == 3 and p[0] == "application-inbox" and p[2] in {"respond", "resume"}:
+                    result = self.server.application_inbox.mutate(conn, p[1], p[2], data)
+                    self.send(200, result)
+                    return
                 operation = "/".join(p)
                 key = data.get("request_key")
                 # Uploads are content-addressed and do not need a client request key.
