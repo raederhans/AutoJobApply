@@ -14,7 +14,7 @@ import webbrowser
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from applypilot.career import learning, service
 from applypilot.career.application_inbox import ApplicationInbox
@@ -168,9 +168,21 @@ class CareerHandler(BaseHTTPRequestHandler):
 
     def parts(self):
         path = urlsplit(self.path)
-        if path.query or path.fragment or not path.path.startswith(PREFIX + "/"):
+        inbox_query = self.command == "GET" and path.path == PREFIX + "/application-inbox"
+        if (path.query and not inbox_query) or path.fragment or not path.path.startswith(PREFIX + "/"):
             raise KeyError("endpoint_not_found")
         return [unquote(part) for part in path.path[len(PREFIX) + 1:].split("/")]
+
+    def inbox_query(self):
+        values = parse_qs(urlsplit(self.path).query, keep_blank_values=True, strict_parsing=True, max_num_fields=4)
+        if set(values) - {"q", "scope", "sort", "offset"} or any(len(value) != 1 for value in values.values()):
+            raise ValueError("invalid_inbox_query")
+        result = {name: value[0] for name, value in values.items()}
+        if "offset" in result:
+            if not result["offset"].isascii() or not result["offset"].isdigit() or len(result["offset"]) > 7:
+                raise ValueError("invalid_inbox_offset")
+            result["offset"] = int(result["offset"])
+        return result
 
     def do_GET(self):
         if not self.permitted():
@@ -190,7 +202,9 @@ class CareerHandler(BaseHTTPRequestHandler):
                 if p == ["bootstrap"]:
                     result = {**wb.bootstrap(conn), "token": self.server.token, "runs": self.server.worker.list_jobs()}
                 elif p == ["application-inbox"]:
-                    result = self.server.application_inbox.list_items(conn)
+                    result = self.server.application_inbox.list_items(conn, **self.inbox_query())
+                elif len(p) == 2 and p[0] == "application-inbox":
+                    result = self.server.application_inbox.detail(conn, p[1])
                 elif p == ["materials"]:
                     result = {"materials": wb.materials(conn)}
                 elif len(p) == 2 and p[0] == "materials":

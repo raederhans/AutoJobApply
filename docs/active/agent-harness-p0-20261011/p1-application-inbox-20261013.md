@@ -29,6 +29,43 @@ Unknown counts are null / “—”; truncated counts explicitly cover only the
 latest 100 open items. Drafts stay in page memory and are not replaced by the
 career background-task polling loop.
 
+## Search, history and recorded progress follow-up
+
+The list now accepts `q`, `scope=open|history|all`, `sort=newest|oldest` and a
+bounded integer `offset`. Literal keyword matching runs against jobs, company
+labels and human prompts before pagination, including records outside the
+first page. Scope and timestamp ordering are server-side; page size is 100.
+Counts and the existing state filter are explicitly for the current page.
+SELECTs share a read transaction so matching total and page content use one
+SQLite snapshot. No control schema is created by these reads.
+
+`GET /api/career/v1/application-inbox/{id}` provides the current item and a
+timeline projected from exception, human request/response and operator-result
+timestamps. Operator history is bounded to the latest 200 result records, with
+an explicit truncation marker. Missing or invalid timestamps stay null with
+`time_basis=unknown`. Past current-lease deadlines use `time_basis=deadline` and
+are described as recorded deadlines, never an observed dispatch or expiry
+handling time. Once a queue item is closed, current lease deadlines are not
+added as historical progress. Original answer files, response paths, arbitrary
+error details and worker authority are not exposed in this view.
+
+The detail dialog distinguishes a continuation request from an execution start,
+unrecorded completion, recorded failure, persisted expiry and queue closure.
+It never infers submission success from these states. Existing POSTs retain
+their original-owner boundary; search, pagination and detail only issue GETs.
+Next-step hints distinguish pending receipt checks, expired application sessions,
+changed browser sessions and newer checkpoints.
+
+Five short HTTP/SQLite cases passed in 3.28 s, including literal `%` searching
+beyond a 100-item first page, disjoint pagination, oldest ordering, history scope,
+recorded failure versus a lease deadline, and a missing expiry timestamp. A real
+Chromium walkthrough passed explicit search, answer/request, four-event progress
+and a closed historical item, without any extra POST from viewing progress.
+The six screenshots and request/database evidence are in
+`delivery-20261013/inbox-timeline-browser-demo/`; the HTTP log is
+`delivery-20261013/inbox-timeline-http/pytest.log`. Run the task-owned demo with
+`--timeline` to reproduce in another fresh fictional workspace.
+
 ## Short functional evidence
 
 - Three real loopback HTTP / SQLite cases passed in 1.67 s: answer then one

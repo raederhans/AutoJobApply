@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
 from applypilot.apply.human_handoff import HumanResponseRef, append_human_response
 from applypilot.apply.operator_commands import OperatorCommand, OperatorCommandError
 from applypilot.apply.operator_runtime import OperatorRuntime
+from applypilot.career.application_timeline import application_timeline
 from applypilot.career.workbench import previous_request, save_request
 from applypilot.storage.transactions import write_transaction
 
@@ -58,6 +60,34 @@ def _current(value):
         return False
 
 
+def _blocked_next_step(snapshot):
+    attempt, lease, checkpoint = (snapshot[name] for name in ("attempt", "lease", "checkpoint"))
+    context = _object(snapshot["exception"]["context_json"])
+    if attempt and attempt["submit_started"]:
+        return "需要核对提交回执", "原申请已有提交开始记录，请先在原流程核对回执与当前页面，避免重复提交。"
+    if attempt and attempt["status"] != "in_progress":
+        return "申请状态已变化", "请在原申请流程查看最新结果，再决定是否需要新的处理步骤。"
+    if attempt and not _current(attempt["lease_expires_at"]):
+        return "申请会话已过期", "请回到原申请流程确认当前状态后再继续；此处不能延长旧会话。"
+    if lease and (lease["status"] != "active" or not _current(lease["expires_at"])):
+        return "浏览器会话需重新核对", "请在原申请流程重新确认浏览器中的岗位、页面和已填写内容。"
+    if checkpoint and checkpoint["checkpoint_id"] != context.get("checkpoint_id"):
+        return "申请进度已更新", "请查看原流程中的最新进度与人工请求；这条旧记录不能直接继续。"
+    return "需要原流程重新核对", "申请与页面的关联已变化或缺少记录，请在原流程核对当前岗位和页面后接续。"
+
+
+@contextmanager
+def _read_snapshot(conn):
+    owned = not conn.in_transaction
+    if owned:
+        conn.execute("BEGIN")
+    try:
+        yield
+    finally:
+        if owned:
+            conn.rollback()
+
+
 class ApplicationInbox:
     def __init__(self, workspace):
         self.root = Path(workspace).resolve() / "career" / "workbench" / "human-responses"
@@ -87,7 +117,7 @@ class ApplicationInbox:
                        "ORDER BY created_at DESC,command_id DESC LIMIT 1", (exception_id,))
                    if "operator_command_envelopes" in tables else None)
         stages = ([tuple(row) for row in conn.execute(
-            "SELECT stage,outcome,terminal_status FROM operator_command_results WHERE command_id=? ORDER BY stage",
+            "SELECT stage,outcome,terminal_status,occurred_at FROM operator_command_results WHERE command_id=? ORDER BY stage",
             (command["command_id"],))] if command and "operator_command_results" in tables else [])
         return {"exception": item, "request": request, "response": response, "attempt": attempt,
                 "job": job, "lease": lease, "parent": parent, "checkpoint": checkpoint,
@@ -101,6 +131,7 @@ class ApplicationInbox:
         request_context = _object(request["context_json"]) if request else {}
         kind_label, description = _KINDS.get(item["queue_kind"], ("需要处理", "请回到原申请流程查看详情。"))
         status, label, respond, resume = "blocked", kind_label, False, False
+        stages = {row[0] for row in snapshot["stages"]}
         if item["queue_kind"] == "human_only":
             bound = bool(request and request["status"] == "open"
                          and (request["run_id"], request["attempt_id"], request_context.get("actor_id"), request_context.get("turn_id"))
@@ -118,42 +149,106 @@ class ApplicationInbox:
                           == (context.get("checkpoint_id"), item["attempt_id"], item["run_id"]))
             if item["status"] != "open" or not bound:
                 label, description = "记录已变化", "请回到原申请流程核对这条人工请求。"
+            elif "failed" in stages:
+                status, label, description = "failed", "接续未完成", "原流程记录了失败或阻断结果，请核对当前页面和已有结果；此处不会自动重试。"
+                if any(row[1] == "resume_request_expired" for row in snapshot["stages"]):
+                    status, label, description = "expired", "接续请求已过期", "原流程已记录过期处理，请回到原申请重新核对。"
             elif not active:
-                label, description = "需要原流程重新核对", "申请或浏览器会话已过期或变化，请在原流程核对当前页面后接续。"
+                label, description = _blocked_next_step(snapshot)
             elif snapshot["command"]:
-                stages = {row[0] for row in snapshot["stages"]}
                 if stages == {"requested"}:
                     status, label, description = "resume_requested", "已请求继续", _WAITING
+                elif "started" in stages and "verified" not in stages:
+                    label, description = "接续结果待核对", "已有执行开始记录，尚无持久完成结果；请在原流程核对，不能据此重复执行。"
                 else:
-                    label, description = "正在接续或需要核对", "请在原申请流程查看接续结果；当前记录不会重复执行。"
+                    label, description = "接续结果已记录", "请在原申请流程查看持久结果与当前状态；此处不会重复执行。"
+            elif response and response["response_type"] != request["request_type"]:
+                label, description = "答复关联待核对", "已保存的答复与当前问题类型不一致，请在原流程核对。"
             elif response:
                 status, label, resume = "ready_to_resume", "答复已保存", True
                 description = "点击申请继续后，由原申请进程重新核对状态并接续。"
             else:
                 status, label, respond = "awaiting_response", "等待人工答复", True
+        if item["status"] != "open":
+            respond = resume = False
+            status = "expired" if item["status"] == "expired" else "resolved"
+            label = "暂停项已过期" if status == "expired" else "暂停项已关闭"
+            description = ("请在原申请流程重新核对当前页面后决定下一步。" if status == "expired"
+                           else "这条暂停记录已关闭；岗位是否已投递请以申请回执为准。")
+        elif request and request["status"] == "expired":
+            respond = resume = False
+            status, label, description = "expired", "人工请求已过期", "请在原申请流程重新核对问题与当前页面。"
         job = snapshot["job"] or {}
         return {"id": item["exception_id"], "job": {"title": job.get("title") or "未记录岗位名称",
                 "company": job.get("company_name") or "未记录公司", "url": job.get("url")},
                 "kind": item["queue_kind"], "kind_label": kind_label, "status": status, "status_label": label,
+                "queue_status": item["status"],
                 "prompt": request["prompt"] if request else "请回到原申请流程查看具体问题。",
                 "created_at": item["created_at"], "request_id": request["request_id"] if request else None,
                 "response_recorded": response is not None, "revision": _digest(snapshot),
                 "next_action": {"label": "保存答复" if respond else "申请继续" if resume else label, "description": description},
                 "can_respond": respond, "can_resume": resume}
 
-    def list_items(self, conn):
+    def list_items(self, conn, *, q="", scope="open", sort="newest", offset=0):
+        if not isinstance(q, str) or len(q) > 200 or scope not in {"open", "history", "all"} or sort not in {"newest", "oldest"}:
+            raise ValueError("invalid_inbox_filter")
+        if type(offset) is not int or not 0 <= offset <= 1_000_000:
+            raise ValueError("invalid_inbox_offset")
+        with _read_snapshot(conn):
+            return self._list_items(conn, q=q.strip(), scope=scope, sort=sort, offset=offset)
+
+    def _list_items(self, conn, *, q, scope, sort, offset):
         tables = _tables(conn)
+        parameters = {"query": q, "scope": scope, "sort": sort}
         if "agent_exception_queue" not in tables:
             return {"available": False, "items": [], "counts": {"open": None, "needs_response": None,
-                    "resume_requested": None, "blocked": None}, "limit": LIMIT, "truncated": False}
-        rows = conn.execute("SELECT exception_id FROM agent_exception_queue WHERE status='open' "
-                            "ORDER BY created_at DESC,exception_id LIMIT ?", (LIMIT + 1,)).fetchall()
-        items = [self._view(self._snapshot(conn, row[0], tables)) for row in rows[:LIMIT]]
-        return {"available": True, "items": items, "counts": {"open": len(items),
+                    "resume_requested": None, "blocked": None, "shown": None}, "limit": LIMIT, "truncated": False,
+                    **parameters, "pagination": {"offset": 0, "total": None, "has_more": False, "next_offset": None, "previous_offset": None}}
+        clauses, args = [], []
+        if scope != "all":
+            clauses.append("e.status='open'" if scope == "open" else "e.status<>'open'")
+        joins = ""
+        search_fields = ["e.exception_id", "e.queue_kind"]
+        if {"application_attempts", "jobs"} <= tables:
+            joins += " LEFT JOIN application_attempts a ON a.attempt_id=e.attempt_id LEFT JOIN jobs j ON j.url=a.job_url"
+            search_fields += ["j.title", "j.company_name", "j.url"]
+        if "agent_human_requests" in tables:
+            # JSON extraction applies only to valid object contexts; it never trusts a caller path.
+            joins += (" LEFT JOIN agent_human_requests h ON h.request_id="
+                      "CASE WHEN json_valid(e.context_json) THEN json_extract(e.context_json,'$.request_id') END")
+            search_fields += ["h.prompt"]
+        if q:
+            pattern = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            clauses.append("(" + " OR ".join(f"{field} LIKE ? ESCAPE '\\'" for field in search_fields) + ")")
+            args.extend([pattern] * len(search_fields))
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        source = " FROM agent_exception_queue e" + joins + where
+        total = conn.execute("SELECT COUNT(*)" + source, args).fetchone()[0]
+        # A previous page may vanish when the owner closes an item. Return the last valid page.
+        offset = min(offset, ((total - 1) // LIMIT) * LIMIT) if total else 0
+        direction = "DESC" if sort == "newest" else "ASC"
+        rows = conn.execute("SELECT e.exception_id" + source +
+                            f" ORDER BY julianday(e.created_at) {direction},e.exception_id {direction} LIMIT ? OFFSET ?",
+                            [*args, LIMIT, offset]).fetchall()
+        items = [self._view(self._snapshot(conn, row[0], tables)) for row in rows]
+        has_more = offset + len(items) < total
+        return {"available": True, "items": items, "counts": {"shown": len(items),
+                "open": sum(item["queue_status"] == "open" for item in items),
                 "needs_response": sum(item["can_respond"] for item in items),
                 "resume_requested": sum(item["status"] == "resume_requested" for item in items),
-                "blocked": sum(item["status"] == "blocked" for item in items)},
-                "limit": LIMIT, "truncated": len(rows) > LIMIT}
+                "blocked": sum(item["status"] in {"blocked", "expired", "failed"} for item in items)},
+                **parameters, "limit": LIMIT, "truncated": total > len(items),
+                "pagination": {"offset": offset, "total": total, "has_more": has_more,
+                               "next_offset": offset + LIMIT if has_more else None,
+                               "previous_offset": max(0, offset - LIMIT) if offset else None}}
+
+    def detail(self, conn, exception_id):
+        with _read_snapshot(conn):
+            tables = _tables(conn)
+            if "agent_exception_queue" not in tables:
+                raise KeyError("application_inbox_not_found")
+            snapshot = self._snapshot(conn, exception_id, tables)
+            return {"item": self._view(snapshot), **application_timeline(conn, snapshot, tables)}
 
     def mutate(self, conn, exception_id, action, data):
         required = {"request_key", "revision"} | ({"answer"} if action == "respond" else set())
