@@ -19,6 +19,7 @@
         <button type="button" data-stage="diagnosis"><span class="step">02</span><span>差距诊断<small>核对条件与材料关联</small></span></button>
         <button type="button" data-stage="route"><span class="step">03</span><span>学习路线<small>按优先级与前置项推进</small></span></button>
         <button type="button" data-stage="review"><span class="step">04</span><span>产物与评审<small>逐项观察，保留原句</small></span></button>
+        <button type="button" data-stage="inbox"><span class="step">05</span><span>申请待处理<small>答复暂停项，申请继续</small></span></button>
       </nav>
       <div class="sidebar-bottom"><span class="local-dot"></span>本地工作空间<p id="workspace-label">正在连接…</p><small>书面证据 ≠ 实际能力测量</small></div>
     </aside>
@@ -26,7 +27,7 @@
       <header class="topbar"><div><span class="eyebrow">CAREER WORKBENCH</span><h1 id="page-title">目标与材料</h1></div><button type="button" class="button subtle" id="refresh">刷新数据 <span aria-hidden="true">↻</span></button></header>
       <main id="main" tabindex="-1">
         <div id="feedback" role="status" aria-live="polite" hidden></div>
-        <section class="target-strip" aria-label="当前目标"><label for="current-target">当前目标</label><select id="current-target"><option value="">尚未选择目标</option></select><span id="target-context" class="muted">先选择岗位与材料</span></section>
+        <section id="target-strip" class="target-strip" aria-label="当前目标"><label for="current-target">当前目标</label><select id="current-target"><option value="">尚未选择目标</option></select><span id="target-context" class="muted">先选择岗位与材料</span></section>
         <section id="run-region" aria-label="后台运行" hidden></section>
         <section id="stage-materials" class="stage">
           <div class="intro"><div><h2>把目标放在证据上。</h2><p>选择一个岗位样本，连接你的简历、项目产物或补充材料。</p></div><span class="section-number" aria-hidden="true">01</span></div>
@@ -43,12 +44,19 @@
         <section id="stage-diagnosis" class="stage" hidden><div class="intro"><div><h2>先看依据，再看差距。</h2><p>资格条件独立核对；有关联材料并不意味着任务已经通过。</p></div><span class="section-number" aria-hidden="true">02</span></div><div id="diagnosis-content"></div></section>
         <section id="stage-route" class="stage" hidden><div class="intro"><div><h2>下一步，做一件可验收的事。</h2><p>路线按优先级和前置任务排序，未知时间预算只提供顺序。</p></div><span class="section-number" aria-hidden="true">03</span></div><div id="route-content"></div></section>
         <section id="stage-review" class="stage" hidden><div class="intro"><div><h2>让每个结论都有原句。</h2><p>提交产物后逐条评审。观察只限当前任务、情境与实际协助。</p></div><span class="section-number" aria-hidden="true">04</span></div><div id="review-content"></div></section>
+        <section id="stage-inbox" class="stage" hidden>
+          <div class="intro"><div><h2>把暂停的申请，接着往下走。</h2><p>查看原申请需要的答复与下一步。保存答复后，再明确申请继续。</p></div><span class="section-number" aria-hidden="true">05</span></div>
+          <div id="inbox-counts" class="metrics" aria-label="待处理申请概览"></div>
+          <div class="inbox-toolbar"><div><label for="inbox-filter">显示</label><select id="inbox-filter"><option value="all">全部待处理</option><option value="awaiting_response">待答复</option><option value="ready_to_resume">可申请继续</option><option value="resume_requested">等待流程接续</option><option value="blocked">需要另行处理 / 已过期</option></select></div><p class="hint">只在你点击时保存答复或申请继续；列表不会自动刷新。</p></div>
+          <div id="inbox-content" aria-live="polite"><div class="empty">正在读取待处理申请…</div></div>
+        </section>
         <footer>材料关联、任务观察与通用技能等级分别记录。此工作台不作录用判断。</footer>
       </main>
     </div>
   </div>
   <dialog id="source-dialog"><div class="dialog-head"><h2 id="source-title">材料原文</h2><button type="button" class="button subtle" data-close="source-dialog">关闭</button></div><pre id="source-text"></pre></dialog>
   <dialog id="task-dialog"><div class="dialog-head"><h2 id="task-dialog-title">任务操作</h2><button type="button" class="button subtle" data-close="task-dialog">关闭</button></div><div id="task-dialog-content"></div></dialog>
+  <dialog id="inbox-dialog" aria-labelledby="inbox-dialog-title"><div class="dialog-head"><h2 id="inbox-dialog-title">答复申请暂停项</h2><button type="button" class="button subtle" data-close="inbox-dialog">关闭</button></div><div id="inbox-dialog-content"></div></dialog>
   <noscript><p class="notice">请启用 JavaScript 以使用本地工作台。</p></noscript>
 </body>
 </html>

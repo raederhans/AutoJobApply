@@ -12,7 +12,8 @@
     return Number.isNaN(date.getTime()) ? String(value || "") : new Intl.DateTimeFormat("zh-CN", {month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}).format(date);
   };
   const state = {token:null, catalog:{companies:[],jobs:[]}, materials:[], targets:[], runs:[], target:null, diagnosis:null, progress:null, stage:"materials", file:null, polling:null, retry:null, busy:false, observedRuns:new Set(),pendingResults:new Map(),selectionGeneration:0,selectionPending:false,dialogGeneration:0,dataGeneration:0};
-  const stageNames = {materials:"目标与材料",diagnosis:"差距诊断",route:"学习路线",review:"产物与评审"};
+  Object.assign(state,{inbox:null,inboxLoading:false,inboxError:null,inboxGeneration:0,inboxDrafts:new Map()});
+  const stageNames = {materials:"目标与材料",diagnosis:"差距诊断",route:"学习路线",review:"产物与评审",inbox:"申请待处理"};
   const kindNames = {resume:"简历",resume_copy:"简历副本",project_evidence:"项目证据",generated:"生成 / 练习产物",candidate_facts:"事实记录",candidate_fact_master:"求职事实主档",project_fact_context:"项目事实与贡献范围",project_fact_master:"项目事实主档"};
   const roleNames={ux_design_research:"用户体验设计与研究",software:"软件工程",software_engineering:"软件工程",frontend:"前端开发",frontend_engineering:"前端开发",backend:"后端开发",fullstack:"全栈开发",data_analytics:"数据分析",data_analysis:"数据分析",data_science:"数据科学",machine_learning:"机器学习",ai_engineering:"AI 工程",product_management:"产品管理",business_analysis:"商业分析",technical_build:"技术开发",design:"设计",ux:"用户体验",sales_engineering:"售前技术"};
   const companyName=(id)=>state.catalog.companies.find((c)=>c.company_id===id)?.name||"公司未提供";
@@ -49,13 +50,15 @@
     const box=$("feedback"); box.hidden=false; box.className=error?"error":""; box.replaceChildren();
     const span=document.createElement("span"); span.textContent=message; box.append(span);
     if(action) { const button=document.createElement("button");button.type="button";button.className="button subtle";button.textContent=label;button.addEventListener("click",action);box.append(button); }
-    const dialog=$("task-dialog");
+    for(const name of ["task","inbox"]) {
+    const dialog=$(name+"-dialog");
     if(dialog.open) {
       let inline=dialog.querySelector("[data-dialog-feedback]");
-      if(!inline) {inline=document.createElement("div");inline.dataset.dialogFeedback="";inline.setAttribute("role","status");dialog.insertBefore(inline,$("task-dialog-content"));}
+      if(!inline) {inline=document.createElement("div");inline.dataset.dialogFeedback="";inline.setAttribute("role","status");dialog.insertBefore(inline,$(name+"-dialog-content"));}
       inline.className="notice "+(error?"":"info");inline.replaceChildren();
       const messageSpan=document.createElement("span");messageSpan.textContent=message;inline.append(messageSpan);
       if(action){const button=document.createElement("button");button.type="button";button.className="button subtle";button.textContent=label;button.addEventListener("click",action);inline.append(button);}
+    }
     }
   }
   async function api(path, body) {
@@ -70,19 +73,19 @@
   }
   function showError(err, retry) {
     if(err.status===409) { state.retry=null;feedback("数据已发生变化，本次操作没有重新提交。刷新后请核对最新内容。",{error:true,action:()=>{$("task-dialog").close();refresh();},label:"刷新最新数据"});return; }
-    if(err.status===403&&err.code==="session_required") {feedback("页面会话已变化，请刷新后核对再操作。",{error:true,action:()=>{$("task-dialog").close();refresh();},label:"刷新会话"});return;}
+    if(err.status===403&&err.code==="session_required") {feedback("页面会话已变化，请刷新后核对再操作。",{error:true,action:()=>{$("task-dialog").close();loadBootstrap();},label:"刷新会话"});return;}
     feedback(err.message || "操作未完成。",{error:true,...(err.network&&retry?{action:retry,label:"重试本次操作"}:{})});
   }
   // A retry retains the exact intent payload and request key; conflicts require a fresh user action.
-  async function intent(path, body, onSuccess, button) {
-    if(state.busy||state.selectionPending) return;
-    const context=selectionContext();
+  async function intent(path, body, onSuccess, button, {independent=false}={}) {
+    if(state.busy||(!independent&&state.selectionPending)) return;
+    const context=independent?null:selectionContext(), current=()=>independent||currentSelection(context);
     const payload=JSON.parse(JSON.stringify({...body,request_key:crypto.randomUUID()}));
     const perform=async()=>{
-      if(state.busy||!currentSelection(context)) return;
+      if(state.busy||!current()) return;
       state.busy=true; if(button) button.disabled=true;
-      try {const result=await api(path,payload);if(!currentSelection(context))return;state.retry=null;$("feedback").hidden=true;await onSuccess(result,context);}
-      catch(err) {if(currentSelection(context)){state.retry=err.network?perform:null;showError(err,perform);}}
+      try {const result=await api(path,payload);if(!current())return;state.retry=null;$("feedback").hidden=true;await onSuccess(result,context);}
+      catch(err) {if(current()){state.retry=err.network?perform:null;showError(err,perform);}}
       finally {state.busy=false;if(button?.isConnected) button.disabled=false;}
     };
     await perform();
@@ -92,6 +95,54 @@
     document.querySelectorAll("[data-stage]").forEach((button)=>{if(button.dataset.stage===stage)button.setAttribute("aria-current","step");else button.removeAttribute("aria-current");});
     Object.keys(stageNames).forEach((name)=>{$("stage-"+name).hidden=name!==stage;});
     $("page-title").textContent=stageNames[stage];remember();if(focus)$("main").focus();
+    $("target-strip").hidden=stage==="inbox";renderRuns();
+    if(stage==="inbox")loadInbox();
+  }
+  function renderInbox() {
+    const data=state.inbox, counts=data?.counts||{};
+    $("inbox-counts").innerHTML=[["open","待处理"],["needs_response","待答复"],["resume_requested","等待流程接续"],["blocked","需另行处理 / 已过期"]].map(([key,label])=>`<div class="metric"><strong>${e(counts[key]??0)}</strong>${label}</div>`).join("");
+    const box=$("inbox-content");box.setAttribute("aria-busy",String(state.inboxLoading));
+    if(state.inboxLoading&&!data){box.innerHTML='<div class="empty"><span class="spinner" aria-hidden="true"></span>正在读取待处理申请…</div>';return;}
+    const error=state.inboxError?`<div class="notice" role="alert">${e(state.inboxError)} <button type="button" class="button subtle" data-inbox-refresh>重新读取</button></div>`:"";
+    if(!data){box.innerHTML=error;return;}
+    if(data.available!==true){box.innerHTML=error+'<div class="empty"><h3>申请待处理暂不可用</h3><p>请确认本地申请工作空间已就绪，再刷新列表。</p></div>';return;}
+    const filter=$("inbox-filter").value||"all", items=data.items.filter((item)=>filter==="all"||item.status===filter);
+    const statusNames={awaiting_response:"待答复",ready_to_resume:"可申请继续",resume_requested:"等待申请进程接续",blocked:"需要另行处理 / 已过期"};
+    box.innerHTML=error+(items.length?`<div class="inbox-list">${items.map((item)=>{
+      const job=item.job||{},url=safeURL(job.url),tone=item.status==="blocked"?"warn":item.status==="ready_to_resume"?"good":"";
+      return `<article class="inbox-card"><div class="inbox-card-head"><div><p class="inbox-company">${e(job.company||"公司未提供")}</p><h3>${e(job.title||"岗位未提供")}</h3></div><span class="tag ${tone}">${e(item.status_label||statusNames[item.status]||"状态待核对")}</span></div><div class="inbox-meta"><span>${e(item.kind_label||"申请暂停项")}</span>${item.created_at?`<span>${e(displayDate(item.created_at))}</span>`:""}${url?`<a href="${e(url)}" target="_blank" rel="noopener noreferrer">查看岗位 ↗</a>`:""}</div><p class="inbox-prompt">${e(item.prompt||"请查看下一步说明。")}</p><div class="inbox-next"><strong>${e(item.next_action?.label||"下一步")}</strong><p>${e(item.next_action?.description||"请在原申请流程核对当前状态。")}</p></div>${item.status==="resume_requested"?'<p class="inbox-wait">已请求继续，等待申请进程接续。可手动刷新查看变化。</p>':""}<div class="actions">${item.can_respond===true?`<button type="button" class="button ${item.response_recorded?"subtle":"primary"}" data-inbox-action="respond" data-inbox-id="${e(item.id)}">${item.response_recorded?"修改答复":"填写答复"}</button>`:""}${item.can_resume===true?`<button type="button" class="button secondary" data-inbox-action="resume" data-inbox-id="${e(item.id)}">申请继续 →</button>`:""}${item.response_recorded?'<span class="hint">答复已保存</span>':""}</div></article>`;
+    }).join("")}</div>`:`<div class="empty"><h3>${data.items.length?"此筛选下没有待处理项":"当前没有待处理申请"}</h3><p>${data.items.length?"切换显示范围，查看其它暂停项。":"已解决的条目会从列表移除；新的暂停项出现后可手动刷新。"}</p></div>`)+(data.truncated?`<p class="hint">仅显示前 ${e(data.limit||100)} 项。请先处理当前条目，再刷新查看。</p>`:"");
+  }
+  async function loadInbox() {
+    const generation=++state.inboxGeneration;state.inboxLoading=true;state.inboxError=null;renderInbox();
+    try {const data=await api("/application-inbox");if(generation!==state.inboxGeneration)return;state.inbox={...data,items:Array.isArray(data.items)?data.items:[]};}
+    catch(error){if(generation===state.inboxGeneration)state.inboxError=error.message||"申请列表读取失败，请重试。";}
+    finally {if(generation===state.inboxGeneration){state.inboxLoading=false;renderInbox();}}
+  }
+  async function inboxAction(action,id,button) {
+    const item=state.inbox?.items.find((item)=>item.id===id);if(!item||state.busy)return;
+    if(!state.token){feedback("工作空间正在连接，请稍后再操作。",{error:true});return;}
+    const endpoint="/application-inbox/"+segment(id), revision=item.revision;
+    const completed=async(result,savedAnswer)=>{
+      if(result.item)state.inbox.items=state.inbox.items.map((entry)=>entry.id===id?result.item:entry);
+      if(savedAnswer!==undefined){if(state.inboxDrafts.get(id)===savedAnswer)state.inboxDrafts.delete(id);$("inbox-dialog").close();}
+      renderInbox();await loadInbox();
+      feedback(action==="resume"?"已请求继续，等待申请进程接续":result.message||"答复已保存。请核对下一步，再点击申请继续。");
+    };
+    if(action==="resume"&&item.can_resume===true){await intent(endpoint+"/resume",{revision},(result)=>completed(result),button,{independent:true});return;}
+    if(action!=="respond"||item.can_respond!==true)return;
+    const dialog=$("inbox-dialog");dialog.querySelector("[data-dialog-feedback]")?.remove();
+    $("inbox-dialog-content").innerHTML=`<p class="inbox-company">${e(item.job?.company||"公司未提供")}</p><h3>${e(item.job?.title||"岗位未提供")}</h3><blockquote>${e(item.prompt||"请填写原申请需要的答复。")}</blockquote><p class="notice info" id="inbox-answer-help">登录、验证码与安全验证请在原申请页面完成。这里不要填写密码或验证码。答复保存后仍需明确申请继续。</p><form id="inbox-answer-form"><label for="inbox-answer">你的答复</label><textarea id="inbox-answer" rows="6" maxlength="4000" required aria-describedby="inbox-answer-help inbox-answer-count">${e(state.inboxDrafts.get(id)||"")}</textarea><p class="hint" id="inbox-answer-count"></p><button type="submit" class="button primary">保存答复</button></form>`;
+    const answer=$("inbox-answer"),count=()=>{$("inbox-answer-count").textContent=`${answer.value.length} / 4000 字 · 未保存的草稿仅保留在当前页面`;};count();
+    answer.addEventListener("input",()=>{state.inboxDrafts.set(id,answer.value);count();});
+    $("inbox-answer-form").addEventListener("submit",async(event)=>{
+      event.preventDefault();if(state.busy)return;const value=answer.value.trim();
+      if(!value||value.length>4000){feedback("请填写不超过 4000 字的答复。",{error:true});answer.focus();return;}
+      state.inboxDrafts.set(id,value);answer.disabled=true;
+      try{await intent(endpoint+"/respond",{revision,answer:value},(result)=>completed(result,value),event.submitter,{independent:true});}
+      finally{answer.disabled=false;}
+    });
+    dialog.showModal();answer.focus();
   }
   function checkedMaterials(container) {return [...$(container).querySelectorAll("input:checked")].map((input)=>input.value);}
   function materialPicks(selected=[]) {
@@ -170,7 +221,7 @@
     const box=$("run-region"), visible=state.runs.filter((r)=>!state.target||!r.result_refs?.target_id||r.result_refs.target_id===state.target.target_id);
     const alerts=visible.filter((r)=>!goodRun(r)&&r.status!=="cancelled");
     const history=visible.filter((r)=>goodRun(r)||r.status==="cancelled");
-    box.hidden=!visible.length;
+    box.hidden=state.stage==="inbox"||!visible.length;
     const row=(r)=>`<div class="run-row"><div>${activeRun(r)?'<span class="spinner" aria-hidden="true"></span>':""}<strong>${e(r.cancel_requested?"正在取消":runStatuses[r.status]||"状态待核对")}</strong> · ${e({diagnose:"差距诊断",diagnosis:"差距诊断",route:"学习路线",plan:"学习路线",rediagnose:"更新诊断与路线",supplement:"补充材料"}[r.operation||r.kind||r.operation_type]||"职业分析")}<p>${e(r.error?.message||(r.error?({interrupted:"运行已中断，可恢复处理。",input_changed:"输入已经变化，请刷新后重新核对。",cancelled:"运行已取消。"}[r.error]||"处理未完成，请核对目标与材料后恢复。"):""))}</p></div><div class="run-actions">${activeRun(r)?`<button class="text-button" type="button" data-run-action="cancel" data-run="${e(runId(r))}" ${r.cancel_requested?"disabled":""}>取消运行</button>`:""}${["interrupted","failed","blocked","cancelled"].includes(r.status)?`<button class="text-button" type="button" data-run-action="resume" data-run="${e(runId(r))}">恢复运行</button>`:""}${goodRun(r)?`<button class="text-button" type="button" data-run-action="view" data-run="${e(runId(r))}">查看结果 →</button>`:""}</div></div>`;
     box.innerHTML=`<div class="run-box">${alerts.length?`<div class="run-head"><strong>后台处理</strong><span class="muted">可继续浏览材料</span></div>${alerts.map(row).join("")}`:""}${history.length?`<details class="run-history"><summary>后台记录（${e(history.length)}）</summary>${history.map(row).join("")}</details>`:""}</div>`;
   }
@@ -239,10 +290,10 @@
       return false;
     }
   }
-  async function refresh() {return loadBootstrap();}
+  async function refresh() {return state.stage==="inbox"?loadInbox():loadBootstrap();}
   async function resultOfRun(run, navigate=false) {
     const refs=run.result_refs||{}, selectedId=state.target?.target_id;
-    if(!navigate&&(state.busy||state.selectionPending||(refs.target_id&&selectedId&&refs.target_id!==selectedId)))return false;
+    if(!navigate&&(state.stage==="inbox"||state.busy||state.selectionPending||(refs.target_id&&selectedId&&refs.target_id!==selectedId)))return false;
     const generation=navigate?beginSelection():state.selectionGeneration, dataGeneration=state.dataGeneration;
     try {
       const targets=await api("/targets");
@@ -353,6 +404,8 @@
     if(button.dataset.stage)showStage(button.dataset.stage,true);
     if(button.dataset.go)showStage(button.dataset.go,true);
     if(button.dataset.close){state.dialogGeneration++;$(button.dataset.close).close();}
+    if(button.hasAttribute("data-inbox-refresh"))await loadInbox();
+    if(button.dataset.inboxAction)await inboxAction(button.dataset.inboxAction,button.dataset.inboxId,button);
     if(button.dataset.material)await viewMaterial(button.dataset.material);
     if(button.dataset.action)await handleAction(button.dataset.action,button);
     if(button.dataset.taskAction)await taskAction(button.dataset.taskAction,button.dataset.task);
@@ -363,6 +416,7 @@
     }
   });
   document.addEventListener("change",async(event)=>{
+    if(event.target.id==="inbox-filter")renderInbox();
     if(event.target.id==="route-history")try {await loadRoute(event.target.value);}catch(err){showError(err);}
   });
   document.addEventListener("keydown",(event)=>{if(event.key==="Escape")state.dialogGeneration++;});
