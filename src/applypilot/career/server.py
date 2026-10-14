@@ -16,7 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from applypilot.career import job_comparison, job_progress, learning, progress_links, reminders, service
+from applypilot.career import interviews, job_comparison, job_progress, learning, progress_links, reminders, service
 from applypilot.career.application_inbox import ApplicationInbox
 from applypilot.career.workbench import Workbench, previous_request, public, save_request
 from applypilot.career.worker import CareerWorker
@@ -264,7 +264,8 @@ class CareerHandler(BaseHTTPRequestHandler):
         if not self.permitted():
             return
         try:
-            assets = {"/": "career.html", "/career.html": "career.html", "/career.css": "career.css", "/career.js": "career.js"}
+            assets = {"/": "career.html", "/career.html": "career.html", "/career.css": "career.css", "/career.js": "career.js",
+                      "/career-interviews.js": "career-interviews.js"}
             if self.path in assets:
                 path = FRONTEND / assets[self.path]
                 self.send(200, path.read_bytes(), content_type=(mimetypes.guess_type(path.name)[0] or "text/plain") + "; charset=utf-8")
@@ -317,6 +318,10 @@ class CareerHandler(BaseHTTPRequestHandler):
                     result = self.server.application_inbox.detail(conn, p[1])
                 elif p == ["job-progress"]:
                     result = job_progress.preview(conn, **self.progress_query())
+                elif p == ["interviews"]:
+                    result = interviews.list_items(conn, self.server.workspace)
+                elif len(p) == 2 and p[0] == "interviews":
+                    result = {"item": interviews.detail(conn, self.server.workspace, p[1])}
                 elif p == ["job-progress", "compare"]:
                     result = job_comparison.preview(conn, self.comparison_query())
                 elif p == ["job-progress", "compare", "download"]:
@@ -385,6 +390,14 @@ class CareerHandler(BaseHTTPRequestHandler):
                 self.send(200, reminders.mutate(self.server.workspace, p[3], data, reminder_id=p[2]))
                 return
             with worker.mutation(), self.server.connection(writing=True) as conn:
+                if len(p) == 4 and p[:2] == ["interviews", "invitations"] and p[3] == "resolve":
+                    self.send(200, interviews.resolve_invitation(conn, self.server.workspace, p[2], data))
+                    return
+                if p == ["interviews"] or (len(p) == 3 and p[0] == "interviews"):
+                    result = interviews.mutate(conn, self.server.workspace, "create" if len(p) == 1 else p[2],
+                                               data, None if len(p) == 1 else p[1])
+                    self.send(200, result)
+                    return
                 if len(p) == 3 and p[0] == "application-inbox" and p[2] in {"respond", "resume"}:
                     result = self.server.application_inbox.mutate(conn, p[1], p[2], data)
                     self.send(200, result)

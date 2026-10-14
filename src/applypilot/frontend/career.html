@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#0b1f3a">
   <title>Job Apply Pilot · 职业工作台</title>
   <link rel="stylesheet" href="/career.css">
+  <script src="/career-interviews.js" defer></script>
   <script src="/career.js" defer></script>
 </head>
 <body>
@@ -21,6 +22,7 @@
         <button type="button" data-stage="review"><span class="step">04</span><span>产物与评审<small>逐项观察，保留原句</small></span></button>
         <button type="button" data-stage="inbox"><span class="step">05</span><span>申请待处理<small>答复暂停项，申请继续</small></span></button>
         <button type="button" data-stage="job-progress"><span class="step">06</span><span>求职进度<small>查看记录，筛选与下载</small></span></button>
+        <button type="button" data-stage="interviews"><span class="step">07</span><span>面试管理<small>关联邀请、准备与复盘</small></span></button>
       </nav>
       <div class="sidebar-bottom"><span class="local-dot"></span>本地工作空间<p id="workspace-label">正在连接…</p><small>书面证据 ≠ 实际能力测量</small></div>
     </aside>
@@ -66,6 +68,12 @@
           <section id="job-compare-region" class="job-compare-region" aria-label="岗位对比选择" tabindex="-1"><div class="job-compare-head"><div><h3>并排查看岗位记录</h3><p class="hint">选择 2–4 条记录；选择仅保留在当前页面，可跨分页与筛选。</p></div><span id="job-compare-count" class="tag">已选 0 / 4</span></div><div id="job-compare-selection" class="job-compare-selection" aria-live="polite"></div><div class="actions"><button id="job-compare-view" type="button" class="button secondary" data-job-compare-read disabled>查看对比</button><button id="job-compare-clear" type="button" class="button subtle" data-job-compare-clear disabled>清空选择</button><button id="job-compare-html" type="button" class="button subtle" data-job-compare-download="html" disabled>下载对比 HTML</button><button id="job-compare-markdown" type="button" class="button subtle" data-job-compare-download="markdown" disabled>下载对比 Markdown</button></div><p class="hint">对比下载仅包含本次所选的 2–4 条记录，按选择顺序排列；HTML 可离线打开或打印。</p></section>
           <div id="job-progress-content" aria-live="polite" tabindex="-1"></div><nav id="job-progress-pagination" class="inbox-pagination" aria-label="求职记录分页" hidden></nav>
         </section>
+        <section id="stage-interviews" class="stage" hidden>
+          <div class="intro"><div><h2>准备好这一轮，再接上下一步。</h2><p>关联已有岗位与邀请，记录准备待办、改期、取消和结果。</p></div><span class="section-number" aria-hidden="true">07</span></div>
+          <div class="interview-toolbar"><div><label for="interview-filter">查看范围</label><select id="interview-filter"><option value="active">待安排与即将面试</option><option value="all">全部轮次</option><option value="completed">已完成</option><option value="cancelled">已取消</option></select></div><div class="actions"><button type="button" class="button subtle" data-interview-refresh>刷新面试</button><button type="button" class="button primary" data-interview-new>记录面试邀请</button></div></div>
+          <div id="interview-pending" aria-live="polite"></div>
+          <div id="interview-list" class="interview-list" aria-live="polite"><div class="empty">进入本页后读取面试记录。</div></div>
+        </section>
         <footer>材料关联、任务观察与通用技能等级分别记录。此工作台不作录用判断。</footer>
       </main>
     </div>
@@ -76,6 +84,7 @@
   <dialog id="inbox-progress-dialog" aria-labelledby="inbox-progress-title"><div class="dialog-head"><h2 id="inbox-progress-title">申请进度</h2><button type="button" class="button subtle" data-close="inbox-progress-dialog">关闭</button></div><div id="inbox-progress-content" aria-live="polite"></div></dialog>
   <dialog id="job-reminder-dialog" aria-labelledby="job-reminder-title"><div class="dialog-head"><h2 id="job-reminder-title">设置本地提醒</h2><button type="button" class="button subtle" data-close="job-reminder-dialog">关闭</button></div><div id="job-reminder-dialog-content"></div></dialog>
   <dialog id="job-compare-dialog" aria-labelledby="job-compare-title"><div class="dialog-head"><h2 id="job-compare-title">岗位记录对比</h2><button type="button" class="button subtle" data-close="job-compare-dialog">关闭</button></div><div id="job-compare-content" aria-live="polite"></div></dialog>
+  <dialog id="interview-dialog" aria-labelledby="interview-dialog-title"><div class="dialog-head"><h2 id="interview-dialog-title">面试记录</h2><button type="button" class="button subtle" data-close="interview-dialog">关闭</button></div><div id="interview-dialog-content" aria-live="polite"></div></dialog>
   <noscript><p class="notice">请启用 JavaScript 以使用本地工作台。</p></noscript>
 </body>
 </html>

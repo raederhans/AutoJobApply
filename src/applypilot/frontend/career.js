@@ -16,7 +16,10 @@
   Object.assign(state,{jobReport:null,jobReportLoading:false,jobReportError:null,jobReportGeneration:0,jobReportStatusDraft:null,jobReportDownloading:false,jobReportQuery:{q:"",since:"",until:"",date_field:"updated_at",statuses:[],offset:0,record_id:""},jobReportRecordLabel:null,sessionExpired:false});
   Object.assign(state,{reminders:null,reminderLoading:false,reminderError:null,reminderGeneration:0,reminderLimit:100,reminderBusy:false,reminderUncertain:false,reminderDownloading:false});
   Object.assign(state,{jobCompareSelection:[],jobCompareGeneration:0,jobCompareDownloading:false});
-  const stageNames = {materials:"目标与材料",diagnosis:"差距诊断",route:"学习路线",review:"产物与评审",inbox:"申请待处理","job-progress":"求职进度"};
+  Object.assign(state,{interviews:null,interviewsLoading:false,interviewGeneration:0,interviewDetailGeneration:0,interviewItem:null,interviewDrafts:new Map(),interviewUncertain:false,interviewRetry:null});
+  const stageNames = {materials:"目标与材料",diagnosis:"差距诊断",route:"学习路线",review:"产物与评审",inbox:"申请待处理","job-progress":"求职进度",interviews:"面试管理"};
+  const interviewPanel=window.createCareerInterviewPanel({state,api,intent,feedback,showError,showStage,displayDate,safeURL,escapeHTML,segment});
+  function loadInterviews(){return interviewPanel.load();}
   const validRecordId=(value)=>typeof value==="string"&&/^application-[a-f0-9]{16}$/.test(value);
   const kindNames = {resume:"简历",resume_copy:"简历副本",project_evidence:"项目证据",generated:"生成 / 练习产物",candidate_facts:"事实记录",candidate_fact_master:"求职事实主档",project_fact_context:"项目事实与贡献范围",project_fact_master:"项目事实主档"};
   const roleNames={ux_design_research:"用户体验设计与研究",software:"软件工程",software_engineering:"软件工程",frontend:"前端开发",frontend_engineering:"前端开发",backend:"后端开发",fullstack:"全栈开发",data_analytics:"数据分析",data_analysis:"数据分析",data_science:"数据科学",machine_learning:"机器学习",ai_engineering:"AI 工程",product_management:"产品管理",business_analysis:"商业分析",technical_build:"技术开发",design:"设计",ux:"用户体验",sales_engineering:"售前技术"};
@@ -54,9 +57,9 @@
     const box=$("feedback"); box.hidden=false; box.className=error?"error":""; box.replaceChildren();
     const span=document.createElement("span"); span.textContent=message; box.append(span);
     if(action) { const button=document.createElement("button");button.type="button";button.className="button subtle";button.textContent=label;button.addEventListener("click",action);box.append(button); }
-    for(const name of ["task","inbox","job-reminder"]) {
+    for(const name of ["task","inbox","job-reminder","interview"]) {
     const dialog=$(name+"-dialog");
-    if(dialog.open) {
+    if(dialog?.open) {
       let inline=dialog.querySelector("[data-dialog-feedback]");
       if(!inline) {inline=document.createElement("div");inline.dataset.dialogFeedback="";inline.setAttribute("role","status");dialog.insertBefore(inline,$(name+"-dialog-content"));}
       inline.className="notice "+(error?"":"info");inline.replaceChildren();
@@ -76,12 +79,12 @@
     return data;
   }
   function showError(err, retry) {
-    if(err.status===409) { state.retry=null;feedback("数据已发生变化，本次操作没有重新提交。刷新后请核对最新内容。"+($("inbox-dialog").open?" 答复草稿保留在本页，请重新打开条目后核对保存。":""),{error:true,action:()=>{$("task-dialog").close();$("inbox-dialog").close();return refresh();},label:"刷新最新数据"});return; }
+    if(err.status===409) { state.retry=null;feedback("数据已发生变化，本次操作没有重新提交。刷新后请核对最新内容。"+($("inbox-dialog").open||$("interview-dialog")?.open?" 草稿保留在本页，请重新打开条目后核对保存。":""),{error:true,action:()=>{$("task-dialog").close();$("inbox-dialog").close();$("interview-dialog")?.close();return refresh();},label:"刷新最新数据"});return; }
     if(err.status===403&&err.code==="session_required") {state.retry=null;state.sessionExpired=true;feedback("页面会话已变化，请刷新后核对再操作。",{error:true,action:()=>{$("task-dialog").close();return refreshSession();},label:"刷新会话"});return;}
     feedback(err.message || "操作未完成。",{error:true,...(err.network&&retry?{action:retry,label:"重试本次操作"}:{})});
   }
   // A retry retains the exact intent payload and request key; conflicts require a fresh user action.
-  async function intent(path, body, onSuccess, button, {independent=false}={}) {
+  async function intent(path, body, onSuccess, button, {independent=false,onError=null}={}) {
     if(state.busy||(!independent&&state.selectionPending)) return;
     const context=independent?null:selectionContext(), current=()=>independent||currentSelection(context);
     const payload=JSON.parse(JSON.stringify({...body,request_key:crypto.randomUUID()}));
@@ -89,7 +92,7 @@
       if(state.busy||!current()) return;
       state.busy=true; if(button) button.disabled=true;
       try {const result=await api(path,payload);if(!current())return;state.retry=null;$("feedback").hidden=true;await onSuccess(result,context);}
-      catch(err) {if(current()){state.retry=err.network?perform:null;showError(err,perform);}}
+      catch(err) {if(current()){state.retry=err.network?perform:null;if(onError)onError(err,perform);showError(err,perform);}}
       finally {state.busy=false;if(button?.isConnected) button.disabled=false;}
     };
     await perform();
@@ -99,9 +102,10 @@
     document.querySelectorAll("[data-stage]").forEach((button)=>{if(button.dataset.stage===stage)button.setAttribute("aria-current","step");else button.removeAttribute("aria-current");});
     Object.keys(stageNames).forEach((name)=>{$("stage-"+name).hidden=name!==stage;});
     $("page-title").textContent=stageNames[stage];remember();if(focus)$("main").focus();
-    $("target-strip").hidden=["inbox","job-progress"].includes(stage);renderRuns();
+    $("target-strip").hidden=["inbox","job-progress","interviews"].includes(stage);renderRuns();
     if(read&&stage==="inbox")loadInbox();
     if(read&&stage==="job-progress"){loadJobProgress();loadReminders();}
+    if(read&&stage==="interviews")loadInterviews();
   }
   function renderInbox() {
     const data=state.inbox, counts=data?.counts||{};
@@ -357,7 +361,7 @@
     box.innerHTML=error+uncertain+`<p class="hint">${e(Number.isFinite(data.unscheduled_count)?data.unscheduled_count:"—")} 条记录尚未设置本地提醒，可在下方进度表逐行设置。${data.target_unavailable_count?` ${e(data.target_unavailable_count)} 条提醒的目标记录不可用，仍保留在清单中，需核对。`:""}</p>`+Object.entries(labels).map(([key,label])=>{
       const items=Array.isArray(groups[key])?groups[key]:[],total=Number.isFinite(counts[key])?counts[key]:null;
       if(total!==null&&total>items.length)hasMore=true;
-      return `<section class="reminder-group"><div class="reminder-group-head"><h3>${label}</h3><span class="muted">显示 ${e(items.length)} / ${e(total??"—")} 条${total!==null&&total>items.length?" · 还有未显示记录":""}</span></div>${items.length?items.map((item)=>`<article class="reminder-card"><div class="reminder-card-head"><div><p class="inbox-company">${e(item.company||"公司未提供")}</p><h4>${e(reminderTitle(item))}</h4></div><span class="tag">${item.source==="existing_action"?"已有行动 · 清单视图":item.source==="local_reminder"?"本地提醒":"来源待核对"}</span></div><p class="reminder-status">执行状态：${e(progressStatus(item.application_status))} · 招聘阶段：${e(progressStatus(item.recruiting_stage))}</p>${item.target_available===false?'<p class="notice">目标记录不可用，请核对原流程；提醒仍被保留。</p>':""}<p class="reminder-next">${e(reminderStep(item.next_step))}</p><div class="reminder-card-foot"><span class="hint">提醒日期（UTC）：${e(item.due_date||"未定日期")}</span><div class="actions">${item.target_available===true&&validRecordId(item.record_id)?`<button type="button" class="text-button" data-reminder-record="${e(item.record_id)}">查看求职记录</button>`:""}<button type="button" class="text-button" data-reminder-snooze="${e(item.reminder_id)}" data-reminder-write>延后</button><button type="button" class="text-button" data-reminder-dismiss="${e(item.reminder_id)}" data-reminder-write>隐藏提醒</button></div></div></article>`).join(""):'<p class="hint">本组没有提醒。</p>'}</section>`;
+      return `<section class="reminder-group"><div class="reminder-group-head"><h3>${label}</h3><span class="muted">显示 ${e(items.length)} / ${e(total??"—")} 条${total!==null&&total>items.length?" · 还有未显示记录":""}</span></div>${items.length?items.map((item)=>`<article class="reminder-card"><div class="reminder-card-head"><div><p class="inbox-company">${e(item.company||"公司未提供")}</p><h4>${e(reminderTitle(item))}</h4></div><span class="tag">${item.source==="existing_action"?"已有行动 · 清单视图":item.source==="local_reminder"?"本地提醒":"来源待核对"}</span></div><p class="reminder-status">执行状态：${e(progressStatus(item.application_status))} · 招聘阶段：${e(progressStatus(item.recruiting_stage))}</p>${item.target_available===false?'<p class="notice">目标记录不可用，请核对原流程；提醒仍被保留。</p>':""}<p class="reminder-next">${e(reminderStep(item.next_step))}</p><div class="reminder-card-foot"><span class="hint">提醒日期（UTC）：${e(item.due_date||"未定日期")}</span><div class="actions">${item.target_available===true&&validRecordId(item.record_id)?`<button type="button" class="text-button" data-reminder-record="${e(item.record_id)}">查看求职记录</button>`:""}${item.interview_id?`<button type="button" class="text-button" data-reminder-interview="${e(item.interview_id)}">查看面试待办</button>`:""}<button type="button" class="text-button" data-reminder-snooze="${e(item.reminder_id)}" data-reminder-write>延后</button><button type="button" class="text-button" data-reminder-dismiss="${e(item.reminder_id)}" data-reminder-write>隐藏提醒</button></div></div></article>`).join(""):'<p class="hint">本组没有提醒。</p>'}</section>`;
     }).join("")+ (hasMore?`<div class="reminder-more"><p class="hint">每组最多显示 ${e(state.reminderLimit)} 条，计数包含未显示记录。${state.reminderLimit>=500?"已达每组 500 条显示上限，仍有未显示记录。":""}</p><button type="button" class="button subtle" data-reminder-more ${state.reminderLimit>=500||state.reminderLoading?"disabled":""}>显示更多（每组增加 100 条）</button></div>`:"");
     syncReminderControls();
   }
@@ -569,10 +573,10 @@
     if(refreshed)feedback("会话已刷新。请核对保留的草稿，再次点击保存；不会自动重新提交。");
     return refreshed;
   }
-  async function refresh() {return state.sessionExpired?refreshSession():state.stage==="inbox"?loadInbox():state.stage==="job-progress"?Promise.all([loadJobProgress(),loadReminders({reconcile:true})]):loadBootstrap();}
+  async function refresh() {return state.sessionExpired?refreshSession():state.stage==="inbox"?loadInbox():state.stage==="job-progress"?Promise.all([loadJobProgress(),loadReminders({reconcile:true})]):state.stage==="interviews"?loadInterviews():loadBootstrap();}
   async function resultOfRun(run, navigate=false) {
     const refs=run.result_refs||{}, selectedId=state.target?.target_id;
-    if(!navigate&&(["inbox","job-progress"].includes(state.stage)||state.busy||state.selectionPending||(refs.target_id&&selectedId&&refs.target_id!==selectedId)))return false;
+    if(!navigate&&(["inbox","job-progress","interviews"].includes(state.stage)||state.busy||state.selectionPending||(refs.target_id&&selectedId&&refs.target_id!==selectedId)))return false;
     const generation=navigate?beginSelection():state.selectionGeneration, dataGeneration=state.dataGeneration;
     try {
       const targets=await api("/targets");
@@ -692,6 +696,7 @@
     if(button.hasAttribute("data-job-progress-clear-record"))await clearJobRecordFilter();
     if(button.hasAttribute("data-inbox-clear-record"))await clearInboxRecordFilter();
     if(button.dataset.reminderRecord)await viewReminderRecord(button.dataset.reminderRecord);
+    if(button.dataset.reminderInterview){showStage("interviews",true,{read:false});await loadInterviews();await interviewPanel.show(button.dataset.reminderInterview);}
     if(button.dataset.inboxRecord)await viewAssociatedApplications(button.dataset.inboxRecord);
     if(button.hasAttribute("data-reminder-refresh")){$("job-reminders-section").open=true;await loadReminders({reconcile:true});}
     if(button.hasAttribute("data-reminder-download"))await downloadReminders(button.dataset.reminderDownload||"html");

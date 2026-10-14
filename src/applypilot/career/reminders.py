@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import re
+import sqlite3
+from pathlib import Path
 
 from applypilot import followup_reminders, local_report_html
+from applypilot.career.interviews import action_interview_links
 from applypilot.career.reminder_calendar import render_calendar
 
 
@@ -30,7 +33,21 @@ def _call(function, *args, **kwargs):
 def list_items(workspace, *, limit=100):
     if type(limit) is not int or not 1 <= limit <= 500:
         raise ValueError("reminder_input_invalid")
-    return {**_call(followup_reminders.list_reminders, workspace, limit=limit), "limit": limit}
+    result = {**_call(followup_reminders.list_reminders, workspace, limit=limit), "limit": limit}
+    path = Path(workspace).resolve() / "applypilot.db"
+    if path.is_file():
+        conn = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True)
+        try:
+            conn.execute("PRAGMA query_only=ON")
+            links = {followup_reminders._id("action-", action_id): identity
+                     for action_id, identity in action_interview_links(conn).items()}
+        finally:
+            conn.close()
+        for group in result["groups"].values():
+            for item in group:
+                if item["source"] == "existing_action" and item["reminder_id"] in links:
+                    item["interview_id"] = links[item["reminder_id"]]
+    return result
 
 
 def _report(workspace, bucket):

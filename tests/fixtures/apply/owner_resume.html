@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Local owner recovery</title>
+<style>body{font:18px system-ui;margin:48px;background:#f5f7fb}main{padding:32px;background:white;max-width:720px}textarea{display:block;width:95%;height:100px;margin:16px 0}button{padding:12px}</style>
+<main data-job-url="https://example.test/jobs/1">
+<p>Fictional local ATS · preparation only</p><h1>Engineer at Example Co</h1>
+<label for="availability">Availability</label><textarea id="availability"></textarea>
+<button id="submit" disabled>Submit disabled in local demonstration</button>
+<p>Submission count: <span id="submit-count">0</span></p></main>
+<script>const field=document.querySelector('#availability');field.value=sessionStorage.getItem('availability')||'';field.addEventListener('input',()=>sessionStorage.setItem('availability',field.value));</script>
+</html>

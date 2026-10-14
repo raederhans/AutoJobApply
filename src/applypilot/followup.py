@@ -6,7 +6,9 @@ Callers provide connections; read projections never create tables.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -89,7 +91,8 @@ def _normalise_event(raw: dict) -> dict:
     allowed = {"provider", "message_id", "occurred_at", "event_type", "job_url",
                "company", "title", "evidence_ref", "summary", "scheduled_at", "round",
                "application_id", "fact_key", "stage_id", "supersedes_event_id",
-               "time_basis", "submitted_at", "date_precision"}
+               "time_basis", "submitted_at", "date_precision", "round_name", "timezone",
+               "mode", "source_text", "result", "action_ids", "preparation", "interview_origin_event_id"}
     if set(raw) - allowed:
         raise ValueError(f"Unknown event fields: {', '.join(sorted(set(raw) - allowed))}")
     event = {field: _text(raw.get(field), field) for field in
@@ -126,7 +129,7 @@ def _normalise_event(raw: dict) -> dict:
         type(event["round"]) is not int or event["round"] < 1
     ):
         raise ValueError("round must be a positive integer")
-    for field in ("application_id", "stage_id", "supersedes_event_id"):
+    for field in ("application_id", "stage_id", "supersedes_event_id", "interview_origin_event_id"):
         event[field] = _text(raw.get(field), field, optional=True)
     event["fact_key"] = raw.get("fact_key", "")
     if not isinstance(event["fact_key"], str) or len(event["fact_key"]) > 200:
@@ -134,9 +137,27 @@ def _normalise_event(raw: dict) -> dict:
     if event["event_type"] == "retracted" and not event["supersedes_event_id"]:
         raise ValueError("Retraction requires supersedes_event_id")
     if event["event_type"] in {"interview_rescheduled", "interview_cancelled"} and not (
-        event["stage_id"] or event["round"]
+        event["stage_id"] or event["round"] or event["interview_origin_event_id"]
     ):
-        raise ValueError("Rescheduling/cancellation requires stage_id or round")
+        raise ValueError("Rescheduling/cancellation requires stage_id, round or interview origin")
+    for field in ("round_name", "timezone", "mode", "source_text", "result"):
+        if field in raw:
+            event[field] = _text(raw[field], field, optional=True)
+            if event[field] and len(event[field]) > (20000 if field == "source_text" else 1000):
+                raise ValueError(f"{field} too long")
+    if "action_ids" in raw:
+        if not isinstance(raw["action_ids"], list) or any(not isinstance(v, str) for v in raw["action_ids"]):
+            raise ValueError("action_ids must be a string array")
+        event["action_ids"] = raw["action_ids"]
+    if "preparation" in raw:
+        preparation = raw["preparation"]
+        if not isinstance(preparation, dict) or set(preparation) - {
+            "status", "pack_id", "missing_materials", "warnings", "binding_status", "source_revision"
+        }:
+            raise ValueError("preparation must be an object")
+        if preparation.get("pack_id") and not re.fullmatch(r"[a-f0-9]{32}", str(preparation["pack_id"])):
+            raise ValueError("Invalid preparation pack identity")
+        event["preparation"] = preparation
     return event
 
 
@@ -173,6 +194,18 @@ def import_events(conn: sqlite3.Connection, events: list[dict]) -> dict:
                 if event["job_url"] and event["job_url"] != application[0]:
                     raise ValueError("application_id and job_url disagree")
                 matched = application[0]
+            if event["interview_origin_event_id"]:
+                origin = conn.execute("SELECT job_url,application_id,event_type,json_extract(payload,'$.stage_id'),"
+                                      "json_extract(payload,'$.round') FROM followup_events WHERE event_id=?",
+                                      (event["interview_origin_event_id"],)).fetchone()
+                if not origin or origin[2] not in INTERVIEW_TYPES:
+                    raise ValueError("Interview origin must identify an existing invitation or scheduled round")
+                if event["event_type"] != "manual_note" and not event["event_type"].startswith("interview"):
+                    raise ValueError("Interview origin is only supported for interview management")
+                if not matched or origin[0] != matched or origin[1] != bound_application:
+                    raise ValueError("Interview origin and exact job/application binding disagree")
+                if origin[3:] != (event["stage_id"], event["round"]):
+                    raise ValueError("Interview origin and round/stage binding disagree")
             if event["supersedes_event_id"]:
                 prior_event = conn.execute("SELECT job_url,application_id FROM followup_events WHERE event_id=?",
                                            (event["supersedes_event_id"],)).fetchone()
@@ -319,11 +352,23 @@ def scheduled_interviews(events: list[dict]) -> list[dict]:
     for event in effective_events(events):
         if not event["event_type"].startswith("interview"):
             continue
-        identity = (event.get("application_id") or event["job_url"],
-                    event.get("stage_id") or event.get("round") or event["event_id"])
+        identity = interview_identity(event)
         latest[identity] = event
     return [event for event in latest.values() if event.get("scheduled_at")
             and event["event_type"] not in {"interview_completed", "interview_cancelled"}]
+
+
+def interview_identity(event: dict) -> str:
+    """Stable round identity shared by CLI projections and browser edits."""
+    if event.get("stage_id"):
+        stage = ["stage", event["stage_id"]]
+    elif event.get("round"):
+        stage = ["round", event["round"]]
+    else:
+        stage = ["event", event.get("interview_origin_event_id") or event["event_id"]]
+    encoded = json.dumps([event.get("application_id") or event.get("job_url"), stage],
+                         ensure_ascii=False, sort_keys=True)
+    return "interview-" + hashlib.sha256(encoded.encode()).hexdigest()[:32]
 
 
 def followup_summary(conn: sqlite3.Connection | None, *, now: datetime | None = None, limit: int = 20) -> dict:

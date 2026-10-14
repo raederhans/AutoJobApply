@@ -49,6 +49,7 @@ from applypilot.apply import application_preflight as application_preflight_mod
 from applypilot.apply import application_supervisor_loop as supervisor_loop_mod
 from applypilot.apply import ats as ats_mod
 from applypilot.apply import ats_tools_mcp as ats_tools_mcp_mod
+from applypilot.apply import human_handoff as human_handoff_mod
 from applypilot.apply import linkedin_page_observation as linkedin_page_observation_mod
 from applypilot.apply import orchestration as orchestration_mod
 from applypilot.apply import page_observation as page_observation_mod
@@ -309,6 +310,14 @@ def _runtime_operator_resume_scope(
         raise ValueError("operator resume scope requires a non-authoritative resume command")
     if getattr(_runtime_recovery_local, "state", None) is not None:
         raise RuntimeError("nested runtime continuation scope is forbidden")
+    if human_response.get("resolved_by") == "career-workbench" and (
+        command.input_sha256 != human_response.get("response_digest")
+        or command.input_ref != "human-response:" + hashlib.sha256(
+            str(human_response["request_id"]).encode("utf-8")
+        ).hexdigest()
+    ):
+        raise ValueError("operator resume answer binding drifted")
+    answer = human_handoff_mod.read_workbench_answer(human_response, workspace=config.APP_DIR)
     state = {
         "kind": "operator_resume",
         "command": command,
@@ -319,12 +328,14 @@ def _runtime_operator_resume_scope(
         "checkpoint_id": str(checkpoint_id),
         "request_id": str(human_response["request_id"]),
         "response_type": str(human_response["response_type"]),
+        "answer": answer,
         "consumed": False,
     }
     _runtime_recovery_local.state = state
     try:
         yield
     finally:
+        state.pop("answer", None)
         if getattr(_runtime_recovery_local, "state", None) is state:
             del _runtime_recovery_local.state
 
@@ -5638,14 +5649,7 @@ def run_job(job: dict, port: int, worker_id: int = 0,
         identity_relay_authorized=identity_relay_authorized,
     )
     if operator_resume is not None:
-        agent_prompt += (
-            "\n\nOPERATOR RESUME BOUNDARY:\n"
-            "An exact reference-only human response has been admitted for this "
-            "same page and checkpoint. Re-observe the current page and use only "
-            "current host-provided facts or visible state. Never infer answer "
-            "content from an opaque response reference. This is a prepare-only "
-            "turn and does not authorize Submit.\n"
-        )
+        agent_prompt += human_handoff_mod.operator_answer_prompt(operator_resume.get("answer"))
     setup_metrics["prompt_build_ms"] = round(
         (time.perf_counter() - prompt_started) * 1000,
         3,
@@ -6833,17 +6837,12 @@ def run_job(job: dict, port: int, worker_id: int = 0,
                                         "name": raw_name.removeprefix(mailbox_prefix),
                                         "input": dict(block.get("input") or {}),
                                     }
-                                inp = block.get("input", {})
-                                if "url" in inp:
-                                    desc = f"{name} {inp['url'][:60]}"
-                                elif "ref" in inp:
-                                    desc = f"{name} {inp.get('element', inp.get('text', ''))}"[:50]
-                                elif "fields" in inp:
-                                    desc = f"{name} ({len(inp['fields'])} fields)"
-                                elif "paths" in inp:
-                                    desc = f"{name} upload"
-                                else:
-                                    desc = name
+                                # Tool inputs may contain private answers in
+                                # text, element descriptions, paths or URLs.
+                                # Keep logs and worker progress content-free;
+                                # the supervisor already receives the actual
+                                # input separately for its guarded decisions.
+                                desc = name
 
                                 lf.write(f"  >> {desc}\n")
                                 _record_worker_action(worker_id, desc)

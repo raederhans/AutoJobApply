@@ -5,6 +5,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const source = readFileSync(new URL('../src/applypilot/frontend/career.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+const interviewSource = readFileSync(new URL('../src/applypilot/frontend/career-interviews.js', import.meta.url), 'utf8');
 const startup = '  start();\n})();';
 assert(source.includes(startup), 'Expected the private workbench startup boundary');
 // Inspect the real closure in the test VM only; the shipped script exposes no test API.
@@ -91,6 +92,7 @@ function runtime(initial = 'A') {
     crypto: { randomUUID }, setTimeout: () => 1, clearTimeout() {},
     localStorage: { getItem: key => storage.get(key) || null, setItem: (key, value) => storage.set(key, value) },
   });
+  vm.runInContext(interviewSource, context);
   vm.runInContext(instrumented, context);
   const app = context.workbench;
   Object.assign(app.state, { token: 'fixture-token', target: target(initial),
