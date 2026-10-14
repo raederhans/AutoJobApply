@@ -38,7 +38,8 @@ jobs:
         run: |
           ruff check src
           python -m pytest -q
-          python scripts/build_release.py
+          # Reuse the build backend installed by the dev extra in this fresh job.
+          python scripts/build_release.py --no-isolation
 
       - name: Upload distributions
         uses: actions/upload-artifact@v7

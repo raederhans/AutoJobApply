@@ -4,6 +4,12 @@ All notable changes to Job Apply Pilot will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- CI installs core development and job-board extras together and reuses its
+  installed build backend for release builds. Source-to-wheel builds, archive
+  privacy audits, compatibility tiers and clean-install smoke checks remain enabled.
+
 ## [0.7.0] - 2026-09-22
 
 ### Added
