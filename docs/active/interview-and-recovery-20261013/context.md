@@ -1,5 +1,38 @@
 # Context
 
+## Authorized publication continuation (2026-10-14)
+
+The user authorized normal push, draft PR, final-SHA CI verification, ready and
+merge after PR22. Root owns all Git and live checks. The original two feature
+trees remain clean and retained. New release tree is
+`task-3/AutoJobApply-interview-release-20261014`, branch
+`codex/interview-release-20261014`, based on verified fork/main
+`b7b953689d86a926e8a5331149c9e1b48d6a2619`. Feature commits were replayed as
+`aa0615f` and `7c36e77`. PR22 changed only CI/publish YAML, CHANGELOG and its test;
+there is no file intersection with the 21 feature paths. MSI shell and supported
+network permissions are available. No old MSI repair or cloud cleanup is replayed.
+
+Root's exact live commands, cwd this release tree, existing source-venv Python:
+
+| Process | Command | Resources/log/stop |
+| --- | --- | --- |
+| Targeted owner/interview/followup | `python -B -X utf8 ../interview-publication-20261014/run_targeted.py` | Explicit fictional APPLYPILOT_DIR and short LocalTemp basetemp; own port-0 servers/browser; targeted.log; exit or assertion failure closes fixtures |
+| Interview page story | `python -B -X utf8 scripts/demo_interview_workbench.py --output ../interview-publication-20261014/ui` | New fictional workspace, own port-0 server/browser; ui.log; script finally closes resources |
+| Candidate build | `python -B -X utf8 scripts/build_release.py --no-isolation --out-dir ../interview-publication-20261014/artifacts` | New output, no installation; build.log; process exit |
+
+Only root starts/polls/retries these processes. Independent reviewer reads the
+frozen source and completed evidence, without a duplicate live run. No user data,
+real submission, manual deployment, tag publication or user-install update.
+
+All three runs finished with exit code 0: 52 targeted checks in 17.61s; eight
+page-story checks and zero page errors; candidate wheel/sdist/bundle archive
+audit passed. Ruff on src and 25 existing Node state checks passed. Independent
+review PASS: old/new feature binary patches match exactly and PR22 has no source
+overlap. No services/browser/build processes remain running. Root will record
+the PR and exact final-SHA CI/main outcome in the external publication evidence
+directory, keeping this source record stable during CI. No code changed for
+publication beyond the two unchanged feature patches.
+
 ## Current truth
 
 Main is `9d46199de6f5773096e68d1b190e9271f262859a`. Original dirty source and the

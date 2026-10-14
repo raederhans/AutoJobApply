@@ -1,5 +1,15 @@
 # Task
 
+## Publication continuation (2026-10-14)
+
+The user authorized publishing the previously local features after PR22.
+New release tree is based on verified main `b7b9536`; original trees are retained.
+Both patches replayed without conflicts. Independent review and fresh targeted
+validation passed: 52 Python checks, eight browser-story checks, 25 Node checks,
+Ruff and build/archive audit. Final PR SHA, CI, normal merge and main verification
+are tracked by root in `task-3/interview-publication-20261014/`. No user installation,
+manual deployment or real application is included in this authorization.
+
 ## Current status
 
 Both features are implemented, observed on fictional data and independently

@@ -6,6 +6,21 @@
 
 States: `in-progress`, `blocked`, `ready-for-review`, `ready-for-integration`, `integrated`, `abandoned`.
 
+## Authorized feature publication (2026-10-14)
+
+Release tree: `task-3/AutoJobApply-interview-release-20261014`, branch
+`codex/interview-release-20261014`, base fork/main `b7b9536` after PR22.
+The user authorized draft PR, final-SHA CI, ready and normal merge. Root owns Git.
+Original feature trees and the dirty source remain retained; the old MSI patch
+is already in main and was not replayed. Two unchanged feature patches were
+replayed as `aa0615f` and `7c36e77`, followed by this publication record.
+The cloud CI/build simplification is preserved. Independent review PASS,
+52 targeted checks, eight browser-story checks, 25 Node checks, Ruff and candidate
+archive build passed. Live processes have finished. Remote PR/main outcomes and
+exact final SHAs are recorded under `task-3/interview-publication-20261014/` by
+the integration owner. This release tree is retained as the publication audit
+checkout; no cleanup, user-install update or manual deployment is authorized.
+
 ## Interview management and owner recovery (2026-10-13)
 
 Both new trees start at verified merged main `9d46199de6f5773096e68d1b190e9271f262859a`.
