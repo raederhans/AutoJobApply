@@ -64,7 +64,7 @@ function progress(id, routeId = `R-${id}`, revision = 1) {
 }
 const flush = async () => { for (let i = 0; i < 15; i++) await Promise.resolve(); };
 
-function runtime(initial = 'A') {
+function runtime(initial = 'A', now = Date.now()) {
   const nodes = new Map(), requests = [], replies = new Map(), failures = new Map(), deferred = new Map(), storage = new Map();
   const element = id => {
     if (!nodes.has(id)) nodes.set(id, new Element(id));
@@ -89,6 +89,7 @@ function runtime(initial = 'A') {
   };
   const context = vm.createContext({
     document, window: new Element(), fetch, URL, Intl, TextEncoder,
+    Date: class extends Date { static now() { return now; } },
     crypto: { randomUUID }, setTimeout: () => 1, clearTimeout() {},
     localStorage: { getItem: key => storage.get(key) || null, setItem: (key, value) => storage.set(key, value) },
   });
@@ -488,4 +489,147 @@ test('conflict recovery closes a stale inbox form, retains its draft and preserv
     assert.equal(r.app.state.inboxDrafts.get('item'), 'Retained synthetic answer');
     assert.equal(r.requests.filter(request => request.body).length, 0);
   }
+});
+
+const interviewNow = Date.parse('2026-10-15T00:00:00Z');
+const visibleInterviews = r => [...r.element('interview-list').innerHTML.matchAll(/data-interview-view="([^"]+)"/g)].map(match => match[1]);
+async function interviewRuntime(items) {
+  const r = runtime('A', interviewNow);
+  r.app.state.stage = 'interviews';
+  r.replies.set('/interviews', { items, pending_invitations: [{ event_id: 'unlinked', summary: '邀请仍待关联' }] });
+  await r.app.refresh();
+  return r;
+}
+async function interviewFilter(r, scope, sort = 'scheduled') {
+  r.element('interview-filter').value = scope;
+  r.element('interview-sort').value = sort;
+  await r.element('interview-filter').dispatch('change');
+}
+
+test('interview upcoming window compares instants, excludes terminal rounds and preserves API order', async () => {
+  const items = [
+    { id: 'missing', status: 'pending' },
+    { id: 'end', status: 'scheduled', scheduled_at: '2026-10-22T00:00:00Z' },
+    { id: 'offset', status: 'scheduled', scheduled_at: '2026-10-15T09:00:00+08:00' },
+    { id: 'past', status: 'scheduled', scheduled_at: '2026-10-14T23:59:59Z' },
+    { id: 'now', status: 'scheduled', scheduled_at: '2026-10-15T00:00:00Z' },
+    { id: 'completed', status: 'completed', scheduled_at: '2026-10-16T00:00:00Z' },
+    { id: 'cancelled', status: 'cancelled', scheduled_at: '2026-10-16T00:00:00Z' },
+    { id: 'invalid', status: 'scheduled', scheduled_at: 'invalid' },
+  ];
+  const original = JSON.stringify(items), r = await interviewRuntime(items);
+  assert.deepEqual(visibleInterviews(r), ['past', 'now', 'offset', 'end', 'invalid', 'missing']);
+  assert.match(r.element('interview-list').innerHTML, /面试时间已过，待核对结果或改期/);
+  await interviewFilter(r, 'upcoming');
+  assert.deepEqual(visibleInterviews(r), ['now', 'offset']);
+  assert.match(r.element('interview-summary').textContent, /显示 2 \/ 8 轮/);
+  assert.match(r.element('interview-pending').innerHTML, /邀请仍待关联/);
+  assert.equal(JSON.stringify(items), original);
+  assert.equal(r.requests.length, 1, 'local filtering does not fetch or write');
+});
+
+test('interview overdue and open scopes include terminal followups but exclude completed or undated tasks', async () => {
+  const action = (due_at, completed_at = null) => ({ due_at, completed_at });
+  const items = [
+    { id: 'undated', status: 'pending', actions: [action(null), action('invalid')] },
+    { id: 'done', status: 'completed', actions: [action('2026-10-10T00:00:00Z', '2026-10-11T00:00:00Z')] },
+    { id: 'cancelled', status: 'cancelled', actions: [action('2026-10-13T00:00:00Z')] },
+    { id: 'completed', status: 'completed', actions: [action('2026-10-14T23:00:00Z')] },
+    { id: 'current', status: 'scheduled', actions: [action('2026-10-15T08:00:00+08:00')] },
+  ];
+  const r = await interviewRuntime(items);
+  await interviewFilter(r, 'overdue-actions', 'due');
+  assert.deepEqual(visibleInterviews(r), ['cancelled', 'completed']);
+  assert.equal((r.element('interview-list').innerHTML.match(/1 项待办已逾期/g) || []).length, 2);
+  assert.match(r.element('interview-summary').textContent, /2 项逾期待办/);
+  await interviewFilter(r, 'open-actions', 'due');
+  assert.deepEqual(visibleInterviews(r), ['cancelled', 'completed', 'current', 'undated']);
+  await interviewFilter(r, 'completed', 'due');
+  assert.deepEqual(visibleInterviews(r), ['completed', 'done']);
+  await interviewFilter(r, 'overdue-actions', 'due');
+  items[2].actions[0].completed_at = '2026-10-15T00:00:00Z';
+  items[3].actions[0].completed_at = '2026-10-15T00:00:00Z';
+  await r.app.refresh();
+  assert.deepEqual(visibleInterviews(r), []);
+  assert.equal(r.element('interview-filter').value, 'overdue-actions');
+  assert.equal(r.element('interview-sort').value, 'due');
+  assert.match(r.element('interview-list').innerHTML, /可切换查看范围/);
+  assert.match(r.element('interview-summary').textContent, /0 项逾期待办/);
+});
+
+test('interview detail prioritizes unfinished deadlines and escapes task text', async () => {
+  const item = { id: 'round', status: 'completed', actions: [
+    { action_id: 'done', summary: 'DONE', due_at: '2026-10-10T00:00:00Z', completed_at: '2026-10-11T00:00:00Z' },
+    { action_id: 'later', summary: 'LATER', due_at: '2026-10-16T00:00:00Z' },
+    { action_id: 'old', summary: '<img src=x onerror=alert(1)>', due_at: '2026-10-14T00:00:00Z' },
+    { action_id: 'missing', summary: 'UNDATED', due_at: null },
+  ] };
+  const original = JSON.stringify(item.actions), r = await interviewRuntime([item]);
+  r.replies.set('/interviews/round', { item });
+  const button = { dataset: { interviewView: 'round' }, hasAttribute: () => false };
+  await r.document.dispatch('click', { target: { closest: () => button } });
+  const markup = r.element('interview-dialog-content').innerHTML;
+  assert.deepEqual([...markup.matchAll(/data-interview-complete="([^"]+)"/g)].map(match => match[1]), ['old', 'later', 'missing']);
+  assert(markup.indexOf('UNDATED') < markup.indexOf('DONE'));
+  assert.match(markup, /已逾期 · 待完成/);
+  assert.match(markup, /截止时间未确定/);
+  assert.match(markup, /&lt;img/);
+  assert(!markup.includes('<img'));
+  assert.equal(JSON.stringify(item.actions), original);
+});
+
+async function interviewSearch(r, value) {
+  r.element('interview-query').value = value;
+  await r.element('interview-query').dispatch('input');
+}
+
+test('interview keyword search composes company role and round with time and todo scopes locally', async () => {
+  const items = [
+    { id: 'match', company: 'Acme', title: 'Data Engineer', round_name: '技术面', round: 2, status: 'scheduled', scheduled_at: '2026-10-16T00:00:00Z', actions: [{ due_at: '2026-10-14T00:00:00Z' }] },
+    { id: 'other-round', company: 'ACME', title: 'Data Engineer', round: 1, status: 'scheduled', scheduled_at: '2026-10-17T00:00:00Z' },
+    { id: 'past', company: 'Acme', title: 'Data Engineer', round_name: '技术面', round: 2, status: 'completed', scheduled_at: '2026-10-12T00:00:00Z' },
+    { id: 'missing', status: 'pending' },
+  ];
+  const r = await interviewRuntime(items), original = JSON.stringify(items);
+  await interviewFilter(r, 'upcoming');
+  await interviewSearch(r, '  ＡＣＭＥ\tengineer  技术面 ');
+  assert.deepEqual(visibleInterviews(r), ['match']);
+  await interviewSearch(r, 'acme 第２轮');
+  assert.deepEqual(visibleInterviews(r), ['match']);
+  await interviewFilter(r, 'overdue-actions', 'due');
+  assert.deepEqual(visibleInterviews(r), ['match']);
+  await interviewSearch(r, '  ');
+  assert.deepEqual(visibleInterviews(r), ['match']);
+  assert.equal(JSON.stringify(items), original);
+  assert.equal(r.requests.length, 1);
+});
+
+test('interview search empty recovery and refresh preserve filters, unsaved forms and drafts', async () => {
+  const r = await interviewRuntime([{ id: 'round', company: 'Acme', title: 'Engineer', status: 'scheduled' }]);
+  const draft = { summary: 'Unsaved preparation', due_at: '2026-10-20T12:00' };
+  r.app.state.interviewDrafts.set('actions:round', draft);
+  r.element('interview-dialog').open = true;
+  r.element('interview-dialog-content').innerHTML = '<form>Unsaved preparation</form>';
+  await interviewFilter(r, 'active', 'due');
+  await interviewSearch(r, '<img src=x>');
+  assert.deepEqual(visibleInterviews(r), []);
+  assert.match(r.element('interview-list').innerHTML, /当前范围没有匹配/);
+  assert(!r.element('interview-list').innerHTML.includes('<img'));
+  assert.match(r.element('interview-list').innerHTML, /data-interview-clear-search/);
+  assert.equal(r.element('interview-search-clear').disabled, false);
+  assert.match(r.element('interview-pending').innerHTML, /邀请仍待关联/);
+  await r.app.refresh();
+  assert.equal(r.element('interview-query').value, '<img src=x>');
+  assert.deepEqual(visibleInterviews(r), []);
+  const button = { dataset: {}, hasAttribute: name => name === 'data-interview-clear-search' };
+  await r.document.dispatch('click', { target: { closest: () => button } });
+  assert.deepEqual(visibleInterviews(r), ['round']);
+  assert.equal(r.element('interview-query').value, '');
+  assert.equal(r.element('interview-search-clear').disabled, true);
+  assert.equal(r.element('interview-filter').value, 'active');
+  assert.equal(r.element('interview-sort').value, 'due');
+  assert.equal(r.element('interview-dialog').open, true);
+  assert.equal(r.element('interview-dialog-content').innerHTML, '<form>Unsaved preparation</form>');
+  assert.equal(r.app.state.interviewDrafts.get('actions:round'), draft);
+  assert.equal(r.requests.length, 2, 'only initial load and explicit refresh fetch data');
 });
