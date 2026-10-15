@@ -70,7 +70,11 @@
         </section>
         <section id="stage-interviews" class="stage" hidden>
           <div class="intro"><div><h2>准备好这一轮，再接上下一步。</h2><p>关联已有岗位与邀请，记录准备待办、改期、取消和结果。</p></div><span class="section-number" aria-hidden="true">07</span></div>
-          <div class="interview-toolbar"><div><label for="interview-filter">查看范围</label><select id="interview-filter"><option value="active">待安排与即将面试</option><option value="all">全部轮次</option><option value="completed">已完成</option><option value="cancelled">已取消</option></select></div><div class="actions"><button type="button" class="button subtle" data-interview-refresh>刷新面试</button><button type="button" class="button primary" data-interview-new>记录面试邀请</button></div></div>
+          <div class="interview-search"><div><label for="interview-query">搜索已关联面试</label><input id="interview-query" type="search" maxlength="160" placeholder="公司、岗位或轮次" aria-describedby="interview-search-help"></div><button id="interview-search-clear" type="button" class="button subtle" data-interview-clear-search disabled>清空搜索</button></div>
+          <p id="interview-search-help" class="hint">关键词以空格分隔，可组合公司、岗位和轮次；与下方范围共同筛选，邀请待关联区保持显示。</p>
+          <div class="interview-toolbar"><div><label for="interview-filter">查看范围</label><select id="interview-filter"><option value="active">待安排与已安排</option><option value="upcoming">未来 7 天面试</option><option value="open-actions">有未完成待办（全部轮次）</option><option value="overdue-actions">有逾期待办（全部轮次）</option><option value="all">全部轮次</option><option value="completed">已完成</option><option value="cancelled">已取消</option></select></div><div><label for="interview-sort">排序</label><select id="interview-sort"><option value="scheduled">面试时间：从早到晚</option><option value="due">未完成待办：最早截止优先</option></select></div><div class="actions"><button type="button" class="button subtle" data-interview-refresh>刷新面试</button><button type="button" class="button primary" data-interview-new>记录面试邀请</button></div></div>
+          <p class="hint">未来 7 天从当前时刻起算；时间按本设备时区显示，无确定时间的记录排在最后。逾期按原待办截止时间判断。</p>
+          <p id="interview-summary" class="hint" role="status"></p>
           <div id="interview-pending" aria-live="polite"></div>
           <div id="interview-list" class="interview-list" aria-live="polite"><div class="empty">进入本页后读取面试记录。</div></div>
         </section>
