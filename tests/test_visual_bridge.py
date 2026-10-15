@@ -121,14 +121,19 @@ def test_unclaimed_timeout_is_atomically_cancelled_and_cannot_be_late_claimed(tm
 
 def test_claimed_timeout_reports_unknown_instead_of_replaying(tmp_path: Path) -> None:
     _host(tmp_path)
+    clock = time.time()
 
-    def claim_only() -> None:
-        while not (pending := next((tmp_path / "pending").glob("*.json"), None)):
-            time.sleep(0.002)
-        os.replace(pending, tmp_path / "claimed" / pending.name)
+    def claim_then_expire() -> float:
+        nonlocal clock
+        pending = next((tmp_path / "pending").glob("*.json"), None)
+        if pending is not None:
+            # Claim the published request before advancing to its deadline.
+            # A real worker racing a 50ms timeout can lose and wait forever.
+            request = json.loads(pending.read_text(encoding="utf-8"))
+            os.replace(pending, tmp_path / "claimed" / pending.name)
+            clock = request["deadline_at"]
+        return clock
 
-    worker = threading.Thread(target=claim_only)
-    worker.start()
     with pytest.raises(visual_bridge.VisualBridgeError) as raised:
         visual_bridge.request_visual_operation(
             tmp_path,
@@ -136,11 +141,14 @@ def test_claimed_timeout_reports_unknown_instead_of_replaying(tmp_path: Path) ->
             arguments={},
             timeout_seconds=0.05,
             poll_interval_seconds=0.005,
+            now=claim_then_expire,
         )
-    worker.join(timeout=1)
 
     assert raised.value.code == "outcome_unknown"
     assert len(list((tmp_path / "claimed").glob("*.json"))) == 1
+    assert not list((tmp_path / "pending").glob("*.json"))
+    assert not list((tmp_path / "cancelled").glob("*.json"))
+    assert not (tmp_path / ".active_request.lock").exists()
 
 
 def test_stale_host_and_unbounded_arguments_are_rejected_before_queueing(tmp_path: Path) -> None:
