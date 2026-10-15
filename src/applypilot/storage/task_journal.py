@@ -277,7 +277,7 @@ def claim(
         cursor = connection.execute(
             "UPDATE agent_tasks SET status='running',owner_id=?,worker_id=?,lease_expires_at=?,"
             "heartbeat_at=?,attempt_count=attempt_count+1,lease_epoch=lease_epoch+1,"
-            "retry_at=NULL,updated_at=? WHERE task_id=? AND "
+            "retry_at=NULL,updated_at=? WHERE task_id=? AND cancel_requested=0 AND "
             "((status='pending' AND (retry_at IS NULL OR retry_at<=?)) OR "
             "(status='running' AND effect_class='read' AND lease_expires_at IS NOT NULL "
             "AND lease_expires_at<=?))",
@@ -303,7 +303,7 @@ def claim_next(
     current = now or _now()
     current_text = _iso(current)
     row = connection.execute(
-        "SELECT task_id FROM agent_tasks WHERE "
+        "SELECT task_id FROM agent_tasks WHERE cancel_requested=0 AND "
         "((status='pending' AND (retry_at IS NULL OR retry_at<=?)) OR "
         "(status='running' AND effect_class='read' AND lease_expires_at IS NOT NULL "
         "AND lease_expires_at<=?)) "
@@ -605,11 +605,19 @@ def reap_expired(
     requeued = dead_count = 0
     with _write_transaction(connection):
         rows = connection.execute(
-            "SELECT task_id,effect_class,lease_epoch FROM agent_tasks WHERE status='running' "
+            "SELECT task_id,effect_class,lease_epoch,owner_id,cancel_requested "
+            "FROM agent_tasks WHERE status='running' "
             "AND lease_expires_at IS NOT NULL AND lease_expires_at<=?", (current_text,)
         ).fetchall()
-        for task_id, effect_class, epoch in rows:
+        for task_id, effect_class, epoch, owner_id, cancel_requested in rows:
             if str(effect_class) == "read":
+                if cancel_requested:
+                    # An expired read has no product effects to reconcile. Finish
+                    # its cancellation without granting another execution lease.
+                    acknowledge_cancel(
+                        connection, LeaseToken(str(task_id), str(owner_id), int(epoch)), now=current
+                    )
+                    continue
                 cursor = connection.execute(
                     "UPDATE agent_tasks SET status='pending',owner_id=NULL,worker_id=NULL,"
                     "lease_expires_at=NULL,retry_at=?,updated_at=? WHERE task_id=? "
