@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -641,6 +642,94 @@ def test_material_specialist_deadline_is_cooperative_and_input_is_frozen(
             mode="advisory",
             cancelled=lambda: True,
         )
+
+
+@pytest.mark.parametrize("cancel_source", ["journal", "callback"])
+@pytest.mark.parametrize("runner_fails", [False, True])
+def test_durable_material_acknowledges_cancellation_during_execution(
+    monkeypatch, tmp_path, cancel_source, runner_fails
+) -> None:
+    from applypilot.apply import specialists
+
+    path = tmp_path / "cancel.db"
+    connection = sqlite3.connect(path)
+    requested = False
+
+    def runner(_snapshot):
+        nonlocal requested
+        requested = True
+        if cancel_source == "journal":
+            with sqlite3.connect(path) as control:
+                task_id = control.execute("SELECT task_id FROM agent_tasks").fetchone()[0]
+                task_journal.request_cancel(control, task_id)
+        if runner_fails:
+            raise ValueError("failed")
+        return {"ready": True, "state": "ready"}
+
+    monkeypatch.setitem(specialists._PRODUCTION_SPECIALISTS, "material-readiness-v1", runner)
+    with pytest.raises(SpecialistCancelled):
+        run_durable_material_specialist(
+            connection, {}, mode="required", attempt_id="attempt", workflow_id="workflow",
+            cancelled=(lambda: requested) if cancel_source == "callback" else None,
+        )
+
+    task_id = connection.execute("SELECT task_id FROM agent_tasks").fetchone()[0]
+    entry = task_journal.load(connection, task_id)
+    assert entry.status == "cancelled" and entry.cancel_requested
+    assert entry.owner_id is None and entry.lease_expires_at is None
+    assert entry.result["status"] == "cancelled" and not entry.result["output"]
+    events = task_journal.list_events(connection, task_id)
+    assert [event["event_type"] for event in events] == ["claimed", "cancel_requested", "result"]
+    assert events[-1]["payload"]["status"] == "cancelled"
+    assert connection.execute(
+        "SELECT COUNT(*) FROM agent_events WHERE event_type='agent.proposal.consumed'"
+    ).fetchone()[0] == 0
+
+
+def test_durable_material_cancel_before_publication_is_acknowledged(monkeypatch, tmp_path) -> None:
+    from applypilot.apply import specialists
+
+    path = tmp_path / "cancel-publication.db"
+    connection = sqlite3.connect(path)
+    original = task_journal.complete
+
+    def cancel_then_complete(conn, task_id, owner, result, **kwargs):
+        with sqlite3.connect(path) as control:
+            task_journal.request_cancel(control, task_id)
+        return original(conn, task_id, owner, result, **kwargs)
+
+    monkeypatch.setattr(task_journal, "complete", cancel_then_complete)
+    with pytest.raises(SpecialistCancelled):
+        specialists.run_durable_material_specialist(
+            connection, {}, mode="required", attempt_id="attempt", workflow_id="workflow"
+        )
+    task_id = connection.execute("SELECT task_id FROM agent_tasks").fetchone()[0]
+    assert task_journal.load(connection, task_id).status == "cancelled"
+
+
+def test_durable_material_old_cancellation_cannot_cancel_new_lease(monkeypatch, tmp_path) -> None:
+    from applypilot.apply import specialists
+
+    path = tmp_path / "new-owner.db"
+    connection = sqlite3.connect(path)
+
+    def runner(_snapshot):
+        with sqlite3.connect(path) as control:
+            task_id = control.execute("SELECT task_id FROM agent_tasks").fetchone()[0]
+            assert task_journal.claim(
+                control, task_id, "new-owner", now=datetime.now(UTC) + timedelta(seconds=121)
+            ) is not None
+        raise SpecialistCancelled("old owner cancelled")
+
+    monkeypatch.setitem(specialists._PRODUCTION_SPECIALISTS, "material-readiness-v1", runner)
+    with pytest.raises(RuntimeError, match="stale"):
+        run_durable_material_specialist(
+            connection, {}, mode="required", attempt_id="attempt", workflow_id="workflow"
+        )
+    task_id = connection.execute("SELECT task_id FROM agent_tasks").fetchone()[0]
+    entry = task_journal.load(connection, task_id)
+    assert entry.status == "running" and entry.owner_id == "new-owner"
+    assert entry.lease_epoch == 2 and not entry.cancel_requested and entry.result is None
 
 
 def test_material_supply_change_invalidates_blocked_replay(tmp_path: Path) -> None:

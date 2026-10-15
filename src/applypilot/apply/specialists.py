@@ -35,6 +35,7 @@ from applypilot.apply.material_readiness import (
     material_snapshot_identity,
 )
 from applypilot.storage import task_journal
+from applypilot.storage.transactions import write_transaction
 
 Specialist = Callable[[Mapping[str, object]], dict[str, object]]
 
@@ -127,9 +128,11 @@ def _run_deterministic_read_specialist(
     if cancelled is not None and cancelled():
         raise SpecialistCancelled("specialist execution cancelled")
     started = time.monotonic()
-    value = runner(frozen)
-    if cancelled is not None and cancelled():
-        raise SpecialistCancelled("specialist execution cancelled")
+    try:
+        value = runner(frozen)
+    finally:
+        if cancelled is not None and cancelled():
+            raise SpecialistCancelled("specialist execution cancelled")
     if time.monotonic() - started >= max(timeout_seconds, 0.001):
         raise SpecialistDeadlineExceeded("specialist execution deadline exceeded")
     if not isinstance(value, dict):
@@ -748,6 +751,8 @@ def _run_bounded_subprocess(
     stderr_limit: int = 4096,
     env: Mapping[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    input_bytes = input_text.encode("utf-8")
+    deadline = time.monotonic() + timeout_seconds
     process = subprocess.Popen(
         command,
         stdin=subprocess.PIPE,
@@ -758,6 +763,18 @@ def _run_bounded_subprocess(
     stdout = bytearray()
     stderr = bytearray()
     over_limit = threading.Event()
+    input_errors: list[OSError] = []
+
+    def write_input() -> None:
+        # Keep task input in a pipe, without persisting it to a temporary file.
+        # A worker that stops reading must not block the deadline monitor.
+        try:
+            with process.stdin:
+                process.stdin.write(input_bytes)
+        except BrokenPipeError:
+            pass  # The worker may exit before consuming all input.
+        except OSError as exc:
+            input_errors.append(exc)
 
     def read_bounded(stream, target: bytearray, limit: int) -> None:
         while True:
@@ -774,17 +791,15 @@ def _run_bounded_subprocess(
                     pass
                 return
 
-    readers = (
-        threading.Thread(target=read_bounded, args=(process.stdout, stdout, stdout_limit)),
-        threading.Thread(target=read_bounded, args=(process.stderr, stderr, stderr_limit)),
-    )
-    for reader in readers:
-        reader.start()
-    assert process.stdin is not None
+    threads: tuple[threading.Thread, ...] = ()
     try:
-        process.stdin.write(input_text.encode("utf-8"))
-        process.stdin.close()
-        deadline = time.monotonic() + timeout_seconds
+        threads = (
+            threading.Thread(target=read_bounded, args=(process.stdout, stdout, stdout_limit)),
+            threading.Thread(target=read_bounded, args=(process.stderr, stderr, stderr_limit)),
+            threading.Thread(target=write_input),
+        )
+        for thread in threads:
+            thread.start()
         while process.poll() is None:
             if over_limit.is_set():
                 process.terminate()
@@ -807,16 +822,25 @@ def _run_bounded_subprocess(
             process.wait()
         raise
     finally:
-        for reader in readers:
-            reader.join(timeout=1)
+        # Reap first so blocked pipe readers/writers can finish, including when
+        # construction or startup of one of the threads failed.
         if process.poll() is None:
             process.kill()
             process.wait()
+        for thread in threads:
+            if thread.ident is not None:
+                thread.join(timeout=1)
+        if not any(thread.is_alive() for thread in threads):
+            for stream in (process.stdin, process.stdout, process.stderr):
+                if stream is not None:
+                    stream.close()
     if over_limit.is_set():
         if process.poll() is None:
             process.kill()
             process.wait()
         raise AtsFillPlanOutputLimitError(bytes(stdout), bytes(stderr))
+    if input_errors:
+        raise input_errors[0]
     return subprocess.CompletedProcess(
         command,
         int(process.returncode or 0),
@@ -1348,6 +1372,12 @@ def run_durable_material_specialist(
         event_type="agent.proposal.emitted",
         payload={**base_payload, "replay": False, "before_decision": "unchecked"},
     )
+
+    def cancellation_requested() -> bool:
+        return (cancelled is not None and cancelled()) or task_journal.cancellation_requested(
+            connection, lease_token
+        )
+
     try:
         result = _run_deterministic_read_specialist(
             production_specialist(version),
@@ -1357,7 +1387,7 @@ def run_durable_material_specialist(
                 if timeout_seconds is None
                 else timeout_seconds
             ),
-            cancelled=cancelled,
+            cancelled=cancellation_requested,
         )
         ensure_persistable(result, path="$.specialist_output")
         durable_result = TaskResult(
@@ -1368,17 +1398,29 @@ def run_durable_material_specialist(
         )
         task_journal.complete(connection, task_id, lease_token, durable_result)
     except Exception as exc:
-        task_journal.fail(
-            connection,
-            task_id,
-            lease_token,
-            TaskResult(
-                task_id=task_id,
-                status="failed",
-                output={"error_type": type(exc).__name__},
-                failure_category="specialist_failure",
-            ),
-        )
+        with write_transaction(connection):
+            # Fence this exact owner before translating a local cancellation
+            # into a durable request, so a stale runner cannot cancel its successor.
+            was_cancelled = task_journal.cancellation_requested(connection, lease_token)
+            if isinstance(exc, SpecialistCancelled):
+                task_journal.request_cancel(connection, task_id)
+                was_cancelled = True
+            if was_cancelled:
+                task_journal.acknowledge_cancel(connection, lease_token)
+            else:
+                task_journal.fail(
+                    connection,
+                    task_id,
+                    lease_token,
+                    TaskResult(
+                        task_id=task_id,
+                        status="failed",
+                        output={"error_type": type(exc).__name__},
+                        failure_category="specialist_failure",
+                    ),
+                )
+        if was_cancelled:
+            raise SpecialistCancelled("specialist execution cancelled") from exc
         raise
     changed = normalized == "required" and result.get("state") != "ready"
     feedback = (

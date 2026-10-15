@@ -326,6 +326,65 @@ def test_cancel_request_blocks_complete_fail_and_retry_until_ack() -> None:
     assert task_journal.acknowledge_cancel(connection, token).status == "cancelled"
 
 
+def test_cancelled_expired_read_cannot_be_reclaimed() -> None:
+    connection = _connection()
+    current = datetime(2026, 9, 4, tzinfo=UTC)
+    task_journal.register(connection, TaskSpec("read", "audit", "Read"))
+    first = task_journal.claim(connection, "read", "old", lease_seconds=1, now=current)
+    task_journal.request_cancel(connection, "read", now=current)
+
+    assert task_journal.claim(
+        connection, "read", "new", now=current + timedelta(seconds=2)
+    ) is None
+    entry = task_journal.load(connection, "read")
+    assert entry.lease_epoch == first.lease_epoch
+    assert entry.attempt_count == 1
+    assert entry.cancel_requested
+
+
+def test_claim_next_skips_cancelled_expired_read() -> None:
+    connection = _connection()
+    current = datetime(2026, 9, 4, tzinfo=UTC)
+    task_journal.register(connection, TaskSpec("cancelled-read", "audit", "Read"))
+    task_journal.claim(connection, "cancelled-read", "old", lease_seconds=1, now=current)
+    task_journal.request_cancel(connection, "cancelled-read", now=current)
+    task_journal.register(connection, TaskSpec("next-read", "audit", "Read"))
+
+    claimed = task_journal.claim_next(connection, "new", now=current + timedelta(seconds=2))
+
+    assert claimed is not None and claimed.task_id == "next-read"
+
+
+@pytest.mark.parametrize("effect_class", ["read", "submit"])
+def test_reaper_preserves_cancellation_without_replaying_work(effect_class) -> None:
+    connection = _connection()
+    current = datetime(2026, 9, 4, tzinfo=UTC)
+    task_journal.register(connection, TaskSpec("task", "audit", "Work", effect_class=effect_class))
+    first = task_journal.claim(connection, "task", "old", lease_seconds=1, now=current)
+    task_journal.request_cancel(connection, "task", now=current)
+    later = current + timedelta(seconds=2)
+
+    expected_counts = (0, 0) if effect_class == "read" else (0, 1)
+    assert task_journal.reap_expired(connection, now=later) == expected_counts
+    entry = task_journal.load(connection, "task")
+    assert entry.status == ("cancelled" if effect_class == "read" else "dead_letter")
+    assert entry.cancel_requested and entry.owner_id is None
+    assert entry.lease_epoch == first.lease_epoch and entry.attempt_count == 1
+    assert task_journal.claim(connection, "task", "new", now=later) is None
+    with pytest.raises(RuntimeError, match="stale"):
+        task_journal.complete(connection, "task", first.lease_token,
+                              TaskResult(task_id="task", status="completed"))
+    events = task_journal.list_events(connection, "task")
+    assert "lease_requeued" not in [event["event_type"] for event in events]
+    if effect_class == "read":
+        assert entry.result["status"] == "cancelled"
+        assert events[-1]["payload"]["status"] == "cancelled"
+    else:
+        assert entry.dead_letter_reason == "expired_non_read_lease_requires_manual_review"
+    assert task_journal.reap_expired(connection, now=later) == (0, 0)
+    assert task_journal.list_events(connection, "task") == events
+
+
 def test_claim_next_skips_expired_non_read_so_pending_read_is_not_starved() -> None:
     connection = _connection()
     current = datetime(2026, 9, 4, tzinfo=UTC)
