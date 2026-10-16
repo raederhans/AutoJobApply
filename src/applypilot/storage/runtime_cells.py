@@ -17,7 +17,6 @@ from applypilot.storage.transactions import write_transaction
 
 RUNTIME_CELL_SCHEMA_VERSION = 3
 _CELL_ACTIVE = {"active", "suspect", "draining"}
-_LEASE_ACTIVE = {"open", "suspect", "draining"}
 
 
 class RuntimeCellConflictError(RuntimeError):

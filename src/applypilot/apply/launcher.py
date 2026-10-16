@@ -7749,17 +7749,6 @@ PERMANENT_PREFIXES: tuple[str, ...] = (
     "unsafe_verification",
 )
 
-def _should_retry_with_cloak(result: str, requested_backend: str) -> bool:
-    """Compatibility wrapper for the structured pre-submit route policy."""
-    return cloak_fallback_route(
-        result,
-        requested_browser_backend=requested_backend,
-        phase="prepare",
-        current_runtime="edge",
-        fallback_already_used=False,
-    ) is not None
-
-
 def _is_permanent_failure(result: str) -> bool:
     """Determine whether automatic retries should remain blocked."""
     reason = result.split(":", 1)[-1] if ":" in result else result

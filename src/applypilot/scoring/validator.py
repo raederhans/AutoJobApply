@@ -76,16 +76,6 @@ REQUIRED_SECTIONS: set[str] = {"SUMMARY", "TECHNICAL SKILLS", "EXPERIENCE", "PRO
 
 # ── Helpers ───────────────────────────────────────────────────────────────
 
-def _build_skills_set(profile: dict) -> set[str]:
-    """Build the set of allowed skills from the profile's skills_boundary."""
-    boundary = profile.get("skills_boundary", {})
-    allowed: set[str] = set()
-    for category in boundary.values():
-        if isinstance(category, (list, set)):
-            allowed.update(s.lower().strip() for s in category)
-    return allowed
-
-
 def sanitize_text(text: str) -> str:
     """Auto-fix common LLM output issues instead of rejecting."""
     text = text.replace(" \u2014 ", ", ").replace("\u2014", ", ")   # em dash -> comma
@@ -201,23 +191,6 @@ def _entry_matches_source(header: str, source_header: str) -> bool:
     left = set(re.findall(r"[a-z0-9]+", header.casefold()))
     right = set(re.findall(r"[a-z0-9]+", source_header.casefold()))
     return bool(left and right and (left <= right or right <= left or len(left & right) >= 2))
-
-
-def _best_source_match_index(header: str, source_headers: list[str]) -> int | None:
-    """Choose the closest header instead of the first loose token overlap."""
-    normalized = header.strip().casefold()
-    for index, source_header in enumerate(source_headers):
-        if normalized == source_header.strip().casefold():
-            return index
-    left = set(re.findall(r"[a-z0-9]+", normalized))
-    candidates: list[tuple[float, int]] = []
-    for index, source_header in enumerate(source_headers):
-        if not _entry_matches_source(header, source_header):
-            continue
-        right = set(re.findall(r"[a-z0-9]+", source_header.casefold()))
-        union = left | right
-        candidates.append((len(left & right) / len(union) if union else 0.0, index))
-    return max(candidates, default=(0.0, -1))[1] if candidates else None
 
 
 def _match_source_indices(

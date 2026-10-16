@@ -401,7 +401,9 @@ def test_absent_result_marker_keeps_typed_path_but_malformed_submit_is_uncertain
 
 
 def test_mcp_schema_exposes_facts_but_no_recovery_policy() -> None:
-    schema = agent_report_mcp._report_tool()["inputSchema"]
+    response = agent_report_mcp._handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    tool = next(item for item in response["result"]["tools"] if item["name"] == "report_agent_turn")
+    schema = tool["inputSchema"]
     serialized = json.dumps(schema, sort_keys=True)
 
     assert '"failure"' in serialized

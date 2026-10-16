@@ -471,16 +471,6 @@ def score_exact_job_for_url(url: str, resume_path: str | None = None) -> dict:
     }
 
 
-def _write_json_atomic(path: Path, payload: dict, token: str) -> None:
-    """Write JSON beside its destination, then atomically promote it."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{token}.tmp")
-    temporary.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    os.replace(temporary, path)
-
-
 def _quarantine_revalidation_pdf(path: Path, label: str, token: str) -> Path | None:
     """Move a PDF out of the upload path so old manifests fail closed."""
     if not path.is_file():
