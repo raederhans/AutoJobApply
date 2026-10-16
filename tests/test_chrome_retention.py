@@ -27,6 +27,58 @@ def _write(path: Path, content: bytes = b"x") -> Path:
     return path
 
 
+@pytest.mark.parametrize("shutdown", [chrome.kill_all_chrome, chrome.cleanup_on_exit])
+@pytest.mark.parametrize(
+    ("owned", "stopped", "release_error"),
+    [(True, True, False), (True, False, False), (False, True, False), (True, True, True)],
+    ids=["stopped", "holder-alive", "other-thread", "release-failed"],
+)
+def test_shutdown_releases_only_confirmed_owned_browser(
+    monkeypatch, tmp_path: Path, shutdown, owned: bool, stopped: bool, release_error: bool,
+) -> None:
+    worker_id = 42
+    port = 9842
+    profile = tmp_path / "profile"
+    claim = _write(tmp_path / "cdp-port.lock")
+    events = []
+
+    def release_after_stop(*, profile_path: Path, browser_stopped: bool) -> None:
+        assert profile_path == profile
+        assert browser_stopped is True
+        events.append("release")
+        if release_error:
+            raise chrome.ProfileLockError("mutex retained")
+
+    lock = SimpleNamespace(
+        owned_by_current_thread=owned,
+        actual_browser_stopped=lambda: stopped,
+        release_after_stop=release_after_stop,
+    )
+    monkeypatch.setattr(chrome, "_chrome_procs", {worker_id: SimpleNamespace(poll=lambda: 0)})
+    monkeypatch.setattr(chrome, "_chrome_ports", {worker_id: port})
+    monkeypatch.setattr(chrome, "_profile_locks", {worker_id: lock})
+    monkeypatch.setattr(chrome, "_profile_paths", {worker_id: profile})
+    monkeypatch.setattr(chrome, "_cdp_port_claims", {worker_id: (port, claim)})
+    for name in ("_launching_workers", "_allocating_cdp_workers", "_releasing_cdp_workers"):
+        monkeypatch.setattr(chrome, name, set())
+    monkeypatch.setattr(chrome, "_close_browser_via_cdp", lambda _port: events.append("close"))
+    monkeypatch.setattr(chrome, "_cdp_endpoint_reachable", lambda _port: False)
+    wait_for_stop = chrome._wait_for_browser_stopped
+    monkeypatch.setattr(
+        chrome, "_wait_for_browser_stopped",
+        lambda *args: wait_for_stop(*args, timeout_seconds=0),
+    )
+
+    shutdown()
+
+    assert events == (["close", "release"] if owned and stopped else ["close"])
+    retained = not (owned and stopped and not release_error)
+    for state in (chrome._chrome_procs, chrome._chrome_ports, chrome._profile_locks,
+                  chrome._profile_paths, chrome._cdp_port_claims):
+        assert (worker_id in state) is retained
+    assert claim.exists() is retained
+
+
 def test_profile_inventory_separates_site_state_from_regenerable_cache(
     tmp_path: Path,
 ) -> None:

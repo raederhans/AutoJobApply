@@ -757,7 +757,8 @@ def test_report_tool_documents_and_accepts_legacy_open_failure_status(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    tool = agent_report_mcp._report_tool()
+    response = agent_report_mcp._handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    tool = next(item for item in response["result"]["tools"] if item["name"] == "report_agent_turn")
     properties = tool["inputSchema"]["properties"]
     assert "legacy/open status label such as failed:stuck" in properties["status"]["description"]
     assert "omit this top-level typed failure" in properties["failure"]["description"]

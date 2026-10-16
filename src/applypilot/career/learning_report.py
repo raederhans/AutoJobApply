@@ -6,7 +6,8 @@ import html
 import json
 import re
 from pathlib import Path
-from urllib.parse import urlsplit
+
+from applypilot.career._report_common import _safe_url, _text
 
 _STATES = {
     "pending": "待开始", "in_progress": "进行中", "submitted": "已提交，待验收",
@@ -20,14 +21,6 @@ _BOUNDARY = (
 )
 
 
-def _text(value, fallback="未提供") -> str:
-    if value is None or value == "":
-        return fallback
-    if isinstance(value, (dict, list)):
-        return json.dumps(value, ensure_ascii=False, sort_keys=True)
-    return str(value)
-
-
 def _html(value) -> str:
     return html.escape(_text(value), quote=True).replace("\n", "<br>")
 
@@ -36,18 +29,6 @@ def _md(value) -> str:
     # Keep supplied Markdown syntax as literal text, including headings/links.
     escaped = html.escape(_text(value), quote=True).replace("\n", " / ")
     return re.sub(r"([\\`*_{}\[\]()#+.!|>~-])", r"\\\1", escaped)
-
-
-def _safe_url(value) -> str | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        parsed = urlsplit(value.strip())
-    except ValueError:
-        return None
-    if parsed.scheme.lower() != "https" or not parsed.netloc or parsed.username or parsed.password:
-        return None
-    return value.strip()
 
 
 def _ordered_tasks(progress: dict) -> list[dict]:

@@ -217,16 +217,6 @@ class DurableAgentRuntime:
         finally:
             self._release_connection(connection)
 
-    def _parent(self, parent_run_id: str) -> runtime_control.AgentRuntimeTurn:
-        connection = self._connection()
-        try:
-            parent = runtime_control.get_runtime_turn(connection, parent_run_id)
-        finally:
-            self._release_connection(connection)
-        if parent is None:
-            raise DurableRuntimeBlocked("resume parent turn is unknown")
-        return parent
-
     def _reserve_resume_atomic(
         self,
         intent: DurableLaunchIntent,

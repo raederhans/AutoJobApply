@@ -7,7 +7,6 @@ from applypilot.resume_library import assess_resume_artifact_health
 from applypilot.scoring import tailor
 from applypilot.scoring.resume_plan import build_content_plan
 from applypilot.scoring.validator import (
-    _best_source_match_index,
     _match_source_indices,
     validate_json_fields,
 )
@@ -279,8 +278,8 @@ def test_entry_order_matching_prefers_exact_company_over_shared_planning_tokens(
         "China Academy of Urban Planning and Design",
     ]
 
-    assert _best_source_match_index(headers[0], headers) == 0
-    assert _best_source_match_index(headers[2], headers) == 2
+    assert _match_source_indices([headers[0]], headers) == [0]
+    assert _match_source_indices([headers[2]], headers) == [2]
 
 
 def test_entry_matching_does_not_reuse_one_planning_header_for_two_sources() -> None:

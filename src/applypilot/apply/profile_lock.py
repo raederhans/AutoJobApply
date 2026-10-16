@@ -228,19 +228,6 @@ class ProfileLock:
         except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
             raise ProfileRecoveryRequired(f"Malformed profile lock sidecar: {exc}") from exc
 
-    def _identity_from_payload(self, value: Any) -> ProcessIdentity | None:
-        if value is None:
-            return None
-        if not isinstance(value, dict):
-            raise ProfileRecoveryRequired("Malformed process identity in profile sidecar")
-        try:
-            identity = ProcessIdentity(int(value["pid"]), int(value["creation_filetime"]))
-        except (KeyError, TypeError, ValueError) as exc:
-            raise ProfileRecoveryRequired("Malformed process identity in profile sidecar") from exc
-        if identity.pid <= 0 or identity.creation_filetime <= 0:
-            raise ProfileRecoveryRequired("Invalid process identity in profile sidecar")
-        return identity
-
     def _check_existing_sidecar(self) -> None:
         payload = self._read_existing_sidecar()
         if payload is None:

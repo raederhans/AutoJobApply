@@ -199,14 +199,6 @@ def _broker_surface() -> tuple[ToolBroker, ToolSurface]:
     return broker, surface
 
 
-def _report_tool() -> dict[str, object]:
-    _broker, surface = _broker_surface()
-    spec = surface.registry.get("report_agent_turn")
-    if spec is None:
-        raise ValueError("report_agent_turn is not admitted on this MCP surface")
-    return _mcp_tool(spec)
-
-
 def _write_report(arguments: dict[str, object]) -> dict[str, object]:
     run_id = os.environ.get(RUN_ID_ENV, "").strip()
     raw_path = os.environ.get(REPORT_PATH_ENV, "").strip()

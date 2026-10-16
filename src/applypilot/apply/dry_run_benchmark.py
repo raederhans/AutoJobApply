@@ -25,9 +25,7 @@ from typing import Any
 from applypilot import config
 from applypilot.apply.runtime_evaluation import (
     EvaluationReport,
-    RuntimeRegistry,
     ScriptedReplayRuntime,
-    compare_runtimes,
     evaluate_scenario,
     scenario_from_mapping,
 )
@@ -149,34 +147,6 @@ def load_benchmark_fixture(path: Path | str) -> tuple[dict[str, Any], str]:
     raw, fixture_sha256 = _raw_fixture(path)
     _validate_fixture(raw)
     return json.loads(json.dumps(raw)), fixture_sha256
-
-
-def _registry_and_scenarios(
-    scenarios_raw: Sequence[Mapping[str, Any]],
-    runtimes_raw: Mapping[str, Any],
-) -> tuple[RuntimeRegistry, tuple[Any, ...]]:
-    registry = RuntimeRegistry()
-    for runtime_name, turns in runtimes_raw.items():
-        if not isinstance(runtime_name, str) or not runtime_name.strip():
-            raise ValueError("runtime names must be non-empty strings")
-        if not isinstance(turns, Mapping):
-            raise TypeError("runtime turns must be objects")
-        registry.register(
-            runtime_name,
-            ScriptedReplayRuntime(turns, name=runtime_name),
-        )
-    scenarios = tuple(scenario_from_mapping(item) for item in scenarios_raw)
-    return registry, scenarios
-
-
-def _replay(raw: Mapping[str, Any], *, copy_fixture: bool = True) -> EvaluationReport:
-    # Do not let one worker mutate another worker's fixture view.  This copy is
-    # deliberately made inside the worker task, after fixture bytes were
-    # hashed, so every task consumes the same immutable source value.
-    worker_raw = json.loads(json.dumps(raw)) if copy_fixture else raw
-    scenarios_raw, runtimes_raw = _validate_fixture(worker_raw)
-    registry, scenarios = _registry_and_scenarios(scenarios_raw, runtimes_raw)
-    return compare_runtimes(scenarios, registry)
 
 
 def _parallel_replay(

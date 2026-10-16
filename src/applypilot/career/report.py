@@ -9,7 +9,8 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+
+from applypilot.career._report_common import _safe_url, _text
 
 _STATUS_ZH = {
     "related_evidence": "有关联经历材料",
@@ -36,26 +37,6 @@ _ACTION_ZH = {
     "clarify_source_condition": "澄清原句条件范围",
     "review_catalog_coverage": "复核目录覆盖范围",
 }
-
-
-def _text(value: Any, fallback: str = "未提供") -> str:
-    if value is None or value == "":
-        return fallback
-    if isinstance(value, (dict, list)):
-        return json.dumps(value, ensure_ascii=False, sort_keys=True)
-    return str(value)
-
-
-def _safe_url(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        parsed = urlsplit(value.strip())
-    except ValueError:
-        return None
-    if parsed.scheme.lower() != "https" or not parsed.netloc or parsed.username or parsed.password:
-        return None
-    return value.strip()
 
 
 def _slug(value: Any) -> str:
