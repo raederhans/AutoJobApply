@@ -13,6 +13,7 @@ import json
 import shutil
 from pathlib import Path
 
+import yaml
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
@@ -48,8 +49,6 @@ def initialize_from_files(
     force: bool = False,
 ) -> None:
     """Create a workspace from explicit local files without collecting secrets."""
-    import yaml
-
     resume_source = _resolved_input(resume, suffixes={".pdf", ".txt"}, label="Resume")
     profile_source = _resolved_input(profile, suffixes={".json"}, label="Profile")
     searches_source = _resolved_input(searches, suffixes={".yaml", ".yml"}, label="Search config")
@@ -246,11 +245,17 @@ def _setup_searches() -> None:
     console.print(Panel("[bold]Step 3: Job Search Config[/bold]\nDefine what you're looking for."))
 
     location = Prompt.ask("Target location (e.g. 'Remote', 'Canada', 'New York, NY')", default="Remote")
-    distance_str = Prompt.ask("Search radius in miles (0 for remote-only)", default="0")
+    distance_str = Prompt.ask("Search radius in miles (0 = no radius limit)", default="0")
     try:
         distance = int(distance_str)
     except ValueError:
         distance = 0
+    # Remote-only is an explicit choice: the radius default of 0 must not restrict a
+    # named city to remote jobs. Typing "Remote" as the location implies it.
+    remote_only = Confirm.ask(
+        "Search remote jobs only?",
+        default=location.strip().casefold() == "remote",
+    )
 
     roles_raw = Prompt.ask(
         "Target job titles (comma-separated, e.g. 'Backend Engineer, Full Stack Developer')"
@@ -261,34 +266,73 @@ def _setup_searches() -> None:
         console.print("[yellow]No roles provided. Using a default set.[/yellow]")
         roles = ["Software Engineer"]
 
-    # Build YAML content
-    lines = [
-        "# Job Apply Pilot search configuration",
-        "# Edit this file to refine your job search queries.",
-        "",
-        "defaults:",
-        f'  location: "{location}"',
-        f"  distance: {distance}",
-        "  hours_old: 72",
-        "  results_per_site: 50",
-        "",
-        "locations:",
-        f'  - location: "{location}"',
-        f"    remote: {str(distance == 0).lower()}",
-        "",
-        "queries:",
-    ]
-    for i, role in enumerate(roles):
-        lines.append(f'  - query: "{role}"')
-        lines.append(f"    tier: {min(i + 1, 3)}")
-
-    SEARCH_CONFIG_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Build the config as data and let PyYAML do the quoting, so titles or places
+    # containing quotes, colons or '#' still produce a loadable file.
+    search_config = {
+        "defaults": {
+            "location": location,
+            "distance": distance,
+            "hours_old": 72,
+            "results_per_site": 50,
+        },
+        "locations": [{"location": location, "remote": remote_only}],
+        "queries": [{"query": role, "tier": min(i + 1, 3)} for i, role in enumerate(roles)],
+    }
+    header = (
+        "# Job Apply Pilot search configuration\n"
+        "# Edit this file to refine your job search queries.\n\n"
+    )
+    body = yaml.safe_dump(search_config, sort_keys=False, allow_unicode=True)
+    SEARCH_CONFIG_PATH.write_text(header + body, encoding="utf-8")
     console.print(f"[green]Search config saved to {SEARCH_CONFIG_PATH}[/green]")
 
 
 # ---------------------------------------------------------------------------
 # AI Features
 # ---------------------------------------------------------------------------
+
+# Provider selectors read by applypilot.llm._detect_provider(). Only one should be
+# active, because it picks the first of gemini > openai > deepseek > local.
+_LLM_PROVIDER_KEYS = ("GEMINI_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY", "LLM_URL")
+
+
+def _env_line_key(line: str) -> str | None:
+    """Return the variable name of a ``KEY=value`` / ``export KEY=value`` line."""
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#") or "=" not in stripped:
+        return None
+    name = stripped.split("=", 1)[0].strip()
+    if name.startswith("export "):
+        name = name[len("export "):].strip()
+    return name or None
+
+
+def _merge_env_file(path: Path, updates: dict[str, str]) -> None:
+    """Set ``updates`` in a .env file, keeping every unrelated line and comment.
+
+    A key already present is replaced in place; missing keys are appended. A
+    competing provider selector that is not being set is commented out (not
+    deleted) so it cannot shadow the provider chosen in the wizard.
+    """
+    if path.exists():
+        existing = path.read_text(encoding="utf-8").splitlines()
+    else:
+        existing = ["# Job Apply Pilot configuration", ""]
+    merged: list[str] = []
+    written: set[str] = set()
+    for line in existing:
+        key = _env_line_key(line)
+        if key in updates:
+            if key not in written:
+                merged.append(f"{key}={updates[key]}")
+                written.add(key)
+        elif key in _LLM_PROVIDER_KEYS:
+            merged.append(f"# disabled by applypilot init: {line.strip()}")
+        else:
+            merged.append(line)
+    merged.extend(f"{key}={value}" for key, value in updates.items() if key not in written)
+    path.write_text("\n".join(merged) + "\n", encoding="utf-8")
+
 
 def _setup_ai_features() -> None:
     """Ask about AI scoring/tailoring — optional LLM configuration."""
@@ -309,26 +353,20 @@ def _setup_ai_features() -> None:
         default="gemini",
     )
 
-    env_lines = ["# Job Apply Pilot configuration", ""]
-
+    updates: dict[str, str] = {}
     if provider == "gemini":
         api_key = Prompt.ask("Gemini API key (from aistudio.google.com)")
-        model = Prompt.ask("Model", default="gemini-2.0-flash")
-        env_lines.append(f"GEMINI_API_KEY={api_key}")
-        env_lines.append(f"LLM_MODEL={model}")
+        updates["GEMINI_API_KEY"] = api_key
+        updates["LLM_MODEL"] = Prompt.ask("Model", default="gemini-2.0-flash")
     elif provider == "openai":
         api_key = Prompt.ask("OpenAI API key")
-        model = Prompt.ask("Model", default="gpt-4o-mini")
-        env_lines.append(f"OPENAI_API_KEY={api_key}")
-        env_lines.append(f"LLM_MODEL={model}")
+        updates["OPENAI_API_KEY"] = api_key
+        updates["LLM_MODEL"] = Prompt.ask("Model", default="gpt-4o-mini")
     elif provider == "local":
-        url = Prompt.ask("Local LLM endpoint URL", default="http://localhost:8080/v1")
-        model = Prompt.ask("Model name", default="local-model")
-        env_lines.append(f"LLM_URL={url}")
-        env_lines.append(f"LLM_MODEL={model}")
+        updates["LLM_URL"] = Prompt.ask("Local LLM endpoint URL", default="http://localhost:8080/v1")
+        updates["LLM_MODEL"] = Prompt.ask("Model name", default="local-model")
 
-    env_lines.append("")
-    ENV_PATH.write_text("\n".join(env_lines), encoding="utf-8")
+    _merge_env_file(ENV_PATH, updates)
     console.print(f"[green]AI configuration saved to {ENV_PATH}[/green]")
 
 
