@@ -28,13 +28,13 @@ from applypilot.apply.runtime_cell_coordinator import (
     resolve_runtime_cell_admission,
     source_manifest_identity,
 )
-from applypilot.apply.session_aging_experiment import (
+from applypilot.storage import runtime_cells
+from applypilot_lab.session_aging_experiment import (
     _HTML,
     _PROVIDER_DOMAINS,
     fixture_expected_cohort,
     load_fixture,
 )
-from applypilot.storage import runtime_cells
 
 REPORT_SCHEMA_VERSION = "applypilot-runtime-cell-browser-diagnostic/v1"
 _SAFETY_COUNTERS = (

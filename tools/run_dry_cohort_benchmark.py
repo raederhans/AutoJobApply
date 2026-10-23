@@ -6,7 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
-from applypilot.apply.dry_run_benchmark import run_dry_cohort_benchmark
+from applypilot_lab.dry_run_benchmark import run_dry_cohort_benchmark
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:

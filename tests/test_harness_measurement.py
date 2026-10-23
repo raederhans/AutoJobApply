@@ -6,9 +6,11 @@ from pathlib import Path
 import pytest
 from test_harness_evaluation import Environment, trial
 
-from applypilot.apply.harness_evaluation import run_trial, source_manifest, tasks
-from applypilot.apply.harness_experiment_plan import paired_cold_warm, plan_experiment
-from applypilot.apply.harness_measurement import (
+from applypilot.apply.performance_attribution import PerformanceTrace
+from applypilot.apply.procedure_experience import FrozenProcedureMemory
+from applypilot_lab.harness_evaluation import run_trial, source_manifest, tasks
+from applypilot_lab.harness_experiment_plan import paired_cold_warm, plan_experiment
+from applypilot_lab.harness_measurement import (
     TrialMeasurement,
     aggregate_measurements,
     estimate_usage_cost,
@@ -16,8 +18,6 @@ from applypilot.apply.harness_measurement import (
     metric,
     normalize_usage,
 )
-from applypilot.apply.performance_attribution import PerformanceTrace
-from applypilot.apply.procedure_experience import FrozenProcedureMemory
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -266,7 +266,7 @@ def test_explicit_assumption_budget_does_not_claim_enforced_spend_cap():
 
 def paired_rows():
     seed = trial()
-    from applypilot.apply.harness_evaluation import ARMS
+    from applypilot_lab.harness_evaluation import ARMS
     return [dict(seed, arm=arm, cohort=cohort, pair_id="pair", repeat=0) for arm in ARMS for cohort in ("cold", "warm")]
 
 
@@ -296,6 +296,6 @@ def test_cold_warm_requires_equivalent_initial_conditions(field):
 
 def test_source_identity_includes_measurement_and_plan_implementations():
     manifest = source_manifest(ROOT)
-    assert "src/applypilot/apply/harness_measurement.py" in manifest
-    assert "src/applypilot/apply/harness_experiment_plan.py" in manifest
+    assert "src/applypilot_lab/harness_measurement.py" in manifest
+    assert "src/applypilot_lab/harness_experiment_plan.py" in manifest
     assert "scripts/attended-host-journal.mjs" in manifest

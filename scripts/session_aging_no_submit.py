@@ -12,7 +12,7 @@ SOURCE_ROOT = PROJECT_ROOT / "src"
 if str(SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(SOURCE_ROOT))
 
-from applypilot.apply.session_aging_experiment import run_session_aging_experiment
+from applypilot_lab.session_aging_experiment import run_session_aging_experiment
 
 
 def main() -> int:

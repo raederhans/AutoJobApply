@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from applypilot.apply.session_aging_experiment import (
+from applypilot_lab.session_aging_experiment import (
     MODES,
     compile_report,
     experiment_definition,
@@ -128,7 +128,7 @@ def test_report_rejects_incomplete_or_cross_mode_cohort_matrix() -> None:
 
 
 def test_injected_clock_includes_teardown_without_bias_from_run_setup() -> None:
-    from applypilot.apply.session_aging_experiment import end_to_end_attribution
+    from applypilot_lab.session_aging_experiment import end_to_end_attribution
 
     report = end_to_end_attribution(
         started_at=10.0,

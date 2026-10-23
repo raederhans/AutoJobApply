@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from applypilot import config
-from applypilot.apply.runtime_evaluation import (
+from applypilot_lab.runtime_evaluation import (
     EvaluationReport,
     ScriptedReplayRuntime,
     evaluate_scenario,

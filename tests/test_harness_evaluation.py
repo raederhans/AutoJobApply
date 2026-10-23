@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from applypilot.apply.harness_evaluation import (
+from applypilot.apply.procedure_experience import FrozenProcedureMemory, ProcedureExperienceStore
+from applypilot_lab.harness_evaluation import (
     ARMS,
     BrowserRPC,
     digest,
@@ -19,7 +20,6 @@ from applypilot.apply.harness_evaluation import (
     tasks,
     validate_splits,
 )
-from applypilot.apply.procedure_experience import FrozenProcedureMemory, ProcedureExperienceStore
 
 
 class Environment:

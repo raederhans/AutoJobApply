@@ -6,7 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
-from applypilot.apply.runtime_cell_scheduler_microbenchmark import (
+from applypilot_lab.runtime_cell_scheduler_microbenchmark import (
     run_runtime_cell_scheduler_microbenchmark,
 )
 
