@@ -8,23 +8,27 @@ pipeline runs and Agent turns never reuse transient MCP, report, or log files.
 from __future__ import annotations
 
 import hashlib
-import re
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
-_SAFE_COMPONENT = re.compile(r"[^A-Za-z0-9._-]+")
+# CreateProcess rejects a working directory longer than MAX_PATH - 2 (258)
+# characters with WinError 267, even with long paths enabled or an
+# extended-length path prefix.  Agent processes run in ``output_root`` and in
+# one nested per-turn directory (for example ``.app-server-shadow``), so reserve room for it.
+_ENFORCE_PROCESS_CWD_LIMIT = os.name == "nt"
+WINDOWS_PROCESS_CWD_LIMIT = 258
+PROCESS_CWD_CHILD_RESERVE = 24
 
 
 def _component(value: object, *, name: str) -> str:
     raw = str(value or "").strip()
     if not raw:
         raise ValueError(f"{name} is required")
-    # Keep a strict Windows path budget even under long pytest/temp roots.
-    # Full identities remain available in ``as_dict``; disk components need
-    # only a short human hint plus a collision-resistant digest.
-    readable = _SAFE_COMPONENT.sub("-", raw).strip("-._")[:12] or name
-    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:10]
-    return f"{readable}-{digest}"
+    # Agent processes use these directories as their cwd, which Windows caps
+    # at MAX_PATH.  Full identities remain available in ``as_dict``; disk
+    # components are only a stable, collision-resistant digest.
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:10]
 
 
 def _contained(path: Path, root: Path) -> Path:
@@ -64,20 +68,27 @@ class RuntimeNamespace:
     @property
     def session_root(self) -> Path:
         return _contained(
-            self.run_root
-            / "sessions"
-            / _component(self.session_id, name="session"),
+            self.run_root / _component(self.session_id, name="session"),
             self.run_root,
         )
 
     @property
     def output_root(self) -> Path:
-        return _contained(
-            self.session_root
-            / "profiles"
-            / _component(self.profile_id, name="profile"),
+        output_root = _contained(
+            self.session_root / _component(self.profile_id, name="profile"),
             self.session_root,
         )
+        required = len(str(output_root)) + PROCESS_CWD_CHILD_RESERVE
+        if _ENFORCE_PROCESS_CWD_LIMIT and required > WINDOWS_PROCESS_CWD_LIMIT:
+            raise ValueError(
+                "runtime output directory is too long for Windows to start an "
+                f"Agent process there ({len(str(output_root))} characters plus "
+                f"{PROCESS_CWD_CHILD_RESERVE} reserved, limit "
+                f"{WINDOWS_PROCESS_CWD_LIMIT}): {output_root}. Move the "
+                "ApplyPilot workspace (APPLYPILOT_DIR or --workspace) to a "
+                "shorter workspace path."
+            )
+        return output_root
 
     def path(self, name: str) -> Path:
         """Return one direct child path, rejecting traversal and aliases."""
