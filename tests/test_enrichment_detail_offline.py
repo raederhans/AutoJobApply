@@ -907,6 +907,123 @@ def test_scrape_site_batch_isolates_unexpected_extraction_errors(conn, sleeps, m
     assert job_row(conn, "https://example.com/b")[0] == LONG_DESC
 
 
+class _ClosingPage(FakePage):
+    """A page that becomes unusable once a job fails on it, like a destroyed target."""
+
+    def __init__(self, specs: dict[str, PageSpec]) -> None:
+        super().__init__(specs=specs)
+        self.dead = False
+        self.closed = False
+
+    def goto(self, url: str, timeout: int | None = None):
+        if self.dead:
+            raise RuntimeError("Target page, context or browser has been closed")
+        return super().goto(url, timeout)
+
+    def title(self) -> str:
+        try:
+            return super().title()
+        except Exception:
+            self.dead = True
+            raise
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def _install_browser(monkeypatch, browser) -> None:
+    class _Chromium:
+        def launch(self, **kwargs):
+            return browser
+
+    class _Manager:
+        def __enter__(self):
+            return type("_Playwright", (), {"chromium": _Chromium()})()
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(detail, "sync_playwright", lambda: _Manager())
+
+
+def _failure_specs() -> dict[str, PageSpec]:
+    return {
+        "https://example.com/boom": PageSpec(title_error=RuntimeError("Execution context was destroyed")),
+        "https://example.com/next": PageSpec(json_ld=[job_posting_ld()]),
+        "https://example.com/last": PageSpec(json_ld=[job_posting_ld()]),
+    }
+
+
+def test_scrape_site_batch_replaces_a_page_destroyed_by_a_failure(conn, sleeps, monkeypatch) -> None:
+    for name in ("boom", "next", "last"):
+        add_job(conn, f"https://example.com/{name}")
+    pages: list[_ClosingPage] = []
+
+    class _Context:
+        def new_page(self):
+            pages.append(_ClosingPage(_failure_specs()))
+            return pages[-1]
+
+    class _Browser:
+        def new_context(self, **kwargs):
+            return _Context()
+
+        def close(self) -> None:
+            pass
+
+    _install_browser(monkeypatch, _Browser())
+    jobs = [(f"https://example.com/{name}", name) for name in ("boom", "next", "last")]
+
+    stats = detail.scrape_site_batch(conn, "RemoteOK", jobs, delay=0)
+
+    assert (stats["processed"], stats["ok"], stats["error"]) == (3, 2, 1)
+    assert len(pages) == 2 and pages[0].closed and not pages[1].dead
+    for name in ("next", "last"):
+        assert job_row(conn, f"https://example.com/{name}")[0] == LONG_DESC
+
+
+def test_scrape_site_batch_stops_without_consuming_jobs_when_the_browser_is_gone(
+    conn, sleeps, monkeypatch
+) -> None:
+    for name in ("boom", "next", "last"):
+        add_job(conn, f"https://example.com/{name}")
+    opened = {"contexts": 0}
+
+    class _Context:
+        def __init__(self) -> None:
+            self.pages = 0
+
+        def new_page(self):
+            self.pages += 1
+            if self.pages > 1:
+                raise RuntimeError("Target page, context or browser has been closed")
+            return _ClosingPage(_failure_specs())
+
+        def close(self) -> None:
+            pass
+
+    class _Browser:
+        def new_context(self, **kwargs):
+            opened["contexts"] += 1
+            if opened["contexts"] > 1:
+                raise RuntimeError("Browser has been closed")
+            return _Context()
+
+        def close(self) -> None:
+            raise RuntimeError("Browser has been closed")
+
+    _install_browser(monkeypatch, _Browser())
+    jobs = [(f"https://example.com/{name}", name) for name in ("boom", "next", "last")]
+
+    stats = detail.scrape_site_batch(conn, "RemoteOK", jobs, delay=0)
+
+    assert (stats["processed"], stats["error"]) == (1, 1)
+    assert job_row(conn, "https://example.com/boom")[2] is not None
+    for name in ("next", "last"):
+        row = job_row(conn, f"https://example.com/{name}")
+        assert row[2] is None and row[3] is None  # left for the next run, not marked as scraped
+
+
 # -- _run_detail_scraper ------------------------------------------------------
 
 

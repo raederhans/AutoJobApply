@@ -10,6 +10,7 @@ Three-tier extraction cascade (cheapest first):
   Tier 3: LLM-assisted extraction (1 LLM call)
 """
 
+import contextlib
 import json
 import logging
 import re
@@ -634,6 +635,28 @@ def scrape_detail_page(page, url: str) -> dict:
     return result
 
 
+def _replace_failed_page(browser, context, page):
+    """Return a fresh ``(context, page)`` after a job failure, or None if the browser is gone.
+
+    A failure can leave the page, or its whole context, unusable; reusing it would fail
+    every remaining job of the batch and mark them all as scraped.
+    """
+    with contextlib.suppress(Exception):
+        page.close()
+    try:
+        return context, context.new_page()
+    except Exception:
+        log.debug("Browser context unusable after a job failure; recreating it", exc_info=True)
+    with contextlib.suppress(Exception):
+        context.close()
+    try:
+        context = browser.new_context(user_agent=UA)
+        return context, context.new_page()
+    except Exception:
+        log.debug("Browser unusable after a job failure", exc_info=True)
+        return None
+
+
 def scrape_site_batch(
     conn: sqlite3.Connection | None,
     site: str,
@@ -667,6 +690,7 @@ def scrape_site_batch(
             browser = p.chromium.launch(**launch_opts)
             context = browser.new_context(user_agent=UA)
             page = context.new_page()
+            browser_lost = False
 
             for i, (url, title) in enumerate(jobs):
                 log.info("[%d/%d] %s", i + 1, len(jobs), title[:50] if title else url[:50])
@@ -686,6 +710,11 @@ def scrape_site_batch(
                         "error": f"extraction failed: {type(e).__name__}: {e}"[:200],
                         "elapsed": 0,
                     }
+                    replacement = _replace_failed_page(browser, context, page)
+                    if replacement is None:
+                        browser_lost = True
+                    else:
+                        context, page = replacement
                 result["application_url"] = sanitize_application_url(
                     url,
                     result.get("application_url"),
@@ -725,10 +754,20 @@ def scrape_site_batch(
 
                 conn.commit()
 
+                if browser_lost:
+                    # Leave the remaining jobs unscraped so a later run retries them.
+                    log.error("%s: browser unusable; stopping batch with %d job(s) left",
+                              site, len(jobs) - i - 1)
+                    break
+
                 if i < len(jobs) - 1:
                     time.sleep(delay)
 
-            browser.close()
+            if browser_lost:
+                with contextlib.suppress(Exception):
+                    browser.close()
+            else:
+                browser.close()
     finally:
         if own_conn:
             conn.close()
