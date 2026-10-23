@@ -555,6 +555,14 @@ SITE_DELAYS = {
 }
 
 RETRYABLE_STATUSES = {408, 429, 500, 502, 503, 504}
+# Server errors that do not clear on their own; every other 5xx (including CDN codes
+# such as 520-526) is retried like the listed ones.
+NON_RETRYABLE_SERVER_ERRORS = {501, 505}
+
+
+def is_retryable_status(status: int) -> bool:
+    """Tell whether an HTTP status is a transient failure worth a bounded retry."""
+    return status in RETRYABLE_STATUSES or (500 <= status <= 599 and status not in NON_RETRYABLE_SERVER_ERRORS)
 PERMANENT_FAILURES = {404, 410, 451}
 # Chromium network errors that usually clear on their own; other navigation errors
 # (e.g. an unresolvable host) keep the immediate permanent marking.
@@ -583,9 +591,13 @@ def scrape_detail_page(page, url: str) -> dict:
 
     try:
         resp = page.goto(url, timeout=45000)
-        if resp and (resp.status in PERMANENT_FAILURES or resp.status in RETRYABLE_STATUSES):
+        if resp and (
+            resp.status in PERMANENT_FAILURES
+            or resp.status in NON_RETRYABLE_SERVER_ERRORS
+            or is_retryable_status(resp.status)
+        ):
             result["error"] = f"HTTP {resp.status}"
-            result["retryable"] = resp.status in RETRYABLE_STATUSES
+            result["retryable"] = is_retryable_status(resp.status)
             result["elapsed"] = time.time() - t0
             return result
         page.wait_for_load_state("domcontentloaded", timeout=15000)

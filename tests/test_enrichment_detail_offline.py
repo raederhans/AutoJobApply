@@ -1275,9 +1275,38 @@ def test_scrape_detail_page_flags_only_transient_failures_as_retryable(spec, ret
 
     assert result["status"] == "error"
     assert bool(result.get("retryable")) is retryable
-    if spec.status in detail.RETRYABLE_STATUSES:
+    if spec.status is not None and detail.is_retryable_status(spec.status):
         assert result["error"] == f"HTTP {spec.status}"
         assert page.waits == []  # a throttled page is not parsed (or sent to the LLM)
+
+
+@pytest.mark.parametrize(("status", "retryable"), [
+    (500, True), (502, True), (507, True), (520, True), (522, True), (599, True),
+    (408, True), (429, True), (501, False), (505, False), (404, False), (410, False), (418, False),
+])
+def test_retryable_status_covers_the_server_error_range(status, retryable) -> None:
+    assert detail.is_retryable_status(status) is retryable
+
+
+@pytest.mark.parametrize("status", [507, 520, 522])
+def test_unlisted_server_errors_are_deferred_not_parsed(conn, sleeps, monkeypatch, status) -> None:
+    add_job(conn, RETRY_URL)
+
+    _scrape_once(conn, monkeypatch, PageSpec(status=status, json_ld=[job_posting_ld()]))
+
+    scraped_at, attempts, retry_after, error = _retry_row(conn)
+    assert (scraped_at, attempts, error) == (None, 1, f"HTTP {status}")
+    assert retry_after is not None
+
+
+@pytest.mark.parametrize("status", [501, 505])
+def test_permanent_server_errors_are_marked_without_parsing(conn, sleeps, monkeypatch, status) -> None:
+    add_job(conn, RETRY_URL)
+
+    _scrape_once(conn, monkeypatch, PageSpec(status=status, json_ld=[job_posting_ld()]))
+
+    scraped_at, _attempts, retry_after, error = _retry_row(conn)
+    assert scraped_at is not None and retry_after is None and error == f"HTTP {status}"
 
 
 def test_transient_failure_is_retried_with_backoff_then_marked_permanent(conn, sleeps, monkeypatch) -> None:
