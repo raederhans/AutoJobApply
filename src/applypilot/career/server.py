@@ -8,10 +8,11 @@ import os
 import secrets
 import sqlite3
 import threading
+import time
 import urllib.error
 import urllib.request
 import webbrowser
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
@@ -25,6 +26,9 @@ from applypilot.storage.transactions import write_transaction
 
 PREFIX = "/api/career/v1"
 MAX_BODY = 3_000_000
+# Upper bound on draining an unread body before an error reply: a stalled upload must
+# not hold the reply (and a server thread) until the 10s socket timeout.
+DRAIN_SECONDS = 2.0
 FRONTEND = Path(__file__).resolve().parents[1] / "frontend"
 
 
@@ -192,14 +196,25 @@ class CareerHandler(BaseHTTPRequestHandler):
             return
         if self.headers.get("Transfer-Encoding") or not 0 < remaining <= MAX_BODY:
             return
+        deadline = time.monotonic() + DRAIN_SECONDS
+        previous_timeout = self.connection.gettimeout()
         try:
             while remaining > 0:
-                chunk = self.rfile.read(min(remaining, 65536))
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    break
+                self.connection.settimeout(left)
+                # read1 returns after one socket read, so the deadline is rechecked even
+                # when a client trickles bytes slowly.
+                chunk = self.rfile.read1(min(remaining, 65536))
                 if not chunk:
                     break
                 remaining -= len(chunk)
         except OSError:
             pass
+        finally:
+            with suppress(OSError):
+                self.connection.settimeout(previous_timeout)
 
     def fail(self, status, code, message):
         self.send(status, {"error": {"code": code, "message": message}})
