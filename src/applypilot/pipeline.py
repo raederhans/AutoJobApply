@@ -307,6 +307,26 @@ def _stream_failure(result: object) -> str | None:
     return detail.strip() or status
 
 
+def _stage_status(stage: str, result: object) -> str:
+    """Return the display status for a stage runner result.
+
+    Shared by sequential and streaming modes. Discover reports one string per
+    sub-scraper instead of a ``status`` key, so any ``error...`` sub-result
+    downgrades the stage to ``partial``.
+    """
+    status = "ok"
+    if isinstance(result, dict):
+        status = result.get("status", "ok")
+        if stage == "discover":
+            sub_errors = [
+                f"{k}: {v}" for k, v in result.items()
+                if isinstance(v, str) and v.startswith("error")
+            ]
+            if sub_errors:
+                status = "partial"
+    return status
+
+
 def _run_stage_streaming(
     stage: str,
     tracker: _StageTracker,
@@ -350,7 +370,8 @@ def _run_stage_streaming(
         # Discover runs once (its sub-scrapers already do their full crawl)
         try:
             result = runner(**kwargs)
-            tracker.mark_done(stage, result)
+            details = result if isinstance(result, dict) else {}
+            tracker.mark_done(stage, {**details, "status": _stage_status(stage, result)})
         except Exception as e:
             log.exception("Stage '%s' crashed", stage)
             tracker.mark_done(stage, {"status": f"error: {e}"})
@@ -454,16 +475,7 @@ def _run_sequential(ordered: list[str], min_score: int, workers: int = 1,
             result = runner(**kwargs)
             elapsed = time.time() - t0
 
-            status = "ok"
-            if isinstance(result, dict):
-                status = result.get("status", "ok")
-                if name == "discover":
-                    sub_errors = [
-                        f"{k}: {v}" for k, v in result.items()
-                        if isinstance(v, str) and v.startswith("error")
-                    ]
-                    if sub_errors:
-                        status = "partial"
+            status = _stage_status(name, result)
 
         except Exception as e:
             elapsed = time.time() - t0
