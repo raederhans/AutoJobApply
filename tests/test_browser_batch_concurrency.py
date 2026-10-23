@@ -24,7 +24,8 @@ def process_batch(tmp_path, monkeypatch):
         "config=json.loads(Path(sys.argv[1]).read_text())\n"
         "root=Path(config['evidence']); root.mkdir(exist_ok=True)\n"
         "from applypilot.apply.profile_lock import inspect_process_identity\n"
-        "event={'pid':os.getpid(),'birth':inspect_process_identity(os.getpid()).creation_filetime,"
+        "identity=inspect_process_identity(os.getpid())\n"
+        "event={'pid':os.getpid(),'birth':identity.creation_filetime if identity else None,"
         "'start':time.monotonic()}\n"
         "path=root/(config['job']+'.json')\n"
         "path.write_text(json.dumps(event))\n"
@@ -116,6 +117,13 @@ def highwater(events):
 def process_alive(event):
     """Judge by PID plus creation time: Windows reuses a freed PID for unrelated processes within seconds."""
     pid = event["pid"]
+    if event["birth"] is None:
+        # No creation-time source on this host (e.g. macOS has no /proc): fall back to PID liveness.
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        return True
     try:
         identity = inspect_process_identity(pid)
     except ProfileRecoveryRequired:
@@ -124,6 +132,15 @@ def process_alive(event):
         return False
     stat = Path(f"/proc/{pid}/stat")
     return not (stat.exists() and stat.read_text().split(") ", 1)[1].startswith("Z"))
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows always yields a creation time; os.kill(pid, 0) sends CTRL_C there")
+def test_process_alive_falls_back_to_pid_liveness_without_a_creation_time():
+    finished = subprocess.Popen([sys.executable, "-c", "pass"])
+    finished.wait()
+
+    assert process_alive({"pid": os.getpid(), "birth": None}) is True
+    assert process_alive({"pid": finished.pid, "birth": None}) is False
 
 
 def assert_clean(batch, children):
