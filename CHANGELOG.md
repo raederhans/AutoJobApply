@@ -96,8 +96,10 @@ All notable changes to Job Apply Pilot will be documented in this file.
   as an unclassified failure for automated diagnosis. It grants no retry, resume or
   submission authority.
 - `applypilot init` no longer asks for or stores a job-site password; it points to
-  `applypilot browser-session` with a persistent browser profile instead. Passwords
-  already in `profile.json` are kept. The wizard also asks for the Indeed country site,
+  `applypilot browser-session` with a persistent browser profile instead. A plaintext
+  password left in `profile.json` by an older setup is not carried into the rewritten
+  profile; nothing read it, and the credential relay's encrypted store is unaffected.
+  The wizard also asks for the Indeed country site,
   defaulting from the target location, and writes `country` to `searches.yaml`;
   discovery warns when Indeed falls back to the USA site.
 - Detail enrichment retries transient failures (HTTP 408/429/5xx, navigation timeouts
