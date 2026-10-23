@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from applypilot.apply.contracts import application_actor_id
+from applypilot.contracts.runtime import application_actor_id
 from applypilot.storage.transactions import write_transaction
 
 

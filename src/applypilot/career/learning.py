@@ -299,7 +299,9 @@ def review_task(conn, route_id, task_id, review, *, review_key, expected_revisio
             if key in review and review[key] != value:
                 raise InputChangedError("review_binding_conflict: " + key)
         normalized = validate_review(task=task, review={**review, **identity}, artifact=snapshot["payload"])
-        return learning_store.save_assessment(conn, normalized, review_key=review_key)
+        return learning_store.save_assessment(
+            conn, normalized, review_key=review_key, validate_review=validate_review
+        )
 
 
 def rediagnose(conn, route_id):
