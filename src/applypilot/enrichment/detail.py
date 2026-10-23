@@ -799,6 +799,13 @@ def scrape_site_batch(
                               site, len(jobs) - i - 1)
                     break
 
+                if result.get("error") == "HTTP 429":
+                    # A rate limit applies to the whole site: stop so the remaining jobs
+                    # keep their attempt budget instead of each spending one right now.
+                    log.warning("%s: rate limited; stopping batch with %d job(s) left",
+                                site, len(jobs) - i - 1)
+                    break
+
                 if i < len(jobs) - 1:
                     time.sleep(delay)
 

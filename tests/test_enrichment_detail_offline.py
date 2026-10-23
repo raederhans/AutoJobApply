@@ -1311,6 +1311,23 @@ def test_retry_backoff_grows_between_attempts(conn, sleeps, monkeypatch) -> None
     assert second > first  # 6h after the second failure vs 1h after the first
 
 
+def test_rate_limit_stops_the_site_batch_without_spending_other_jobs_attempts(conn, sleeps, monkeypatch) -> None:
+    urls = [f"https://example.com/retry/{n}" for n in (1, 2, 3)]
+    for url in urls:
+        add_job(conn, url)
+    monkeypatch.setattr(detail, "_PROXY_CONFIG", None)
+    install_fake_playwright(monkeypatch, FakePage(default=PageSpec(status=429)))
+
+    stats = detail.scrape_site_batch(conn, "RemoteOK", [(url, "Data Analyst") for url in urls], delay=0)
+
+    assert (stats["processed"], stats["error"]) == (1, 1)
+    assert _retry_row(conn, urls[0])[1:2] == (1,)
+    for url in urls[1:]:
+        scraped_at, attempts, retry_after, error = _retry_row(conn, url)
+        assert (scraped_at, retry_after, error) == (None, None, None)
+        assert not attempts
+
+
 def test_permanent_failure_is_still_marked_immediately(conn, sleeps, monkeypatch) -> None:
     add_job(conn, RETRY_URL)
 
