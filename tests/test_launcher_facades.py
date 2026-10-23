@@ -8,7 +8,7 @@ from types import ModuleType
 
 import pytest
 
-from applypilot.apply import ats_application_context, launcher, runtime_failure_policy
+from applypilot.apply import agent_turn_journal, ats_application_context, launcher, runtime_failure_policy
 
 MOVED_NAMES: dict[ModuleType, tuple[str, ...]] = {
     runtime_failure_policy: (
@@ -37,6 +37,17 @@ MOVED_NAMES: dict[ModuleType, tuple[str, ...]] = {
         "_install_application_plan_context",
         "_host_staged_field_risk",
         "_build_ats_application_context",
+    ),
+    agent_turn_journal: (
+        "_agent_event_clock",
+        "_ordered_agent_event_time",
+        "_persist_agent_turn_started",
+        "_persist_agent_turn_progress",
+        "_persist_supervisor_intervention",
+        "_persist_agent_turn_completed",
+        "_bounded_control_text",
+        "_durable_agent_result",
+        "_persist_agent_proposal_outcomes",
     ),
 }
 
