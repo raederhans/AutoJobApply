@@ -93,6 +93,9 @@ All notable changes to Job Apply Pilot will be documented in this file.
 
 ### Fixed
 
+- `apply --agent-backend claude` runs again. Since 0.5 the subprocess launch check
+  rejected the empty `--tools ""` argument the Claude CLI needs, so every Claude turn
+  failed before the CLI started.
 - The career workbench server reads the remaining request body before answering a
   rejected or invalid POST, so clients receive the JSON error instead of a reset
   connection (`WinError 10053/10054` on Windows).
