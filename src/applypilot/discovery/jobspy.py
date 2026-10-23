@@ -298,7 +298,8 @@ def store_jobspy_results(
 
         description = str(row.get("description", "")) if str(row.get("description", "")) != "nan" else None
         site_name = str(row.get("site", source_label))
-        is_remote = row.get("is_remote", False)
+        # A missing flag arrives as NaN/NA, which is truthy; only a real True counts.
+        is_remote = bool(_clean_jobspy_value(row.get("is_remote")))
 
         site_label = f"{site_name}"
         if is_remote:

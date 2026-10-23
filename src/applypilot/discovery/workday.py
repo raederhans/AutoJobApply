@@ -34,8 +34,9 @@ def load_employers() -> dict:
     if not path.exists():
         log.warning("employers.yaml not found at %s", path)
         return {}
-    data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    return data.get("employers", {})
+    # An empty file loads as None; treat it (and a null "employers:" key) as no employers.
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return data.get("employers") or {}
 
 
 # -- Location filtering from search config -----------------------------------
@@ -492,8 +493,8 @@ def run_workday_discovery(employers: dict | None = None, workers: int = 1) -> di
         log.warning("No employers configured. Create config/employers.yaml.")
         return {"found": 0, "new": 0, "existing": 0, "queries": 0}
 
-    search_cfg = config.load_search_config()
-    queries_cfg = search_cfg.get("queries", [])
+    search_cfg = config.load_search_config() or {}
+    queries_cfg = search_cfg.get("queries") or []
     accept_locs, reject_locs = _load_location_filter(search_cfg)
     excluded_titles = config.get_excluded_title_patterns(search_cfg)
 
