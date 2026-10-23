@@ -1365,6 +1365,32 @@ def test_rate_limit_stops_the_site_batch_and_defers_the_site_without_spending_at
     assert _retry_row(conn, "https://other.example.com/job")[1:3] in {(0, None), (None, None)}
 
 
+def _pending_urls(conn) -> set[str]:
+    from applypilot.storage.detail_retry import DETAIL_PENDING_SQL
+
+    return {row[0] for row in conn.execute(f"SELECT url FROM jobs WHERE {DETAIL_PENDING_SQL}")}
+
+
+def test_site_cooldown_keeps_jobs_discovered_after_a_rate_limit_out(conn) -> None:
+    add_job(conn, "https://example.com/limited", detail_attempts=1, detail_retry_after=_FUTURE,
+            detail_error="HTTP 429")
+    add_job(conn, "https://example.com/found-later")  # inserted after the 429, no backoff of its own
+    add_job(conn, "https://other.example.com/job", site="Other")
+
+    assert _pending_urls(conn) == {"https://other.example.com/job"}
+
+
+def test_site_cooldown_ends_when_the_rate_limited_row_is_due_again(conn) -> None:
+    add_job(conn, "https://example.com/limited", detail_attempts=1, detail_retry_after=_PAST,
+            detail_error="HTTP 429")
+    add_job(conn, "https://example.com/found-later")
+    # A row that only backs off for a non-429 reason does not cool the whole site down.
+    add_job(conn, "https://example.com/server-error", detail_attempts=1, detail_retry_after=_FUTURE,
+            detail_error="HTTP 503")
+
+    assert _pending_urls(conn) == {"https://example.com/limited", "https://example.com/found-later"}
+
+
 def test_stream_detail_does_not_walk_a_rate_limited_site_job_by_job(conn, db_path, sleeps, monkeypatch) -> None:
     for n in (1, 2, 3):
         add_job(conn, f"https://example.com/limited/{n}")

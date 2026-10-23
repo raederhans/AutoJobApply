@@ -17,10 +17,23 @@ DETAIL_RETRY_BACKOFFS = (timedelta(hours=1), timedelta(hours=6))
 
 _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%S+00:00"
 
+_NOW_SQL = f"strftime('{_TIMESTAMP_FORMAT}', 'now')"
+RATE_LIMIT_ERROR = "HTTP 429"
+
 # Rows still waiting for their first or next attempt, excluding those in backoff.
-DETAIL_PENDING_SQL = (
+DETAIL_DUE_SQL = (
     "detail_scraped_at IS NULL AND "
-    f"(detail_retry_after IS NULL OR detail_retry_after <= strftime('{_TIMESTAMP_FORMAT}', 'now'))"
+    f"(detail_retry_after IS NULL OR detail_retry_after <= {_NOW_SQL})"
+)
+
+# Due rows whose site is not cooling down after a rate limit. A 429 row waiting for its
+# retry keeps the whole site out, including jobs discovered after it, so a streaming run
+# does not spend attempts on a throttled site. The predicate is correlated with an
+# unaliased ``jobs`` table in the enclosing query.
+DETAIL_PENDING_SQL = (
+    f"{DETAIL_DUE_SQL} AND NOT EXISTS (SELECT 1 FROM jobs AS limited "
+    f"WHERE limited.site = jobs.site AND limited.detail_error = '{RATE_LIMIT_ERROR}' "
+    f"AND limited.detail_scraped_at IS NULL AND limited.detail_retry_after > {_NOW_SQL})"
 )
 
 

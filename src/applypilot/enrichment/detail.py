@@ -26,7 +26,7 @@ from playwright.sync_api import sync_playwright
 from applypilot import config
 from applypilot.database import init_db
 from applypilot.llm import get_client
-from applypilot.storage.detail_retry import DETAIL_PENDING_SQL, retry_after
+from applypilot.storage.detail_retry import DETAIL_DUE_SQL, DETAIL_PENDING_SQL, RATE_LIMIT_ERROR, retry_after
 
 log = logging.getLogger(__name__)
 
@@ -719,7 +719,7 @@ def _defer_rate_limited_site(conn: sqlite3.Connection, site: str, limited_url: s
     """
     deferred_until = retry_after(1)
     cursor = conn.execute(
-        f"UPDATE jobs SET detail_retry_after = ? WHERE site = ? AND url != ? AND {DETAIL_PENDING_SQL}",
+        f"UPDATE jobs SET detail_retry_after = ? WHERE site = ? AND url != ? AND {DETAIL_DUE_SQL}",
         (deferred_until, site, limited_url),
     )
     return cursor.rowcount
@@ -825,7 +825,7 @@ def scrape_site_batch(
                               site, len(jobs) - i - 1)
                     break
 
-                if result.get("error") == "HTTP 429":
+                if result.get("error") == RATE_LIMIT_ERROR:
                     # A rate limit applies to the whole site. Defer every other pending job
                     # of this site for the first backoff window without spending their
                     # attempts, so callers that re-query at once (stream_detail) do not
