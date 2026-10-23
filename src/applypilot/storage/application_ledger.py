@@ -11,9 +11,8 @@ import json
 import math
 import sqlite3
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-
-from applypilot.apply.performance_attribution import attribution_for_attempt
 
 
 def _json_text(value: object) -> str:
@@ -848,8 +847,15 @@ def record_attempt_performance(
     connection: sqlite3.Connection,
     attempt_id: str | None,
     performance: object,
+    *,
+    attribution_normalizer: Callable[..., dict[str, object] | None],
 ) -> bool:
-    """Merge final bounded orchestration timings into one terminal attempt."""
+    """Merge final bounded orchestration timings into one terminal attempt.
+
+    ``attribution_normalizer(value, worker_id=...)`` is supplied by the caller so
+    this storage layer does not import the apply-layer attribution policy.  It
+    must return the normalized attribution or ``None`` to drop it.
+    """
     if not attempt_id or not isinstance(performance, dict):
         return False
     if performance.get("version") != 1:
@@ -912,7 +918,7 @@ def record_attempt_performance(
         if isinstance(stored_performance, dict)
         else None
     )
-    attribution = attribution_for_attempt(performance.get("attribution"), worker_id=row[1])
+    attribution = attribution_normalizer(performance.get("attribution"), worker_id=row[1])
     if (
         attribution is not None
         and isinstance(stored_route, dict)

@@ -10,6 +10,7 @@ from test_career_evidence_model import evidence_registry
 from test_career_import import make_bundle
 
 from applypilot.career import service
+from applypilot.career.assessment import validate_review
 from applypilot.career.contracts import InputChangedError
 from applypilot.career.importer import import_bundle
 from applypilot.database import DATABASE_SCHEMA_VERSION
@@ -133,17 +134,17 @@ def test_event_cas_retry_idempotence_and_key_conflict(prepared):
 def test_assessment_binding_normalization_idempotence_and_revision(prepared):
     conn, route, event, review = submitted(prepared)
     review["outcome"] = "Invented outcome"
-    first = store.save_assessment(conn, review, review_key="review-1")
+    first = store.save_assessment(conn, review, review_key="review-1", validate_review=validate_review)
     assert first["outcome"] == "passed" and first["id"] == first["assessment_id"]
-    assert store.save_assessment(conn, review, review_key="review-1") == first
-    assert store.save_assessment(conn, first, review_key="review-1") == first
+    assert store.save_assessment(conn, review, review_key="review-1", validate_review=validate_review) == first
+    assert store.save_assessment(conn, first, review_key="review-1", validate_review=validate_review) == first
     assert store.route_revision(conn, route["route_id"]) == 2
     assert store.list_events(conn, route["route_id"])[-1]["event_type"] == "assessment_recorded"
     assert store.list_assessments(conn, route_id=route["route_id"]) == [first]
     assert first["submission_event_id"] == event["event_id"]
     changed = {**review, "assistance": "Different assistance"}
     with pytest.raises(InputChangedError, match="different content"):
-        store.save_assessment(conn, changed, review_key="review-1")
+        store.save_assessment(conn, changed, review_key="review-1", validate_review=validate_review)
     assert store.route_revision(conn, route["route_id"]) == 2
 
 
@@ -157,7 +158,7 @@ def test_assessment_wrong_snapshot_revision_or_submission_rejected(prepared, key
     conn, route, _, review = submitted(prepared)
     review[key] = value
     with pytest.raises(ValueError, match=error):
-        store.save_assessment(conn, review, review_key="bad-review")
+        store.save_assessment(conn, review, review_key="bad-review", validate_review=validate_review)
     assert store.list_assessments(conn) == [] and store.route_revision(conn, route["route_id"]) == 1
 
 
@@ -165,7 +166,7 @@ def test_outer_transaction_rolls_back_route_event_assessment_together(prepared):
     conn, _, *_ = prepared
     with pytest.raises(RuntimeError, match="fictional cancellation"), write_transaction(conn):
         _, route, _, review = submitted(prepared)
-        store.save_assessment(conn, review, review_key="review-1")
+        store.save_assessment(conn, review, review_key="review-1", validate_review=validate_review)
         assert store.route_revision(conn, route["route_id"]) == 2
         raise RuntimeError("fictional cancellation")
     assert store.list_routes(conn) == store.list_assessments(conn) == []
@@ -188,7 +189,7 @@ def test_failed_assessment_event_append_rolls_back_review_only(prepared):
     store.append_event(conn, route_id=route["route_id"], task_id="fictional-task", event_type="started",
                        payload={}, event_key="assessment:review-1", expected_revision=1)
     with pytest.raises(InputChangedError, match="different content"):
-        store.save_assessment(conn, review, review_key="review-1")
+        store.save_assessment(conn, review, review_key="review-1", validate_review=validate_review)
     assert store.list_assessments(conn) == [] and store.route_revision(conn, route["route_id"]) == 2
 
 
@@ -198,5 +199,5 @@ def test_assessment_requires_real_submitted_event(prepared):
                                payload={}, event_key="done", expected_revision=1)
     review["submission_event_id"] = event["event_id"]
     with pytest.raises(ValueError, match="submitted event"):
-        store.save_assessment(conn, review, review_key="review-1")
+        store.save_assessment(conn, review, review_key="review-1", validate_review=validate_review)
     assert store.list_assessments(conn) == []

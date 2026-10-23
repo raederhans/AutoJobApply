@@ -10,7 +10,7 @@ import json
 import sqlite3
 from datetime import UTC, datetime
 
-from applypilot.apply.contracts import (
+from applypilot.contracts.runtime import (
     AgentCheckpoint,
     ApplicationEvent,
     ApplicationException,

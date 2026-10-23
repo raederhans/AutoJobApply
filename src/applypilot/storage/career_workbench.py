@@ -6,7 +6,7 @@ import json
 import sqlite3
 from datetime import UTC, datetime
 
-from applypilot.apply.contracts import TaskResult, contract_json
+from applypilot.contracts.runtime import TaskResult, contract_json
 from applypilot.storage.database_migrations import require_supported_database_schema
 from applypilot.storage.transactions import execute_transactional_script
 

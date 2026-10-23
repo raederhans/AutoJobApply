@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from applypilot.apply.contracts import TaskResult, TaskSpec, contract_json, ensure_persistable
+from applypilot.contracts.runtime import TaskResult, TaskSpec, contract_json, ensure_persistable
 from applypilot.storage.transactions import write_transaction
 
 _TERMINAL = {"completed", "failed", "blocked", "cancelled", "timed_out", "dead_letter"}

@@ -24,6 +24,7 @@ from applypilot.apply.contracts import (
     RecoveryExecutionResult,
     application_actor_id,
 )
+from applypilot.apply.performance_attribution import attribution_for_attempt
 from applypilot.config import DB_PATH
 from applypilot.storage import agent_control as _agent_control
 from applypilot.storage import application_ledger as _application_ledger
@@ -897,6 +898,7 @@ def record_application_attempt_performance(
         connection,
         attempt_id,
         performance,
+        attribution_normalizer=attribution_for_attempt,
     )
     if owns_transaction:
         connection.commit()

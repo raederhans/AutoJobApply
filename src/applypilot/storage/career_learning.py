@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Callable
 
-from applypilot.career.assessment import validate_review
-from applypilot.career.contracts import InputChangedError, content_id, json_text, required_text
+from applypilot.contracts.career import InputChangedError, content_id, json_text, required_text
 from applypilot.storage import career
 from applypilot.storage.database_migrations import require_supported_database_schema
 from applypilot.storage.transactions import execute_transactional_script, write_transaction
@@ -261,7 +261,19 @@ def list_assessments(conn: sqlite3.Connection, target_id: str | None = None,
         "SELECT * FROM career_assessments" + where + " ORDER BY sequence", tuple(values))]
 
 
-def save_assessment(conn: sqlite3.Connection, assessment: dict, *, review_key: str) -> dict:
+def save_assessment(
+    conn: sqlite3.Connection,
+    assessment: dict,
+    *,
+    review_key: str,
+    validate_review: Callable[..., dict],
+) -> dict:
+    """Persist one assessment after re-validating it against stored bindings.
+
+    ``validate_review(task=..., review=..., artifact=...)`` is injected by the
+    career layer.  It runs again here against the task and artifact snapshot read
+    inside this write transaction, as defense in depth for the caller's check.
+    """
     required_text(review_key, "review_key")
     if not isinstance(assessment, dict):
         raise TypeError("assessment must be an object")
