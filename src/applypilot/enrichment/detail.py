@@ -699,6 +699,20 @@ def _record_detail_failure(conn: sqlite3.Connection, url: str, result: dict) -> 
     )
 
 
+def _defer_rate_limited_site(conn: sqlite3.Connection, site: str, limited_url: str) -> int:
+    """Postpone the site's other pending jobs after a 429, keeping their attempt counts.
+
+    Only rows that are due now are moved; a row already backing off keeps its own,
+    possibly later, retry time. Returns the number of deferred rows.
+    """
+    deferred_until = retry_after(1)
+    cursor = conn.execute(
+        f"UPDATE jobs SET detail_retry_after = ? WHERE site = ? AND url != ? AND {DETAIL_PENDING_SQL}",
+        (deferred_until, site, limited_url),
+    )
+    return cursor.rowcount
+
+
 def scrape_site_batch(
     conn: sqlite3.Connection | None,
     site: str,
@@ -800,10 +814,14 @@ def scrape_site_batch(
                     break
 
                 if result.get("error") == "HTTP 429":
-                    # A rate limit applies to the whole site: stop so the remaining jobs
-                    # keep their attempt budget instead of each spending one right now.
-                    log.warning("%s: rate limited; stopping batch with %d job(s) left",
-                                site, len(jobs) - i - 1)
+                    # A rate limit applies to the whole site. Defer every other pending job
+                    # of this site for the first backoff window without spending their
+                    # attempts, so callers that re-query at once (stream_detail) do not
+                    # hit the same throttled site again with the next job.
+                    deferred = _defer_rate_limited_site(conn, site, url)
+                    conn.commit()
+                    log.warning("%s: rate limited; stopping batch and deferring %d pending job(s)",
+                                site, deferred)
                     break
 
                 if i < len(jobs) - 1:

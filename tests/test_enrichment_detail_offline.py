@@ -1311,21 +1311,43 @@ def test_retry_backoff_grows_between_attempts(conn, sleeps, monkeypatch) -> None
     assert second > first  # 6h after the second failure vs 1h after the first
 
 
-def test_rate_limit_stops_the_site_batch_without_spending_other_jobs_attempts(conn, sleeps, monkeypatch) -> None:
+def test_rate_limit_stops_the_site_batch_and_defers_the_site_without_spending_attempts(
+    conn, sleeps, monkeypatch
+) -> None:
     urls = [f"https://example.com/retry/{n}" for n in (1, 2, 3)]
     for url in urls:
         add_job(conn, url)
+    add_job(conn, "https://example.com/retry/later", detail_attempts=1, detail_retry_after=_FUTURE)
+    add_job(conn, "https://other.example.com/job", site="Other")
     monkeypatch.setattr(detail, "_PROXY_CONFIG", None)
     install_fake_playwright(monkeypatch, FakePage(default=PageSpec(status=429)))
 
-    stats = detail.scrape_site_batch(conn, "RemoteOK", [(url, "Data Analyst") for url in urls], delay=0)
+    stats = detail.scrape_site_batch(conn, "RemoteOK", [(url, "Data Analyst") for url in urls[:2]], delay=0)
 
     assert (stats["processed"], stats["error"]) == (1, 1)
-    assert _retry_row(conn, urls[0])[1:2] == (1,)
+    assert _retry_row(conn, urls[0])[1] == 1
+    # The rest of the site, inside and outside this batch, waits without losing an attempt.
     for url in urls[1:]:
         scraped_at, attempts, retry_after, error = _retry_row(conn, url)
-        assert (scraped_at, retry_after, error) == (None, None, None)
+        assert (scraped_at, error) == (None, None)
         assert not attempts
+        assert retry_after is not None and "2026-01-01" < retry_after < _FUTURE
+    assert _retry_row(conn, "https://example.com/retry/later")[1:3] == (1, _FUTURE)
+    assert _retry_row(conn, "https://other.example.com/job")[1:3] in {(0, None), (None, None)}
+
+
+def test_stream_detail_does_not_walk_a_rate_limited_site_job_by_job(conn, db_path, sleeps, monkeypatch) -> None:
+    for n in (1, 2, 3):
+        add_job(conn, f"https://example.com/limited/{n}")
+    monkeypatch.setattr(detail, "_PROXY_CONFIG", None)
+    page = FakePage(default=PageSpec(status=429))
+    install_fake_playwright(monkeypatch, page)
+    done = threading.Event()
+
+    detail.stream_detail(None, done)
+
+    assert done.is_set()
+    assert len(page.visited) == 1  # one request hit the limit; the rest of the site is deferred
 
 
 def test_permanent_failure_is_still_marked_immediately(conn, sleeps, monkeypatch) -> None:
