@@ -1,0 +1,16 @@
+{
+  "name": "Example",
+  "jobs": [
+    {
+      "shortcode": "WK1",
+      "title": "Operations Intern",
+      "url": "https://apply.workable.com/example/j/WK1/",
+      "city": "Singapore",
+      "country": "Singapore",
+      "description": "Support ops.",
+      "published_on": "2026-08-21"
+    },
+    "not an object",
+    {"shortcode": "WK3", "description": "no title or url"}
+  ]
+}

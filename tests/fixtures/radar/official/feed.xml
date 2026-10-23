@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Example Careers</title>
+    <item>
+      <title>Data Analyst Intern</title>
+      <link>https://careers.example.test/jobs/rss-1</link>
+      <guid isPermaLink="false">rss-1</guid>
+      <description>&lt;p&gt;Build &lt;strong&gt;dashboards&lt;/strong&gt; with SQL.&lt;/p&gt;</description>
+      <pubDate>Mon, 24 Aug 2026 09:00:00 GMT</pubDate>
+      <location>Singapore</location>
+    </item>
+    <item>
+      <title>Business Analyst Intern</title>
+      <link>/jobs/rss-2</link>
+      <guid isPermaLink="false">rss-2</guid>
+      <city>Singapore</city>
+      <country>SG</country>
+    </item>
+    <item>
+      <title>Entry without a public link</title>
+      <guid isPermaLink="false">rss-3</guid>
+    </item>
+  </channel>
+</rss>

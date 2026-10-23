@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Example Careers</title>
+    <script type="application/ld+json">
+      {"@context": "https://schema.org", "@type": "Organization", "name": "Example Tech"}
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {"@type": "WebSite", "name": "Example Careers"},
+          {
+            "@type": "JobPosting",
+            "title": "Graph Wrapped Data Intern",
+            "url": "https://careers.example.test/jobs/graph-1",
+            "identifier": {"@type": "PropertyValue", "value": "G-1"},
+            "datePosted": "2026-08-20",
+            "jobLocation": {
+              "@type": "Place",
+              "address": {"addressLocality": "Singapore", "addressCountry": "SG"}
+            },
+            "description": "&lt;p&gt;Analyse data.&lt;/p&gt;"
+          }
+        ]
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@type": ["JobPosting", "Thing"],
+        "name": "List Typed Operations Intern",
+        "description": "Run operations."
+      }
+    </script>
+    <script type="application/ld+json">
+      {"@type": "JobPosting", "title": "Broken", 
+    </script>
+    <script type="application/ld+json">
+      [{"@type": "JobPosting", "url": "https://careers.example.test/jobs/untitled"}]
+    </script>
+  </head>
+  <body></body>
+</html>

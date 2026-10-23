@@ -13,6 +13,7 @@ URL and optional headers, returning text/bytes or a mapping with
 
 from __future__ import annotations
 
+import inspect
 import json
 import urllib.error
 import urllib.request
@@ -98,12 +99,39 @@ def _default_transport(url: str, headers: Mapping[str, str] | None = None) -> di
         return {"status_code": error.code, "body": error.read(), "headers": dict(error.headers.items())}
 
 
+def _transport_accepts_headers(transport: Transport) -> bool | None:
+    """Tell from its signature whether ``transport`` takes a ``headers`` keyword.
+
+    Returns ``None`` when no signature is available (some builtins and C callables).
+    """
+    try:
+        parameters = inspect.signature(transport).parameters.values()
+    except (TypeError, ValueError):
+        return None
+    return any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        or (
+            parameter.name == "headers"
+            and parameter.kind
+            in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+        )
+        for parameter in parameters
+    )
+
+
 def _call_transport(transport: Transport, url: str) -> tuple[int, str, dict[str, str]]:
     """Normalise the small transport contract used by all providers."""
-    try:
+    accepts_headers = _transport_accepts_headers(transport)
+    if accepts_headers is True:
         response = transport(url, headers={"User-Agent": _USER_AGENT})
-    except TypeError:
+    elif accepts_headers is False:
         response = transport(url)
+    else:
+        # No signature to inspect: keep the legacy probe for header-less transports.
+        try:
+            response = transport(url, headers={"User-Agent": _USER_AGENT})
+        except TypeError:
+            response = transport(url)
 
     if isinstance(response, (str, bytes)):
         body = response.decode("utf-8", errors="replace") if isinstance(response, bytes) else response

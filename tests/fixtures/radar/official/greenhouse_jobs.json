@@ -1,0 +1,20 @@
+{
+  "jobs": [
+    {
+      "id": 101,
+      "title": "Data Analyst Intern",
+      "absolute_url": "https://boards.greenhouse.io/example/jobs/101",
+      "location": {"name": "Singapore"},
+      "content": "&lt;p&gt;Use SQL.&lt;/p&gt;",
+      "updated_at": "2026-08-24T09:00:00Z"
+    },
+    {
+      "id": 102,
+      "title": "Data Analyst Intern",
+      "absolute_url": "https://boards.greenhouse.io/example/jobs/102",
+      "location": {"name": "Other"},
+      "content": "&lt;p&gt;Use Python.&lt;/p&gt;",
+      "updated_at": "2026-08-24T09:00:00Z"
+    }
+  ]
+}
