@@ -21,6 +21,10 @@ WINDOWS_PROCESS_CWD_LIMIT = 258
 PROCESS_CWD_CHILD_RESERVE = 24
 
 
+class RuntimeOutputPathTooLong(ValueError):
+    """The workspace path leaves no room for an Agent process working directory."""
+
+
 def _component(value: object, *, name: str) -> str:
     raw = str(value or "").strip()
     if not raw:
@@ -80,7 +84,7 @@ class RuntimeNamespace:
         )
         required = len(str(output_root)) + PROCESS_CWD_CHILD_RESERVE
         if _ENFORCE_PROCESS_CWD_LIMIT and required > WINDOWS_PROCESS_CWD_LIMIT:
-            raise ValueError(
+            raise RuntimeOutputPathTooLong(
                 "runtime output directory is too long for Windows to start an "
                 f"Agent process there ({len(str(output_root))} characters plus "
                 f"{PROCESS_CWD_CHILD_RESERVE} reserved, limit "

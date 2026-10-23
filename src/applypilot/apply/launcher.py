@@ -168,7 +168,7 @@ from applypilot.apply.router import (
     resolve_interaction_mode,
 )
 from applypilot.apply.run_progress import RunProgress
-from applypilot.apply.runtime_namespace import RuntimeNamespace
+from applypilot.apply.runtime_namespace import RuntimeNamespace, RuntimeOutputPathTooLong
 from applypilot.apply.semantic_batch import (
     BatchPageBinding,
     BrowserResourceIdentity,
@@ -4600,6 +4600,20 @@ def run_job(job: dict, port: int, worker_id: int = 0,
     resume_text = ""
     if txt_path and txt_path.exists():
         resume_text = txt_path.read_text(encoding="utf-8")
+
+    # Namespace components are fixed-length digests, so a placeholder identity predicts
+    # the real output path length. Check it before taking a browser lease, and report a
+    # recorded failure instead of letting the error escape to the worker fallback.
+    try:
+        _ = RuntimeNamespace(
+            root=config.APPLY_WORKER_DIR,
+            run_id="path-budget",
+            session_id="path-budget",
+            profile_id="path-budget",
+        ).output_root
+    except RuntimeOutputPathTooLong as exc:
+        logger.error("[worker-%d] %s", worker_id, exc)
+        return "failed:workspace_path_too_long", 0
 
     broker_session_persistent = bool(job.get("_browser_root_runtime"))
     browser_lease_bundle = _browser_lease_for_agent_turn(
