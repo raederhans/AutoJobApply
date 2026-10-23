@@ -28,6 +28,7 @@ from playwright.sync_api import sync_playwright
 from applypilot import config
 from applypilot.config import CONFIG_DIR
 from applypilot.database import get_stats, init_db, store_jobs
+from applypilot.discovery.official import _jobposting_nodes
 from applypilot.llm import get_client
 
 log = logging.getLogger(__name__)
@@ -65,8 +66,9 @@ def load_sites() -> list[dict]:
     if not path.exists():
         log.warning("sites.yaml not found at %s", path)
         return []
-    data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    return data.get("sites", [])
+    # An empty file loads as None; treat it (and a null "sites:" key) as no sites.
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return data.get("sites") or []
 
 
 def _store_jobs_filtered(
@@ -395,8 +397,15 @@ def format_strategy_briefing(intel: dict) -> str:
 
     # JSON-LD
     if intel["json_ld"]:
-        job_postings = [j for j in intel["json_ld"] if isinstance(j, dict) and j.get("@type") == "JobPosting"]
-        other = [j for j in intel["json_ld"] if not (isinstance(j, dict) and j.get("@type") == "JobPosting")]
+        # Same JobPosting discovery as execute_json_ld: list-valued @type and @graph wrappers count.
+        job_postings: list = []
+        other: list = []
+        for entry in intel["json_ld"]:
+            nodes = list(_jobposting_nodes(entry))
+            if nodes:
+                job_postings.extend(nodes)
+            else:
+                other.append(entry)
         if job_postings:
             sections.append(f"\nJSON-LD: {len(job_postings)} JobPosting entries found (usable!)")
             sections.append(f"First JobPosting:\n{json.dumps(job_postings[0], indent=2)[:3000]}")
@@ -707,9 +716,8 @@ def execute_json_ld(intel: dict, plan: dict) -> list[dict]:
     """Extract jobs from JSON-LD JobPosting entries."""
     ext = plan["extraction"]
     jobs: list[dict] = []
-    for entry in intel["json_ld"]:
-        if not isinstance(entry, dict) or entry.get("@type") != "JobPosting":
-            continue
+    postings = [node for entry in intel["json_ld"] for node in _jobposting_nodes(entry)]
+    for entry in postings:
         job: dict = {}
         for field in ["title", "salary", "description", "location", "url"]:
             path = ext.get(field)
@@ -950,11 +958,11 @@ def build_scrape_targets(
     if sites is None:
         sites = load_sites()
     if search_cfg is None:
-        search_cfg = config.load_search_config()
+        search_cfg = config.load_search_config() or {}
 
-    queries_cfg = search_cfg.get("queries", [])
+    queries_cfg = search_cfg.get("queries") or []
     queries = [q["query"] for q in queries_cfg]
-    locs = search_cfg.get("locations", [])
+    locs = search_cfg.get("locations") or []
     default_location = locs[0]["location"] if locs else ""
 
     targets: list[dict] = []
@@ -1080,7 +1088,7 @@ def run_smart_extract(
     Returns:
         Dict with stats: total_new, total_existing, passed, total.
     """
-    search_cfg = config.load_search_config()
+    search_cfg = config.load_search_config() or {}
     accept_locs, reject_locs = _load_location_filter(search_cfg)
     excluded_titles = config.get_excluded_title_patterns(search_cfg)
 
