@@ -704,10 +704,13 @@ def _record_detail_failure(conn: sqlite3.Connection, url: str, result: dict) -> 
                 (error, attempts, deferred_until, url),
             )
             return
+    # A final 429 still records when the site's rate limit is expected to clear, so the
+    # cooldown outlives the exhausted job; the row itself is scraped and never re-selected.
+    cooldown_until = retry_after(1) if error == RATE_LIMIT_ERROR else None
     conn.execute(
-        "UPDATE jobs SET detail_error = ?, detail_scraped_at = ?, detail_retry_after = NULL, "
+        "UPDATE jobs SET detail_error = ?, detail_scraped_at = ?, detail_retry_after = ?, "
         "detail_attempts = COALESCE(?, detail_attempts) WHERE url = ?",
-        (error, datetime.now(UTC).isoformat(), attempts, url),
+        (error, datetime.now(UTC).isoformat(), cooldown_until, attempts, url),
     )
 
 

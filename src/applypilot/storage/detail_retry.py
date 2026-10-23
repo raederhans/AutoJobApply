@@ -26,13 +26,13 @@ DETAIL_DUE_SQL = (
     f"(detail_retry_after IS NULL OR detail_retry_after <= {_NOW_SQL})"
 )
 
-# Sites cooling down after a rate limit: a 429 row still waiting for its retry. The
-# subquery is uncorrelated, so SQLite evaluates it once per statement instead of once per
-# candidate row (no index covers these columns).
+# Sites cooling down after a rate limit: a 429 row whose cooldown has not passed, whether
+# it waits for another attempt or exhausted its attempts (the final 429 keeps the cooldown
+# time). The subquery is uncorrelated, so SQLite evaluates it once per statement instead of
+# once per candidate row (no index covers these columns).
 _COOLING_SITES_SQL = (
     "SELECT site FROM jobs WHERE site IS NOT NULL "
-    f"AND detail_error = '{RATE_LIMIT_ERROR}' AND detail_scraped_at IS NULL "
-    f"AND detail_retry_after > {_NOW_SQL}"
+    f"AND detail_error = '{RATE_LIMIT_ERROR}' AND detail_retry_after > {_NOW_SQL}"
 )
 
 # Due rows whose site is not cooling down. A 429 row waiting for its retry keeps the whole

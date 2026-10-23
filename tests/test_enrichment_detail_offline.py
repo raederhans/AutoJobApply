@@ -1325,7 +1325,30 @@ def test_transient_failure_is_retried_with_backoff_then_marked_permanent(conn, s
 
     scraped_at, attempts, retry_after, error = _retry_row(conn)
     assert scraped_at is not None
-    assert (attempts, retry_after, error) == (3, None, "HTTP 429")
+    assert (attempts, error) == (3, "HTTP 429")
+    # The exhausted row is never re-selected but keeps the site's cooldown time.
+    assert retry_after is not None and retry_after > "2026-01-01T00:00:00+00:00"
+    assert RETRY_URL not in _pending_urls(conn)
+
+
+def test_final_rate_limit_keeps_the_site_cooling_down_for_jobs_found_later(conn, sleeps, monkeypatch) -> None:
+    add_job(conn, RETRY_URL, detail_attempts=2, detail_retry_after=_PAST, detail_error="HTTP 429")
+
+    _scrape_once(conn, monkeypatch, PageSpec(status=429))  # exhausts the attempt budget
+    add_job(conn, "https://example.com/found-during-cooldown")
+
+    assert _retry_row(conn)[0] is not None
+    assert _pending_urls(conn) == set()
+
+
+def test_final_non_rate_limit_failure_does_not_cool_the_site_down(conn, sleeps, monkeypatch) -> None:
+    add_job(conn, RETRY_URL, detail_attempts=2, detail_retry_after=_PAST, detail_error="HTTP 503")
+
+    _scrape_once(conn, monkeypatch, PageSpec(status=503))
+    add_job(conn, "https://example.com/next")
+
+    assert _retry_row(conn)[2] is None
+    assert _pending_urls(conn) == {"https://example.com/next"}
 
 
 def test_retry_backoff_grows_between_attempts(conn, sleeps, monkeypatch) -> None:
