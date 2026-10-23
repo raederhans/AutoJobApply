@@ -504,10 +504,13 @@ def test_requested_resume_timeout_is_atomic_and_does_not_consume_response(
         ).fetchone()
     )
 
+    # The requested row uses the service's wall clock, not the module-level NOW,
+    # so derive expiry from it to keep result ordering independent of suite runtime.
+    requested_at = datetime.fromisoformat(agent_control.list_operator_result_rows(connection)[0][8])
     expired = runtime.expire_resume_request(
         item.exception_id,
         request_id="request-1",
-        expired_at=NOW + timedelta(minutes=5),
+        expired_at=requested_at + timedelta(minutes=5),
     )
     replay = runtime.expire_resume_request(item.exception_id, request_id="request-1")
 
