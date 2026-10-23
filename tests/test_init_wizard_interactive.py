@@ -652,8 +652,19 @@ def test_setup_profile_drops_a_plaintext_password_left_by_an_older_profile(
     _prompts(monkeypatch, _PROFILE_ANSWERS)
     _confirms(monkeypatch, {"Are you legally authorized": True, "Will you now": False})
 
+    profile_path = (workspace / "profile.json").resolve()
+    real_read_text = Path.read_text
+
+    def guarded_read_text(self, *args, **kwargs):
+        if Path(self).resolve() == profile_path:
+            raise AssertionError("the wizard must not read the old profile (it may hold a password)")
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", guarded_read_text)
+
     profile = wizard._setup_profile()
 
+    monkeypatch.setattr(Path, "read_text", real_read_text)
     assert "password" not in profile["personal"]
     saved = (workspace / "profile.json").read_text(encoding="utf-8")
     assert "password" not in json.loads(saved)["personal"] and "legacy-secret" not in saved

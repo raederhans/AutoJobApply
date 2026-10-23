@@ -134,15 +134,6 @@ def _setup_resume() -> None:
 # Profile
 # ---------------------------------------------------------------------------
 
-def _existing_profile_has_password() -> bool:
-    """Tell whether an earlier profile.json still stores a plaintext job-site password."""
-    try:
-        existing = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
-        return "password" in existing["personal"]
-    except (OSError, ValueError, KeyError, TypeError):
-        return False
-
-
 def _setup_profile() -> dict:
     """Walk through profile questions and return a nested profile dict."""
     console.print(Panel("[bold]Step 2: Profile[/bold]\nTell Job Apply Pilot about yourself. This powers scoring, tailoring, and auto-fill."))
@@ -168,15 +159,11 @@ def _setup_profile() -> dict:
         "website_url": Prompt.ask("Personal website URL (optional)", default=""),
     }
     # Job-site passwords are deliberately not collected or written to profile.json. Nothing
-    # reads profile passwords (the credential relay uses its own encrypted store), so a
-    # plaintext password left by an older wizard run is not carried into the new profile.
-    if _existing_profile_has_password():
-        console.print(
-            "[yellow]The plaintext job-site password saved by an earlier setup is not kept in the "
-            "new profile.json.[/yellow]"
-        )
+    # reads profile passwords (the credential relay uses its own encrypted store), and the
+    # old profile is not read either: rewriting it drops any password an earlier setup left.
     console.print(
-        "[dim]Job Apply Pilot no longer asks for job-site passwords. For login walls, sign in once in the "
+        "[dim]Job Apply Pilot no longer asks for or stores job-site passwords; one saved by an earlier "
+        "setup is not kept when this profile is written. For login walls, sign in once in the "
         "dedicated browser profile: set APPLYPILOT_BROWSER_PROFILE_MODE=persistent, then run "
         "[bold]applypilot browser-session --url <login page>[/bold]. Sign-ins that cannot be completed "
         "that way are handed to you.[/dim]"
