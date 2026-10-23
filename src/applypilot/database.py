@@ -444,13 +444,13 @@ def _enable_wal(conn: sqlite3.Connection) -> None:
     Leaving rollback-journal mode needs an exclusive lock. When several connections
     initialize a brand-new file at once, SQLite's deadlock avoidance can return
     "database is locked" immediately instead of waiting for busy_timeout, so the
-    switch is retried briefly. A database that is already in WAL needs no lock.
+    switch is retried briefly. A database that is already in WAL needs no lock; the
+    probe shares the retry because it can also meet another initializer's lock.
     """
-    if str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower() == "wal":
-        return
     for attempt in range(_WAL_SWITCH_ATTEMPTS):
         try:
-            conn.execute("PRAGMA journal_mode=WAL")
+            if str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower() != "wal":
+                conn.execute("PRAGMA journal_mode=WAL")
             return
         except sqlite3.OperationalError as exc:
             message = str(exc).lower()

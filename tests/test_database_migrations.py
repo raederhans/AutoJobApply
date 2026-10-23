@@ -200,13 +200,18 @@ def test_concurrent_initializers_converge_on_one_current_version(tmp_path) -> No
 class _JournalModeConnection:
     """Minimal connection double for the WAL switch: scripted errors, recorded calls."""
 
-    def __init__(self, mode: str, errors: list[Exception]) -> None:
+    def __init__(self, mode: str, errors: list[Exception], probe_errors: list[Exception] | None = None) -> None:
         self.mode = mode
         self.errors = list(errors)
+        self.probe_errors = list(probe_errors or [])
         self.switch_attempts = 0
+        self.probe_attempts = 0
 
     def execute(self, sql: str):
         if sql == "PRAGMA journal_mode":
+            self.probe_attempts += 1
+            if self.probe_errors:
+                raise self.probe_errors.pop(0)
             return _Rows([(self.mode,)])
         assert sql == "PRAGMA journal_mode=WAL"
         self.switch_attempts += 1
@@ -235,6 +240,19 @@ def test_enable_wal_retries_transient_lock_from_concurrent_first_initializers(mo
 
     assert connection.mode == "wal"
     assert connection.switch_attempts == 3
+
+
+def test_enable_wal_retries_a_locked_journal_mode_probe(monkeypatch) -> None:
+    monkeypatch.setattr(database.time, "sleep", lambda _seconds: None)
+    connection = _JournalModeConnection(
+        "delete", [], probe_errors=[sqlite3.OperationalError("database is locked")]
+    )
+
+    database._enable_wal(connection)
+
+    assert connection.mode == "wal"
+    assert connection.probe_attempts == 2
+    assert connection.switch_attempts == 1
 
 
 def test_enable_wal_skips_switch_when_already_wal() -> None:
