@@ -45,6 +45,7 @@ from applypilot.storage.database_migrations import (
     require_supported_database_path,
     run_database_migrations,
 )
+from applypilot.storage.detail_retry import DETAIL_PENDING_SQL
 
 canonicalize_job_url = _job_identity.canonicalize_job_url
 extract_platform_job_id = _job_identity.extract_platform_job_id
@@ -374,6 +375,11 @@ def _establish_current_schema_baseline(connection: sqlite3.Connection) -> None:
         )
 
 
+def _add_detail_retry_columns(connection: sqlite3.Connection) -> None:
+    """Add the detail retry columns to databases created before they existed."""
+    ensure_columns(connection)
+
+
 _DATABASE_MIGRATIONS = (
     _establish_current_schema_baseline,
     _posting_lifecycle.ensure_posting_lifecycle_schema,
@@ -382,6 +388,7 @@ _DATABASE_MIGRATIONS = (
     _career_learning.ensure_schema,
     _career_workbench.ensure_schema,
     _career_workbench.ensure_publication_schema,
+    _add_detail_retry_columns,
 )
 DATABASE_SCHEMA_VERSION = len(_DATABASE_MIGRATIONS)
 
@@ -485,6 +492,9 @@ _ALL_COLUMNS: dict[str, str] = {
     "application_url": "TEXT",
     "detail_scraped_at": "TEXT",
     "detail_error": "TEXT",
+    # Transient detail-fetch failures retry a bounded number of times (storage/detail_retry.py).
+    "detail_attempts": "INTEGER DEFAULT 0",
+    "detail_retry_after": "TEXT",
     # Scoring
     "fit_score": "INTEGER",
     "score_reasoning": "TEXT",
@@ -1711,7 +1721,7 @@ def get_jobs_by_stage(conn: sqlite3.Connection | None = None,
 
     conditions = {
         "discovered": "1=1",
-        "pending_detail": "detail_scraped_at IS NULL",
+        "pending_detail": DETAIL_PENDING_SQL,
         "enriched": "full_description IS NOT NULL",
         "pending_score": "full_description IS NOT NULL AND fit_score IS NULL",
         "scored": "fit_score IS NOT NULL",

@@ -277,3 +277,25 @@ def test_enable_wal_does_not_retry_unrelated_errors_and_bounds_lock_retries(monk
     with pytest.raises(sqlite3.OperationalError, match="locked"):
         database._enable_wal(always_locked)
     assert always_locked.switch_attempts == database._WAL_SWITCH_ATTEMPTS
+
+
+def test_detail_retry_columns_are_added_to_a_database_one_version_behind(tmp_path) -> None:
+    db_path = tmp_path / "previous.db"
+    previous = sqlite3.connect(db_path)
+    run_database_migrations(previous, database._DATABASE_MIGRATIONS[:-1])
+    previous.execute("ALTER TABLE jobs DROP COLUMN detail_attempts")
+    previous.execute("ALTER TABLE jobs DROP COLUMN detail_retry_after")
+    previous.execute("INSERT INTO jobs (url, title) VALUES ('https://example.test/job/9', 'Kept')")
+    previous.commit()
+    assert read_database_schema_version(previous) == database.DATABASE_SCHEMA_VERSION - 1
+    previous.close()
+
+    upgraded = database.init_db(db_path)
+
+    assert read_database_schema_version(upgraded) == database.DATABASE_SCHEMA_VERSION
+    columns = {row[1] for row in upgraded.execute("PRAGMA table_info(jobs)")}
+    assert {"detail_attempts", "detail_retry_after"} <= columns
+    row = upgraded.execute(
+        "SELECT title, detail_attempts, detail_retry_after FROM jobs WHERE url='https://example.test/job/9'"
+    ).fetchone()
+    assert tuple(row) == ("Kept", 0, None)

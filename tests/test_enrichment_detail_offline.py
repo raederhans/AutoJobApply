@@ -1215,6 +1215,201 @@ def test_stream_detail_backs_off_while_upstream_is_still_running(conn, monkeypat
     assert attempts["n"] == 4  # one attempt per poll, plus the final attempt after upstream finished
 
 
+# -- bounded retry of transient detail failures -------------------------------
+
+RETRY_URL = "https://example.com/retry/1"
+_PAST = "2000-01-01T00:00:00+00:00"
+_FUTURE = "2999-01-01T00:00:00+00:00"
+
+
+def _retry_row(conn, url: str = RETRY_URL):
+    return conn.execute(
+        "SELECT detail_scraped_at, detail_attempts, detail_retry_after, detail_error FROM jobs WHERE url = ?",
+        (url,),
+    ).fetchone()
+
+
+def _scrape_once(conn, monkeypatch, spec: PageSpec, url: str = RETRY_URL) -> dict:
+    monkeypatch.setattr(detail, "_PROXY_CONFIG", None)
+    install_fake_playwright(monkeypatch, FakePage(default=spec))
+    return detail.scrape_site_batch(conn, "RemoteOK", [(url, "Data Analyst")], delay=0)
+
+
+_TRANSIENT_SPECS = [
+    pytest.param(PageSpec(status=429), "HTTP 429", id="429"),
+    pytest.param(PageSpec(status=503), "HTTP 503", id="503"),
+    pytest.param(PageSpec(goto_error=RuntimeError("Page.goto: Timeout 45000ms exceeded.")), "timeout", id="timeout"),
+    pytest.param(PageSpec(goto_error=RuntimeError("net::ERR_CONNECTION_RESET")), "net::ERR_CONNECTION_RESET",
+                 id="connection-reset"),
+]
+
+
+@pytest.mark.parametrize(("spec", "reason"), _TRANSIENT_SPECS)
+def test_transient_failure_is_not_marked_permanent(conn, sleeps, monkeypatch, spec, reason) -> None:
+    add_job(conn, RETRY_URL)
+
+    stats = _scrape_once(conn, monkeypatch, spec)
+
+    scraped_at, attempts, retry_after, error = _retry_row(conn)
+    assert stats["error"] == 1
+    assert scraped_at is None
+    assert (attempts, error) == (1, reason)
+    assert retry_after is not None and retry_after > "2026-01-01T00:00:00+00:00"
+
+
+@pytest.mark.parametrize(
+    ("spec", "retryable"),
+    [
+        (PageSpec(status=429, json_ld=[job_posting_ld()]), True),
+        (PageSpec(status=504, json_ld=[job_posting_ld()]), True),
+        (PageSpec(status=404, json_ld=[job_posting_ld()]), False),
+        (PageSpec(goto_error=RuntimeError("Timeout 45000ms exceeded")), True),
+        (PageSpec(goto_error=RuntimeError("net::ERR_CONNECTION_CLOSED")), True),
+        (PageSpec(goto_error=RuntimeError("net::ERR_NAME_NOT_RESOLVED")), False),
+    ],
+)
+def test_scrape_detail_page_flags_only_transient_failures_as_retryable(spec, retryable) -> None:
+    page = FakePage(default=spec)
+
+    result = detail.scrape_detail_page(page, JOB_URL)
+
+    assert result["status"] == "error"
+    assert bool(result.get("retryable")) is retryable
+    if spec.status in detail.RETRYABLE_STATUSES:
+        assert result["error"] == f"HTTP {spec.status}"
+        assert page.waits == []  # a throttled page is not parsed (or sent to the LLM)
+
+
+def test_transient_failure_is_retried_with_backoff_then_marked_permanent(conn, sleeps, monkeypatch) -> None:
+    add_job(conn, RETRY_URL)
+    throttled = PageSpec(status=429)
+
+    for expected_attempts in (1, 2):
+        _scrape_once(conn, monkeypatch, throttled)
+        scraped_at, attempts, retry_after, _ = _retry_row(conn)
+        assert (scraped_at, attempts) == (None, expected_attempts)
+        assert retry_after is not None
+        conn.execute("UPDATE jobs SET detail_retry_after = ? WHERE url = ?", (_PAST, RETRY_URL))
+        conn.commit()
+
+    _scrape_once(conn, monkeypatch, throttled)  # third and final attempt
+
+    scraped_at, attempts, retry_after, error = _retry_row(conn)
+    assert scraped_at is not None
+    assert (attempts, retry_after, error) == (3, None, "HTTP 429")
+
+
+def test_retry_backoff_grows_between_attempts(conn, sleeps, monkeypatch) -> None:
+    add_job(conn, RETRY_URL)
+    _scrape_once(conn, monkeypatch, PageSpec(status=503))
+    first = _retry_row(conn)[2]
+    conn.execute("UPDATE jobs SET detail_retry_after = ? WHERE url = ?", (_PAST, RETRY_URL))
+    conn.commit()
+    _scrape_once(conn, monkeypatch, PageSpec(status=503))
+    second = _retry_row(conn)[2]
+
+    assert second > first  # 6h after the second failure vs 1h after the first
+
+
+def test_permanent_failure_is_still_marked_immediately(conn, sleeps, monkeypatch) -> None:
+    add_job(conn, RETRY_URL)
+
+    _scrape_once(conn, monkeypatch, PageSpec(status=404))
+
+    scraped_at, _, retry_after, error = _retry_row(conn)
+    assert scraped_at is not None
+    assert (retry_after, error) == (None, "HTTP 404")
+
+
+def test_success_after_a_transient_failure_clears_the_retry_state(conn, sleeps, monkeypatch) -> None:
+    add_job(conn, RETRY_URL)
+    _scrape_once(conn, monkeypatch, PageSpec(status=503))
+    conn.execute("UPDATE jobs SET detail_retry_after = ? WHERE url = ?", (_PAST, RETRY_URL))
+    conn.commit()
+
+    stats = _scrape_once(conn, monkeypatch, PageSpec(json_ld=[job_posting_ld(url="https://apply.example.com/1")]))
+
+    scraped_at, _, retry_after, error = _retry_row(conn)
+    assert stats["ok"] == 1
+    assert scraped_at is not None
+    assert (retry_after, error) == (None, None)
+
+
+def test_run_detail_scraper_skips_rows_in_backoff_until_they_are_due(conn, monkeypatch) -> None:
+    add_job(conn, "https://a.example.com/waiting", site="Alpha", detail_attempts=1, detail_retry_after=_FUTURE)
+    add_job(conn, "https://a.example.com/due", site="Alpha", detail_attempts=1, detail_retry_after=_PAST)
+    add_job(conn, "https://a.example.com/new", site="Alpha")
+    calls = _record_batches(monkeypatch)
+
+    detail._run_detail_scraper(conn)
+
+    assert sorted(calls[0]["urls"]) == ["https://a.example.com/due", "https://a.example.com/new"]
+
+
+def test_stream_detail_ends_without_spinning_when_only_backoff_rows_remain(conn, db_path, sleeps, monkeypatch) -> None:
+    add_job(conn, "https://a.example.com/waiting", site="Alpha", detail_attempts=1, detail_retry_after=_FUTURE)
+
+    def no_batch(*args, **kwargs):
+        raise _Spin("a row in backoff must not be scraped")
+
+    monkeypatch.setattr(detail, "scrape_site_batch", no_batch)
+    done = threading.Event()
+
+    detail.stream_detail(None, done)  # nothing is due: exit now, a later run picks the row up
+
+    assert done.is_set()
+    assert sleeps == []
+    assert _retry_row(database.init_db(db_path), "https://a.example.com/waiting")[1] == 1
+
+
+def test_stream_detail_waits_for_upstream_when_only_backoff_rows_remain(conn, monkeypatch) -> None:
+    add_job(conn, "https://a.example.com/waiting", site="Alpha", detail_attempts=1, detail_retry_after=_FUTURE)
+    upstream = threading.Event()
+    waits: list[float] = []
+
+    def sleep(seconds=0):
+        waits.append(seconds)
+        if len(waits) == 2:
+            upstream.set()
+
+    monkeypatch.setattr(detail.time, "sleep", sleep)
+    done = threading.Event()
+
+    detail.stream_detail(upstream, done, poll_interval=3.0)
+
+    assert done.is_set()
+    assert waits == [3.0, 3.0]
+
+
+def test_stream_detail_does_not_reselect_a_row_it_just_deferred(conn, db_path, sleeps, monkeypatch) -> None:
+    add_job(conn, RETRY_URL)
+    monkeypatch.setattr(detail, "_PROXY_CONFIG", None)
+    page = FakePage(default=PageSpec(status=503))
+    install_fake_playwright(monkeypatch, page)
+    done = threading.Event()
+
+    detail.stream_detail(None, done)
+
+    assert done.is_set()
+    assert page.visited == [RETRY_URL]  # one attempt this run, the retry waits for its backoff
+    scraped_at, attempts, retry_after, _ = _retry_row(database.init_db(db_path))
+    assert (scraped_at, attempts) == (None, 1)
+    assert retry_after is not None
+
+
+def test_stream_detail_retries_a_row_once_its_backoff_has_expired(conn, db_path, sleeps, monkeypatch) -> None:
+    add_job(conn, RETRY_URL, detail_attempts=1, detail_retry_after=_PAST, detail_error="HTTP 503")
+    monkeypatch.setattr(detail, "_PROXY_CONFIG", None)
+    install_fake_playwright(monkeypatch, FakePage(default=PageSpec(json_ld=[job_posting_ld()])))
+    done = threading.Event()
+
+    detail.stream_detail(None, done)
+
+    scraped_at, _, retry_after, error = _retry_row(database.init_db(db_path))
+    assert scraped_at is not None
+    assert (retry_after, error) == (None, None)
+
+
 # -- run_enrichment -----------------------------------------------------------
 
 
