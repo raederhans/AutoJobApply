@@ -82,7 +82,7 @@ Switch between English and Chinese, filter your queue, and copy useful commands.
 - **Prepare multiple applications.** v0.7 adds concurrent preparation in Codex's in-app browser, with per-job progress. [Batch guide](docs/attended-runtime-batch.md)
 - **Keep the history together.** Track jobs, materials, application attempts, receipts, and outstanding follow-ups.
 
-The current development tree also adds recruiting timelines, actions and calendar export, source-bound interview packs, JSON Resume draft exchange, supervised observation adapters, and offline quality evaluation. These commands require an installation from the current source tree; they are not included in the `v0.7.0` package pinned above.
+The current development tree also adds recruiting timelines, actions, reminders and calendar export, offline progress reports, a local career workbench with an application inbox, standalone application writing, side-by-side job comparison, source-bound interview packs, JSON Resume draft exchange, official-careers discovery and posting lifecycle in `radar`, supervised observation adapters, and offline quality evaluation. These commands require an installation from the current source tree; they are not included in the `v0.7.0` package pinned above.
 
 ## More ways to use it
 
@@ -94,6 +94,9 @@ The current development tree also adds recruiting timelines, actions and calenda
 | Choose a resume for one role | `applypilot resume-route --url "<job-url>"` |
 | Track recruiting feedback and calendar items | `applypilot followup --help` · [Followup guide](docs/followup.md) |
 | Prepare for an interview | `applypilot interview prepare --url "<job-url>" --output "<new-directory>"` · [Source rules](docs/interview-prep.md) |
+| Work through career gaps in a local workbench | `applypilot career --help` · [Career guide](docs/career.md) |
+| Draft ATS answers and cover letters | `applypilot writing --help` · [Writing guide](docs/application-writing.md) |
+| Compare saved jobs side by side | `applypilot compare-jobs --list` · [Comparison guide](docs/job-comparison.md) |
 | Exchange JSON Resume drafts | `applypilot json-resume --help` · [Exchange guide](docs/json-resume.md) |
 | Adapt external browser observations | `applypilot browser-prepare --help` · [Adapter guide](docs/browser-observation-adapter.md) |
 | Evaluate quality and export Promptfoo cases | `applypilot quality --help` · [Evaluation guide](docs/quality-evaluation.md) |
