@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import sqlite3
 
+from applypilot.storage.detail_retry import DETAIL_PENDING_SQL
+
 
 def get_stats(conn: sqlite3.Connection) -> dict:
     """Return job counts by pipeline stage.
@@ -52,7 +54,7 @@ def get_stats(conn: sqlite3.Connection) -> dict:
 
     # Enrichment stage
     stats["pending_detail"] = conn.execute(
-        f"SELECT COUNT(*) FROM jobs WHERE detail_scraped_at IS NULL AND {ELIGIBLE_SQL}"
+        f"SELECT COUNT(*) FROM jobs WHERE {DETAIL_PENDING_SQL} AND {ELIGIBLE_SQL}"
     ).fetchone()[0]
 
     stats["with_description"] = conn.execute(
