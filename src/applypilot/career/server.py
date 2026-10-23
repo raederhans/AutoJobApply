@@ -158,6 +158,7 @@ class CareerHandler(BaseHTTPRequestHandler):
 
     def send(self, status, value, *, content_type="application/json; charset=utf-8", download_name=None,
              calendar_counts=None):
+        self._discard_unread_body()
         body = value if isinstance(value, bytes) else json.dumps(public(value), ensure_ascii=False, allow_nan=False).encode("utf-8")
         self.send_response(status)
         if status != 204:
@@ -178,6 +179,27 @@ class CareerHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
         self.close_connection = True
+
+    def _discard_unread_body(self):
+        # Closing a socket with unread request bytes makes the kernel send RST, which can
+        # destroy the already-written response on the client side (WinError 10053/10054).
+        if self.command != "POST" or getattr(self, "_body_consumed", False):
+            return
+        self._body_consumed = True
+        try:
+            remaining = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            return
+        if self.headers.get("Transfer-Encoding") or not 0 < remaining <= MAX_BODY:
+            return
+        try:
+            while remaining > 0:
+                chunk = self.rfile.read(min(remaining, 65536))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+        except OSError:
+            pass
 
     def fail(self, status, code, message):
         self.send(status, {"error": {"code": code, "message": message}})
@@ -364,6 +386,7 @@ class CareerHandler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0"))
         if not 0 < length <= MAX_BODY:
             raise ValueError("body_too_large")
+        self._body_consumed = True
         data = json.loads(self.rfile.read(length).decode("utf-8"),
                           parse_constant=lambda _: (_ for _ in ()).throw(ValueError("invalid_json")))
         if not isinstance(data, dict):

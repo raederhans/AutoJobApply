@@ -220,6 +220,17 @@ def test_http_host_origin_session_and_fetch_site_rejected(running):
         assert conn.execute("SELECT COUNT(*) FROM career_workbench_jobs").fetchone()[0] == 0
 
 
+def test_http_rejection_drains_unread_request_body_without_connection_reset(running):
+    # Replying 403 and closing with unread request bytes makes the kernel send RST, which
+    # intermittently surfaced as WinError 10053/10054 on the client instead of the JSON error.
+    instance, _client, _state, _db, _jobs = running
+    payload = {"request_key": "drain", "pad": "a" * 200_000}
+    with httpx.Client(base_url=instance.origin, trust_env=False, timeout=10) as unauthenticated:
+        for _ in range(50):
+            response = unauthenticated.post(host.PREFIX + "/targets", json=payload)
+            assert response.status_code == 403 and response.json()["error"]["code"] == "session_required"
+
+
 def test_http_material_and_body_input_boundaries(running):
     instance, client, state, db, _jobs = running
     base = {"name": "fictional.txt", "kind": "project_evidence", "text": "Exact fictional quote.",

@@ -65,7 +65,7 @@ def _attempt(connection: sqlite3.Connection, *, submit_started: bool = False) ->
             "batch-1",
             "worker-1",
             instant,
-            (NOW + timedelta(hours=1)).isoformat(),
+            (NOW + timedelta(days=7)).isoformat(),
             "prepare",
             int(submit_started),
             "in_progress",
@@ -174,7 +174,7 @@ def _resume_setup(connection: sqlite3.Connection) -> tuple[ApplicationException,
         attempt_id=ATTEMPT,
         runtime_id="runtime-1",
         page_epoch=3,
-        lease_seconds=3600,
+        lease_seconds=7 * 24 * 3600,
         now=NOW,
     )
     request = HumanRequest(
@@ -504,10 +504,13 @@ def test_requested_resume_timeout_is_atomic_and_does_not_consume_response(
         ).fetchone()
     )
 
+    # The requested row uses the service's wall clock, not the module-level NOW,
+    # so derive expiry from it to keep result ordering independent of suite runtime.
+    requested_at = datetime.fromisoformat(agent_control.list_operator_result_rows(connection)[0][8])
     expired = runtime.expire_resume_request(
         item.exception_id,
         request_id="request-1",
-        expired_at=NOW + timedelta(minutes=5),
+        expired_at=requested_at + timedelta(minutes=5),
     )
     replay = runtime.expire_resume_request(item.exception_id, request_id="request-1")
 
