@@ -8,10 +8,11 @@ import os
 import secrets
 import sqlite3
 import threading
+import time
 import urllib.error
 import urllib.request
 import webbrowser
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
@@ -25,6 +26,9 @@ from applypilot.storage.transactions import write_transaction
 
 PREFIX = "/api/career/v1"
 MAX_BODY = 3_000_000
+# Upper bound on draining an unread body before an error reply: a stalled upload must
+# not hold the reply (and a server thread) until the 10s socket timeout.
+DRAIN_SECONDS = 2.0
 FRONTEND = Path(__file__).resolve().parents[1] / "frontend"
 
 
@@ -158,6 +162,7 @@ class CareerHandler(BaseHTTPRequestHandler):
 
     def send(self, status, value, *, content_type="application/json; charset=utf-8", download_name=None,
              calendar_counts=None):
+        self._discard_unread_body()
         body = value if isinstance(value, bytes) else json.dumps(public(value), ensure_ascii=False, allow_nan=False).encode("utf-8")
         self.send_response(status)
         if status != 204:
@@ -178,6 +183,38 @@ class CareerHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
         self.close_connection = True
+
+    def _discard_unread_body(self):
+        # Closing a socket with unread request bytes makes the kernel send RST, which can
+        # destroy the already-written response on the client side (WinError 10053/10054).
+        if self.command != "POST" or getattr(self, "_body_consumed", False):
+            return
+        self._body_consumed = True
+        try:
+            remaining = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            return
+        if self.headers.get("Transfer-Encoding") or not 0 < remaining <= MAX_BODY:
+            return
+        deadline = time.monotonic() + DRAIN_SECONDS
+        previous_timeout = self.connection.gettimeout()
+        try:
+            while remaining > 0:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    break
+                self.connection.settimeout(left)
+                # read1 returns after one socket read, so the deadline is rechecked even
+                # when a client trickles bytes slowly.
+                chunk = self.rfile.read1(min(remaining, 65536))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+        except OSError:
+            pass
+        finally:
+            with suppress(OSError):
+                self.connection.settimeout(previous_timeout)
 
     def fail(self, status, code, message):
         self.send(status, {"error": {"code": code, "message": message}})
@@ -364,6 +401,7 @@ class CareerHandler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0"))
         if not 0 < length <= MAX_BODY:
             raise ValueError("body_too_large")
+        self._body_consumed = True
         data = json.loads(self.rfile.read(length).decode("utf-8"),
                           parse_constant=lambda _: (_ for _ in ()).throw(ValueError("invalid_json")))
         if not isinstance(data, dict):

@@ -161,7 +161,7 @@ def test_windows_junction_cannot_escape_bundle(conn, bundle, tmp_path):
     source_dir = bundle / "companies/example/snapshots"
     source_dir.rename(source_dir.with_name("original-snapshots"))
     result = subprocess.run(["cmd.exe", "/d", "/c", "mklink", "/J", str(source_dir), str(outside)],
-                            capture_output=True, text=True, check=False)
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
     if result.returncode:
         pytest.skip("Windows host did not permit a temporary directory junction")
     with pytest.raises(BundleValidationError, match="escapes"):

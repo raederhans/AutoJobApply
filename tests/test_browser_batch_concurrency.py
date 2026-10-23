@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from applypilot.apply import browser_batch as module
+from applypilot.apply.profile_lock import ProfileRecoveryRequired, inspect_process_identity
 from applypilot.apply.visual_bridge import write_host_metadata
 
 
@@ -22,7 +23,10 @@ def process_batch(tmp_path, monkeypatch):
         "from pathlib import Path\n"
         "config=json.loads(Path(sys.argv[1]).read_text())\n"
         "root=Path(config['evidence']); root.mkdir(exist_ok=True)\n"
-        "event={'pid':os.getpid(),'start':time.monotonic()}\n"
+        "from applypilot.apply.profile_lock import inspect_process_identity\n"
+        "identity=inspect_process_identity(os.getpid())\n"
+        "event={'pid':os.getpid(),'birth':identity.creation_filetime if identity else None,"
+        "'start':time.monotonic()}\n"
         "path=root/(config['job']+'.json')\n"
         "path.write_text(json.dumps(event))\n"
         "deadline=time.monotonic()+8\n"
@@ -110,24 +114,33 @@ def highwater(events):
     return peak
 
 
-def process_alive(pid):
-    if os.name == "nt":
-        import _winapi
-
+def process_alive(event):
+    """Judge by PID plus creation time: Windows reuses a freed PID for unrelated processes within seconds."""
+    pid = event["pid"]
+    if event["birth"] is None:
+        # No creation-time source on this host (e.g. macOS has no /proc): fall back to PID liveness.
         try:
-            handle = _winapi.OpenProcess(0x1000, False, pid)  # Query this test's owned PID.
-        except OSError:
+            os.kill(pid, 0)
+        except ProcessLookupError:
             return False
-        try:
-            return _winapi.GetExitCodeProcess(handle) == 259  # STILL_ACTIVE
-        finally:
-            _winapi.CloseHandle(handle)
+        return True
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
+        identity = inspect_process_identity(pid)
+    except ProfileRecoveryRequired:
+        return False  # Unreadable means a different (protected) process now owns this PID.
+    if identity is None or identity.creation_filetime != event["birth"]:
         return False
     stat = Path(f"/proc/{pid}/stat")
     return not (stat.exists() and stat.read_text().split(") ", 1)[1].startswith("Z"))
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows always yields a creation time; os.kill(pid, 0) sends CTRL_C there")
+def test_process_alive_falls_back_to_pid_liveness_without_a_creation_time():
+    finished = subprocess.Popen([sys.executable, "-c", "pass"])
+    finished.wait()
+
+    assert process_alive({"pid": os.getpid(), "birth": None}) is True
+    assert process_alive({"pid": finished.pid, "birth": None}) is False
 
 
 def assert_clean(batch, children):
@@ -136,7 +149,7 @@ def assert_clean(batch, children):
                for job in batch.jobs for name in (".batch_lease", ".worker-owner"))
     report = json.loads(batch.status_path.read_text())
     assert report["counts"]["queued"] == report["counts"]["running"] == 0
-    assert all(not process_alive(event["pid"]) for event in timelines(batch.output_dir.parent).values())
+    assert all(not process_alive(event) for event in timelines(batch.output_dir.parent).values())
     return report
 
 
@@ -181,8 +194,9 @@ def test_one_stopped_job_does_not_abandon_other_hosts_or_queue(process_batch, st
     create, children, root = process_batch
     modes = ({0: {"exit": 7}} if stop == "failure"
              else {0: {"duration": 8, "padding": 8000}} if stop == "timeout" else {})
+    # Only the timeout scenario needs a short deadline; the others must not race CLI startup under load.
     batch = create(["https://same.example.test/first", "https://other.example.test/job",
-                    "https://same.example.test/next"], timeout=1.5, modes=modes)
+                    "https://same.example.test/next"], timeout=3 if stop == "timeout" else 12, modes=modes)
     if stop == "cancel_binding":
         write_host_metadata(batch.jobs[0].bridge_dir, session_id="replacement", token_epoch="replacement",
                             surface="browser", phase="prepare", target=batch.jobs[0].target)

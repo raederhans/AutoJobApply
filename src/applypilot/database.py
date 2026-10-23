@@ -9,6 +9,7 @@ import csv
 import json
 import sqlite3
 import threading
+import time
 import uuid
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -425,12 +426,37 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
         # schema has been accepted and migrated. Unknown newer databases return
         # above without any persistent pragma or cached writer.
         if str(path) != ":memory:":
-            conn.execute("PRAGMA journal_mode=WAL")
+            _enable_wal(conn)
     except BaseException:
         close_connection(path)
         raise
 
     return conn
+
+
+_WAL_SWITCH_ATTEMPTS = 5
+_WAL_SWITCH_BACKOFF_SECONDS = 0.05
+
+
+def _enable_wal(conn: sqlite3.Connection) -> None:
+    """Switch a database to WAL, tolerating concurrent first initializers.
+
+    Leaving rollback-journal mode needs an exclusive lock. When several connections
+    initialize a brand-new file at once, SQLite's deadlock avoidance can return
+    "database is locked" immediately instead of waiting for busy_timeout, so the
+    switch is retried briefly. A database that is already in WAL needs no lock; the
+    probe shares the retry because it can also meet another initializer's lock.
+    """
+    for attempt in range(_WAL_SWITCH_ATTEMPTS):
+        try:
+            if str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower() != "wal":
+                conn.execute("PRAGMA journal_mode=WAL")
+            return
+        except sqlite3.OperationalError as exc:
+            message = str(exc).lower()
+            if attempt == _WAL_SWITCH_ATTEMPTS - 1 or ("locked" not in message and "busy" not in message):
+                raise
+            time.sleep(_WAL_SWITCH_BACKOFF_SECONDS * (attempt + 1))
 
 
 # Complete column registry: column_name -> SQL type with optional default.

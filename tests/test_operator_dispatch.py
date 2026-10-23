@@ -99,7 +99,7 @@ def _resume_setup(
             "batch-dispatch",
             "worker-dispatch",
             NOW.isoformat(),
-            (NOW + timedelta(hours=1)).isoformat(),
+            (NOW + timedelta(days=7)).isoformat(),
             "prepare",
             0,
             "in_progress",
@@ -156,7 +156,7 @@ def _resume_setup(
         attempt_id=ATTEMPT,
         runtime_id="runtime-dispatch",
         page_epoch=1,
-        lease_seconds=3600,
+        lease_seconds=7 * 24 * 3600,
         now=NOW,
     )
     item = _pair(connection)

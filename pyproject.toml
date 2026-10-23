@@ -133,6 +133,8 @@ artifacts = [
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+# Diagnostic only: dump all thread stacks when one test phase stalls (slowest normal case is ~10s).
+faulthandler_timeout = 120
 markers = [
     "browser: tests that require the local Playwright Chromium runtime",
     "compatibility: cross-runtime compatibility and legacy contract tests",

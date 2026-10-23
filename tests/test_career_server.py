@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import socket
 import sqlite3
 import time
 from copy import deepcopy
@@ -218,6 +219,40 @@ def test_http_host_origin_session_and_fetch_site_rejected(running):
     with sqlite3.connect(db) as conn:
         assert conn.execute("SELECT COUNT(*) FROM career_workbench_requests").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM career_workbench_jobs").fetchone()[0] == 0
+
+
+def test_http_rejection_drains_unread_request_body_without_connection_reset(running):
+    # Replying 403 and closing with unread request bytes makes the kernel send RST, which
+    # intermittently surfaced as WinError 10053/10054 on the client instead of the JSON error.
+    instance, _client, _state, _db, _jobs = running
+    payload = {"request_key": "drain", "pad": "a" * 200_000}
+    with httpx.Client(base_url=instance.origin, trust_env=False, timeout=10) as unauthenticated:
+        for _ in range(50):
+            response = unauthenticated.post(host.PREFIX + "/targets", json=payload)
+            assert response.status_code == 403 and response.json()["error"]["code"] == "session_required"
+
+
+def test_http_rejection_with_stalled_upload_is_answered_within_the_drain_bound(running):
+    # A client that declares a body but stops sending must not hold the error reply
+    # (and a server thread) until the 10s socket timeout.
+    instance, _client, _state, _db, _jobs = running
+    netloc = instance.origin.split("://", 1)[1]
+    head = (
+        f"POST {host.PREFIX}/targets HTTP/1.1\r\nHost: {netloc}\r\n"
+        "Content-Type: application/json\r\nContent-Length: 200000\r\n\r\n"
+    )
+    with socket.create_connection(("127.0.0.1", instance.server_port), timeout=8) as raw:
+        raw.sendall(head.encode("ascii") + b'{"pad": "' + b"a" * 1000)
+        started = time.monotonic()
+        reply = b""
+        while b"\r\n\r\n" not in reply:
+            chunk = raw.recv(65536)
+            if not chunk:
+                break
+            reply += chunk
+        elapsed = time.monotonic() - started
+    assert reply.split(b"\r\n", 1)[0].split(b" ")[1] == b"403"
+    assert elapsed < host.DRAIN_SECONDS + 2
 
 
 def test_http_material_and_body_input_boundaries(running):

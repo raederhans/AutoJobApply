@@ -65,7 +65,7 @@ def _attempt(connection: sqlite3.Connection, *, submit_started: bool = False) ->
             "batch-1",
             "worker-1",
             instant,
-            (NOW + timedelta(hours=1)).isoformat(),
+            (NOW + timedelta(days=7)).isoformat(),
             "prepare",
             int(submit_started),
             "in_progress",
@@ -174,7 +174,7 @@ def _resume_setup(connection: sqlite3.Connection) -> tuple[ApplicationException,
         attempt_id=ATTEMPT,
         runtime_id="runtime-1",
         page_epoch=3,
-        lease_seconds=3600,
+        lease_seconds=7 * 24 * 3600,
         now=NOW,
     )
     request = HumanRequest(
