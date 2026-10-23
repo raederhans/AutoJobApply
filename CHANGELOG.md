@@ -75,8 +75,37 @@ All notable changes to Job Apply Pilot will be documented in this file.
 - CI installs core development and job-board extras together and reuses its
   installed build backend for release builds. Source-to-wheel builds, archive
   privacy audits, compatibility tiers and clean-install smoke checks remain enabled.
+- `applypilot init` asks explicitly whether to search remote jobs only (default no,
+  unless the location is `Remote`); a radius of 0 no longer turns a named city into a
+  remote-only search. The generated `searches.yaml` is written with YAML quoting, and
+  the AI step updates only its own keys in an existing `.env`, keeping unrelated lines
+  and commenting out a competing provider key instead of discarding the file.
+- Development-only experiments and benchmarks (harness evaluation and measurement,
+  dry-run, session-aging, runtime-cell diagnostics and unwired fast paths) moved from
+  `applypilot.apply` to a separate `applypilot_lab` source package that is not part of
+  the installed wheel. No user command changed.
+- Launcher failure classification, ATS application context and Agent turn journaling
+  live in their own modules, and shared runtime and career contracts moved to a
+  dependency-free `applypilot.contracts` package so storage no longer imports the
+  apply or career layers. Old import paths remain as re-exports.
+- The test suite runs against a temporary workspace and never writes to
+  `~/.applypilot`, and dumps thread stacks when one test phase stalls for 120 seconds.
 
 ### Fixed
+
+- The career workbench server reads the remaining request body before answering a
+  rejected or invalid POST, so clients receive the JSON error instead of a reset
+  connection (`WinError 10053/10054` on Windows).
+- Concurrent first initialization of a new database no longer fails with
+  "database is locked" while switching to WAL.
+- Discovery and enrichment: a missing JobSpy remote flag is no longer stored as remote;
+  JSON-LD postings with a list-valued `@type` or inside `@graph` are extracted by detail
+  enrichment and smart extraction; one failing job no longer aborts its enrichment batch,
+  and streaming enrichment stops instead of re-selecting jobs that make no progress; an
+  official-source transport that raises `TypeError` is no longer retried without
+  headers; empty `sites.yaml`, `employers.yaml` or `searches.yaml` files count as empty.
+- Streaming `run` reports discover as partial when a sub-scraper fails, matching
+  sequential mode, instead of reporting success.
 
 - Attended Host recovery and resume are bound to durable identity and grant no replay
   authority; delayed batch verification is invalidated at the Host refresh boundary;
