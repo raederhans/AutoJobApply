@@ -11,7 +11,7 @@ import math
 from collections import defaultdict
 from pathlib import Path
 
-from applypilot.apply.harness_measurement import _integer, _number, validate_pricing
+from applypilot_lab.harness_measurement import _integer, _number, validate_pricing
 
 SCHEMA = "harness-experiment-plan/v1"
 FIELDS = frozenset({"schema_version", "model", "endpoint_binding", "temperature", "reasoning_effort", "repeats",
@@ -21,7 +21,7 @@ FIELDS = frozenset({"schema_version", "model", "endpoint_binding", "temperature"
 
 
 def plan_experiment(config):
-    from applypilot.apply.harness_evaluation import ARMS, digest, schedule, tasks, validate_splits
+    from applypilot_lab.harness_evaluation import ARMS, digest, schedule, tasks, validate_splits
     if not isinstance(config, dict) or set(config) - FIELDS or config.get("schema_version") != SCHEMA:
         raise ValueError("unsupported experiment plan fields/schema")
     for key, low, high in (("repeats", 1, 10), ("max_turns", 1, 32), ("max_decisions", 1, 2048),
@@ -102,7 +102,7 @@ def paired_cold_warm(rows):
     Retain unknown outcomes, failures and costs. Repeats are paired samples, not
     independent employers; this intentionally makes no significance/gain claim.
     """
-    from applypilot.apply.harness_evaluation import ARMS
+    from applypilot_lab.harness_evaluation import ARMS
     groups = defaultdict(list)
     for row in rows:
         if row.get("pair_id"):
@@ -167,10 +167,10 @@ def main():
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    from applypilot.apply.harness_evaluation import bound_source_manifest, digest
+    from applypilot_lab.harness_evaluation import bound_source_manifest, digest
     try:
         source = bound_source_manifest(args.root.resolve(),
-            entry_module="applypilot.apply.harness_experiment_plan", entry_file=__file__)
+            entry_module="applypilot_lab.harness_experiment_plan", entry_file=__file__)
     except (ValueError, OSError, ImportError) as exc:
         parser.error(str(exc))
     config = json.loads(args.template.read_text(encoding="utf-8"))

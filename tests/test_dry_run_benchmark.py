@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 
 from applypilot import config
-from applypilot.apply import dry_run_benchmark
-from applypilot.apply.dry_run_benchmark import (
+from applypilot_lab import dry_run_benchmark
+from applypilot_lab.dry_run_benchmark import (
     BENCHMARK_LABEL,
     BENCHMARK_SCHEMA_VERSION,
     run_dry_cohort_benchmark,

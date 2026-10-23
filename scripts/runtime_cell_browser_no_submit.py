@@ -12,7 +12,7 @@ SOURCE_ROOT = PROJECT_ROOT / "src"
 if str(SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(SOURCE_ROOT))
 
-from applypilot.apply.runtime_cell_browser_diagnostic import (
+from applypilot_lab.runtime_cell_browser_diagnostic import (
     run_runtime_cell_browser_diagnostic,
 )
 

@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from applypilot.apply import harness_evaluation as evaluation
-from applypilot.apply import harness_experiment_plan as planning
+from applypilot_lab import harness_evaluation as evaluation
+from applypilot_lab import harness_experiment_plan as planning
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = ROOT / "docs/active/agent-harness-p0-20261011/p1-c0-budget-template.json"
@@ -66,7 +66,7 @@ def test_manifest_covers_and_detects_changes_to_entire_local_browser_import_clos
 @pytest.mark.parametrize("entry", ["evaluation", "planning"])
 def test_wrong_root_rejected_before_output_and_model_probe(tmp_path, monkeypatch, entry):
     wrong = copy_sources(tmp_path / "other-checkout")
-    evaluator_file = wrong / evaluation.PYTHON_SOURCES["applypilot.apply.harness_evaluation"]
+    evaluator_file = wrong / evaluation.PYTHON_SOURCES["applypilot_lab.harness_evaluation"]
     evaluator_file.write_bytes(evaluator_file.read_bytes() + b"\nSYNTHETIC_DIFFERENT_SOURCE = True\n")
     output = tmp_path / "must-not-exist"
     forbid_client(monkeypatch)
@@ -173,12 +173,13 @@ def test_installed_package_cannot_claim_identical_checkout_sources(tmp_path):
     checkout = copy_sources(tmp_path / "checkout")
     installed = tmp_path / "site-packages"
     shutil.copytree(checkout / "src/applypilot", installed / "applypilot")
+    shutil.copytree(checkout / "src/applypilot_lab", installed / "applypilot_lab")
     script = '''import json, sys
 from pathlib import Path
 root, installed, output = map(Path, sys.argv[1:])
 sys.path.insert(0, str(installed))
-from applypilot.apply import harness_evaluation as e
-assert Path(e.__file__).resolve() == installed / "applypilot/apply/harness_evaluation.py"
+from applypilot_lab import harness_evaluation as e
+assert Path(e.__file__).resolve() == installed / "applypilot_lab/harness_evaluation.py"
 sys.argv = ["preflight", "--root", str(root), "--output", str(output), "--model", "synthetic", "--run-model"]
 try:
     e.main()
@@ -211,8 +212,8 @@ def get_client():
 from pathlib import Path
 root = Path(sys.argv[1]).resolve()
 sys.path.insert(0, str(root / "src"))
-from applypilot.apply import harness_evaluation as e
-assert Path(e.__file__).resolve() == root / "src/applypilot/apply/harness_evaluation.py"
+from applypilot_lab import harness_evaluation as e
+assert Path(e.__file__).resolve() == root / "src/applypilot_lab/harness_evaluation.py"
 binding = {"schema_version": "harness-source-runtime/v1", "source_root": str(root),
            "source_digest": e.digest(e.bound_source_manifest(root))}
 reply = e.model_decision({"config": {"model": "synthetic", "temperature": 0, "max_tokens": 128},
@@ -229,14 +230,14 @@ def test_module_entrypoints_preflight_without_importing_client(tmp_path):
 from pathlib import Path
 root, template, output, entry = map(Path, sys.argv[1:])
 sys.path.insert(0, str(root / "src"))
-from applypilot.apply import harness_evaluation as e
-assert Path(e.__file__).resolve() == root / "src/applypilot/apply/harness_evaluation.py"
+from applypilot_lab import harness_evaluation as e
+assert Path(e.__file__).resolve() == root / "src/applypilot_lab/harness_evaluation.py"
 sys.argv = ["preflight", "--root", str(root), "--output", str(output)]
 if str(entry) == "evaluation":
     sys.argv.extend(["--model", "synthetic"])
 else:
     sys.argv.extend(["--template", str(template)])
-runpy.run_module("applypilot.apply.harness_" + ("evaluation" if str(entry) == "evaluation" else "experiment_plan"), run_name="__main__")
+runpy.run_module("applypilot_lab.harness_" + ("evaluation" if str(entry) == "evaluation" else "experiment_plan"), run_name="__main__")
 assert "applypilot.llm" not in sys.modules
 assert "applypilot.config" not in sys.modules
 '''

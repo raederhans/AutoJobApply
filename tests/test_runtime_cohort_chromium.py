@@ -4,7 +4,7 @@ from dataclasses import asdict
 
 import pytest
 
-from applypilot.apply.local_synthetic_browser_benchmark import (
+from applypilot_lab.local_synthetic_browser_benchmark import (
     FIXED_TASKS,
     LOCAL_SYNTHETIC_LABEL,
     SyntheticBrowserSafetyViolation,

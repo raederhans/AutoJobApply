@@ -120,7 +120,7 @@ directory; it cannot invoke an LLM or inspect credentials:
 
 ```powershell
 $env:PYTHONPATH = 'src'
-python -m applypilot.apply.harness_experiment_plan --root . --template docs/active/agent-harness-p0-20261011/p1-c0-budget-template.json --output ..\c0-plan
+python -m applypilot_lab.harness_experiment_plan --root . --template docs/active/agent-harness-p0-20261011/p1-c0-budget-template.json --output ..\c0-plan
 ```
 
 The planner reuses `tasks`, `validate_splits`, `schedule` and the existing source

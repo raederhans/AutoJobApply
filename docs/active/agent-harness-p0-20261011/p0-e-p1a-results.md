@@ -46,7 +46,7 @@ existing fact/material authorities. Neither is copied into general procedure mem
 From a source checkout with its ordinary development dependencies and Chromium:
 
 ```powershell
-python -m applypilot.apply.harness_evaluation --root . --output ..\eval-results\preflight-01 --model <configured-model> --repeats 1
+python -m applypilot_lab.harness_evaluation --root . --output ..\eval-results\preflight-01 --model <configured-model> --repeats 1
 ```
 
 This is preflight only. It makes no model requests and reports `not_run`, recording
@@ -57,7 +57,7 @@ be a new explicit directory, not an existing run to overwrite.
 To use an already-configured model environment, with the exact same model name:
 
 ```powershell
-python -m applypilot.apply.harness_evaluation --root . --output ..\eval-results\model-01 --model <configured-model> --run-model --train --repeats 1 --max-turns 8 --max-decisions 128
+python -m applypilot_lab.harness_evaluation --root . --output ..\eval-results\model-01 --model <configured-model> --run-model --train --repeats 1 --max-turns 8 --max-decisions 128
 ```
 
 `--run-model` explicitly permits actual model requests. Missing configuration is a

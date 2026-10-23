@@ -5,14 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from applypilot.apply.app_server_prepare_capability import (
-    PREPARE_WRITE_PROMPT_MARKER,
-    PREPARE_WRITE_TOOL_NAME,
-    PrepareOnlyExecutionContext,
-    PrepareOnlyPolicyEngine,
-    build_prepare_write_prompt,
-    prepare_write_tool_contract,
-)
 from applypilot.apply.semantic_batch import (
     BatchPageBinding,
     BrowserResourceIdentity,
@@ -22,6 +14,14 @@ from applypilot.apply.semantic_batch import (
 from applypilot.apply.semantic_batch_runtime import (
     SemanticBatchRuntimeRequest,
     SemanticBatchRuntimeResult,
+)
+from applypilot_lab.app_server_prepare_capability import (
+    PREPARE_WRITE_PROMPT_MARKER,
+    PREPARE_WRITE_TOOL_NAME,
+    PrepareOnlyExecutionContext,
+    PrepareOnlyPolicyEngine,
+    build_prepare_write_prompt,
+    prepare_write_tool_contract,
 )
 
 

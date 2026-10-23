@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from applypilot.apply.provider_recipe_fast_path import GreenhouseRecipeFastPath
 from applypilot.apply.provider_semantic_adapters import (
     GREENHOUSE_ADAPTER_VERSION,
     ProviderControlStructure,
@@ -13,6 +12,7 @@ from applypilot.apply.semantic_batch import (
     SemanticBatchAdapterRegistration,
     SemanticBatchAdapterRegistry,
 )
+from applypilot_lab.provider_recipe_fast_path import GreenhouseRecipeFastPath
 
 
 def _observation(**changes: object) -> ProviderPageRecipeObservation:

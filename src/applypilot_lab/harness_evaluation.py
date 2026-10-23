@@ -24,13 +24,13 @@ from itertools import pairwise
 from pathlib import Path
 from uuid import uuid4
 
-from applypilot.apply.harness_measurement import (
+from applypilot.apply.procedure_experience import FrozenProcedureMemory, ProcedureExperienceStore
+from applypilot_lab.harness_measurement import (
     TrialMeasurement,
     aggregate_measurements,
     estimate_usage_cost,
     normalize_usage,
 )
-from applypilot.apply.procedure_experience import FrozenProcedureMemory, ProcedureExperienceStore
 
 ARMS = ("basic_skill", "current_harness", "harness_plus_procedure")
 OPERATIONS = ("observe", "fill_control", "select_control", "open_control", "search_control", "fill_batch", "prepare_subgoal")
@@ -199,8 +199,8 @@ def model_decision(payload, timeout, *, runtime_identity=None):
     # A fresh -m lookup can select a different editable install. The parent has
     # already checked this root; pin it explicitly, then recheck in the worker.
     bootstrap = ("import runpy, sys; sys.path.insert(0, sys.argv[1]); "
-                 "sys.argv = ['applypilot.apply.harness_evaluation', '--model-worker']; "
-                 "runpy.run_module('applypilot.apply.harness_evaluation', run_name='__main__')")
+                 "sys.argv = ['applypilot_lab.harness_evaluation', '--model-worker']; "
+                 "runpy.run_module('applypilot_lab.harness_evaluation', run_name='__main__')")
     try:
         result = subprocess.run([sys.executable, "-I", "-B", "-c", bootstrap, str(root / "src")],
                                 input=json.dumps({**payload, "runtime_identity": runtime_identity}),
@@ -575,9 +575,10 @@ def schedule(task_list, *, repeats=2, seed=17):
 PYTHON_SOURCES = {
     "applypilot": "src/applypilot/__init__.py",
     "applypilot.apply": "src/applypilot/apply/__init__.py",
-    "applypilot.apply.harness_evaluation": "src/applypilot/apply/harness_evaluation.py",
-    "applypilot.apply.harness_measurement": "src/applypilot/apply/harness_measurement.py",
-    "applypilot.apply.harness_experiment_plan": "src/applypilot/apply/harness_experiment_plan.py",
+    "applypilot_lab": "src/applypilot_lab/__init__.py",
+    "applypilot_lab.harness_evaluation": "src/applypilot_lab/harness_evaluation.py",
+    "applypilot_lab.harness_measurement": "src/applypilot_lab/harness_measurement.py",
+    "applypilot_lab.harness_experiment_plan": "src/applypilot_lab/harness_experiment_plan.py",
     "applypilot.apply.procedure_experience": "src/applypilot/apply/procedure_experience.py",
     "applypilot.apply.recipe_experience": "src/applypilot/apply/recipe_experience.py",
     "applypilot.llm": "src/applypilot/llm.py",
@@ -595,14 +596,14 @@ def source_manifest(root):
     return {p: hashlib.sha256((root / p).read_bytes()).hexdigest() for p in paths}
 
 
-def bound_source_manifest(root, *, entry_module="applypilot.apply.harness_evaluation", entry_file=__file__):
+def bound_source_manifest(root, *, entry_module="applypilot_lab.harness_evaluation", entry_file=__file__):
     """Require E's source checkout, including already-loaded and lazy modules.
 
     Resolving specs does not import llm or load provider/profile configuration.
     The explicit entry file also covers modules executed as __main__ by -m.
     """
     root = Path(root).resolve()
-    for name, filename in (("applypilot.apply.harness_evaluation", __file__), (entry_module, entry_file)):
+    for name, filename in (("applypilot_lab.harness_evaluation", __file__), (entry_module, entry_file)):
         if name not in PYTHON_SOURCES or Path(filename).resolve() != (root / PYTHON_SOURCES[name]).resolve():
             raise ValueError("source root/runtime mismatch: " + name)
     for name, relative in PYTHON_SOURCES.items():
@@ -748,7 +749,7 @@ def main():
         if not complete_cohort:
             raise ValueError("incomplete planned cohort")
         comparisons = paired_comparisons(rows)
-        from applypilot.apply.harness_experiment_plan import paired_cold_warm
+        from applypilot_lab.harness_experiment_plan import paired_cold_warm
         cold_warm = paired_cold_warm(rows)
     except ValueError:
         comparisons = {"status": "invalid_comparison", "reason": "incomplete_or_non_equivalent_cohort"}

@@ -4,9 +4,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
-from applypilot.apply.runtime_cell_scheduler_microbenchmark import (
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SOURCE_ROOT = PROJECT_ROOT / "src"
+if str(SOURCE_ROOT) not in sys.path:
+    sys.path.insert(0, str(SOURCE_ROOT))
+
+from applypilot_lab.runtime_cell_scheduler_microbenchmark import (
     run_runtime_cell_scheduler_microbenchmark,
 )
 

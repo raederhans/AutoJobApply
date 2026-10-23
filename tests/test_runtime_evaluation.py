@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from applypilot.apply.contracts import AgentRunRequest, AgentTurnResult
-from applypilot.apply.runtime_evaluation import (
+from applypilot_lab.runtime_evaluation import (
     METRIC_NAMES,
     REPLAY_EVALUATION_LABEL,
     EvaluationScenario,
