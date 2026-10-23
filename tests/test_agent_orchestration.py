@@ -33,7 +33,7 @@ from applypilot.apply.orchestration import (
 
 def test_agent_event_clock_advances_when_wall_clock_collides(monkeypatch) -> None:
     fixed = datetime(2026, 8, 29, 12, 0, tzinfo=UTC)
-    monkeypatch.setattr(launcher, "_agent_event_clock", lambda: fixed)
+    monkeypatch.setattr(launcher.agent_turn_journal_mod, "_agent_event_clock", lambda: fixed)
 
     started = launcher._ordered_agent_event_time()
     proposals = launcher._ordered_agent_event_time(started)

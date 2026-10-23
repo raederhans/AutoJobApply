@@ -39,15 +39,15 @@ from rich.live import Live
 from applypilot import config
 from applypilot.apply import agent_output as agent_output_mod
 from applypilot.apply import agent_runtime as agent_runtime_mod
-from applypilot.apply import answer_provenance as answer_provenance_mod
+from applypilot.apply import agent_turn_journal as agent_turn_journal_mod
 from applypilot.apply import app_server_runtime_wiring as app_server_wiring_mod
-from applypilot.apply import application_actor as application_actor_mod
 from applypilot.apply import application_jobs as application_jobs_mod
 from applypilot.apply import application_plan as application_plan_mod
 from applypilot.apply import application_plan_runtime as application_plan_runtime_mod
 from applypilot.apply import application_preflight as application_preflight_mod
 from applypilot.apply import application_supervisor_loop as supervisor_loop_mod
 from applypilot.apply import ats as ats_mod
+from applypilot.apply import ats_application_context as ats_application_context_mod
 from applypilot.apply import ats_tools_mcp as ats_tools_mcp_mod
 from applypilot.apply import human_handoff as human_handoff_mod
 from applypilot.apply import linkedin_page_observation as linkedin_page_observation_mod
@@ -62,18 +62,13 @@ from applypilot.apply import receipt_observer as receipt_observer_mod
 from applypilot.apply import resume_authorization as resume_authorization_mod
 from applypilot.apply import runtime_cell as runtime_cell_mod
 from applypilot.apply import runtime_cell_coordinator as runtime_cell_coordinator_mod
+from applypilot.apply import runtime_failure_policy as runtime_failure_policy_mod
 from applypilot.apply import semantic_batch_runtime as semantic_batch_runtime_mod
 from applypilot.apply import submission_authority as submission_authority_mod
 from applypilot.apply import submission_surfaces as submission_surfaces_mod
 from applypilot.apply import successfactors_binding as successfactors_binding_mod
 from applypilot.apply import worker_orchestration as worker_orchestration_mod
 from applypilot.apply.agent_report_mcp import REPORT_PATH_ENV, RUN_ID_ENV
-from applypilot.apply.answer_policy import field_risk
-from applypilot.apply.application_facts import (
-    current_profile_facts,
-    current_visible_fact_mappings,
-    resolve_application_fact_ref,
-)
 from applypilot.apply.application_sessions import ApplicationSupervisor, ContextBundle
 from applypilot.apply.ats_tools_mcp import ATS_CONTEXT_PATH_ENV
 from applypilot.apply.authentication_policy import authentication_capability
@@ -116,11 +111,9 @@ from applypilot.apply.chrome import (
     cleanup_worker as _cleanup_chrome_worker,
 )
 from applypilot.apply.contracts import (
-    AgentCheckpoint,
     AgentRunRequest,
     AgentTurnResult,
     ApplicationEvent,
-    HumanRequest,
     RecoveryCommand,
     ResourceClaim,
     TaskResult,
@@ -157,7 +150,6 @@ from applypilot.apply.email_routing import (
     resolve_mailbox_mcp_spec,
 )
 from applypilot.apply.execution_scheduler import PhaseDemand, build_execution_plan
-from applypilot.apply.failure_taxonomy import classify_failure
 from applypilot.apply.operator_commands import OperatorCommand
 from applypilot.apply.prepare_fast_path import run_prepare_fast_path
 from applypilot.apply.profile_lock import inspect_process_identity
@@ -1918,181 +1910,20 @@ def _try_semantic_pre_submit_repair(
         playwright.stop()
 
 
-def _runtime_timeout_status(*, submission_phase: str, dry_run: bool) -> str:
-    """Keep an interrupted real submit uncertain; identify all other budget exhaustion."""
-    if submission_phase == "submit" and not dry_run:
-        return "submission_uncertain"
-    return "failed:agent_runtime_timeout"
-
-
-def _resolve_cli_process_failure(
-    returncode: int | None,
-    status: str,
-    result_source: str,
-    *,
-    submission_phase: str,
-    dry_run: bool,
-    structured_result_present: bool,
-) -> tuple[str, str, dict[str, object] | None]:
-    """Classify a direct CLI failure without erasing admitted result evidence."""
-    if returncode in {None, 0}:
-        return status, result_source, None
-    if structured_result_present or status != "failed:invalid_result_marker":
-        return status, result_source, None
-
-    if submission_phase == "submit" and not dry_run:
-        return (
-            "submission_uncertain",
-            "runtime_provider_failed",
-            {
-                "category": "submission_confirmation_missing",
-                "recoverability": "submission_uncertain",
-                "next_action": "reconcile_receipt_without_resubmitting",
-            },
-        )
-    return (
-        "failed:agent_runtime_process_exit",
-        "runtime_provider_failed",
-        {
-            "category": "agent_runtime_failure",
-            "recoverability": "retry_new_session",
-            "next_action": "inspect_typed_process_exit_before_retry",
-        },
-    )
-
-
-_TOOL_FAILURE_STATUSES = {
-    "cancelled",
-    "canceled",
-    "error",
-    "failed",
-    "timed_out",
-    "timeout",
-}
-_TOOL_SUCCESS_STATUSES = {"completed", "success", "succeeded"}
-
-
-def _tool_result_reports_error(payload: object) -> bool:
-    """Recognize transport and nested MCP failures without parsing tool prose."""
-    if isinstance(payload, list):
-        return any(_tool_result_reports_error(item) for item in payload)
-    if not isinstance(payload, Mapping):
-        return False
-    if payload.get("isError") is True or payload.get("is_error") is True:
-        return True
-    status = str(payload.get("status") or "").strip().casefold()
-    if status in _TOOL_FAILURE_STATUSES:
-        return True
-    error = payload.get("error")
-    if error not in (None, "", False, (), [], {}):
-        return True
-    return any(
-        _tool_result_reports_error(payload.get(key))
-        for key in ("result", "output", "content")
-        if key in payload
-    )
-
-
-def _tool_result_succeeded(payload: object, *, terminal_event: bool) -> bool:
-    """Return true only for a terminal tool result with no typed error marker."""
-    if _tool_result_reports_error(payload):
-        return False
-    if not terminal_event or not isinstance(payload, Mapping):
-        return True
-    status = str(payload.get("status") or "completed").strip().casefold()
-    return status in _TOOL_SUCCESS_STATUSES
-
-
-def _tool_failure_text(payload: object, *, depth: int = 0) -> str:
-    """Collect bounded transient error text for classification only."""
-    if depth > 4:
-        return ""
-    if isinstance(payload, str):
-        return payload[:1000]
-    if isinstance(payload, list):
-        return " ".join(_tool_failure_text(item, depth=depth + 1) for item in payload[:8])
-    if not isinstance(payload, Mapping):
-        return ""
-    return " ".join(
-        _tool_failure_text(payload.get(key), depth=depth + 1)
-        for key in ("status", "error", "message", "result", "output", "content")
-        if key in payload
-    )[:2000]
-
-
-def _classify_browser_tool_failure(payload: object) -> str:
-    """Reduce Playwright/MCP failures to a non-sensitive actionable category."""
-    text = " ".join(_tool_failure_text(payload).casefold().split())
-    if "strict mode violation" in text or "resolved to" in text and "elements" in text:
-        return "ambiguous_locator"
-    if "file chooser" in text or "setinputfiles" in text or "set input files" in text:
-        return "file_chooser_unavailable"
-    if "frame was detached" in text or "frame detached" in text:
-        return "stale_frame"
-    if "target closed" in text or "page closed" in text or "context closed" in text:
-        return "target_closed"
-    if "not attached" in text or "element is detached" in text:
-        return "stale_element"
-    if "intercepts pointer events" in text or "does not receive pointer events" in text:
-        return "actionability_intercepted"
-    if any(token in text for token in ("not visible", "not stable", "not enabled", "not editable")):
-        return "actionability_failed"
-    if "timeout" in text or "timed out" in text:
-        return "timeout"
-    if any(token in text for token in ("connection refused", "econnrefused", "transport closed")):
-        return "transport_unavailable"
-    return "unclassified"
-
-
-def _normalize_browser_runtime_failure(
-    status: str,
-    *,
-    browser_tool_call_count: int,
-    browser_tool_success_count: int,
-    browser_failure_summary: Mapping[str, object] | None = None,
-    failure_context: dict[str, object] | None,
-) -> tuple[str, dict[str, object] | None]:
-    """Distinguish an absent browser MCP from a later site interaction failure."""
-    normalized_status = status.strip().casefold()
-    safe_failures = {
-        str(key)[:64]: min(max(int(value), 0), 99)
-        for key, value in (browser_failure_summary or {}).items()
-        if isinstance(value, int) and not isinstance(value, bool) and value > 0
-    }
-    if normalized_status == "failed:conflicting_agent_results":
-        context = dict(failure_context or {})
-        context.update(
-            {
-                "category": "agent_result_conflict",
-                "recoverability": "retry_same_application",
-                "next_action": "reobserve_same_page_and_emit_one_consistent_turn_result",
-                "attempts": min(max(browser_tool_call_count, 0), 10),
-            }
-        )
-        if safe_failures:
-            context["browser_tool_failures"] = safe_failures
-        return status, context
-    if (
-        normalized_status != "failed:browser_mcp_unavailable"
-        or browser_tool_success_count < 1
-    ):
-        return status, failure_context
-
-    context = dict(failure_context or {})
-    context.update(
-        {
-            "category": "browser_interaction_unavailable",
-            "recoverability": "requires_capability",
-            "missing_capability": "site_specific_browser_interaction_or_app_handoff",
-            "next_action": "inspect_page_state_or_route_to_authorized_app_browser",
-            "visible_state": (
-                f"{browser_tool_success_count} browser tool call(s) succeeded before "
-                "the site interaction became unavailable"
-            ),
-            "attempts": min(max(browser_tool_call_count, 0), 10),
-        }
-    )
-    return "failed:browser_interaction_unavailable", context
+_runtime_timeout_status = runtime_failure_policy_mod._runtime_timeout_status
+_resolve_cli_process_failure = runtime_failure_policy_mod._resolve_cli_process_failure
+_TOOL_FAILURE_STATUSES = runtime_failure_policy_mod._TOOL_FAILURE_STATUSES
+_TOOL_SUCCESS_STATUSES = runtime_failure_policy_mod._TOOL_SUCCESS_STATUSES
+_tool_result_reports_error = runtime_failure_policy_mod._tool_result_reports_error
+_tool_result_succeeded = runtime_failure_policy_mod._tool_result_succeeded
+_tool_failure_text = runtime_failure_policy_mod._tool_failure_text
+_classify_browser_tool_failure = runtime_failure_policy_mod._classify_browser_tool_failure
+_normalize_browser_runtime_failure = (
+    runtime_failure_policy_mod._normalize_browser_runtime_failure
+)
+PERMANENT_FAILURES = runtime_failure_policy_mod.PERMANENT_FAILURES
+PERMANENT_PREFIXES = runtime_failure_policy_mod.PERMANENT_PREFIXES
+_is_permanent_failure = runtime_failure_policy_mod._is_permanent_failure
 
 
 def _build_agent_command(
@@ -2204,160 +2035,15 @@ def _resolve_mailbox_tool_surface(
     )
 
 
-_agent_event_clock = lambda: datetime.now(UTC)
-
-
-def _ordered_agent_event_time(previous: datetime | None = None) -> datetime:
-    """Keep one run's durable lifecycle ordered on coarse wall clocks."""
-    current = _agent_event_clock()
-    if previous is not None and current <= previous:
-        return previous + timedelta(microseconds=1)
-    return current
-
-
-def _persist_agent_turn_started(
-    request: AgentRunRequest,
-    *,
-    backend: str,
-    model: str,
-    runtime_metadata: dict,
-) -> datetime:
-    """Best-effort control telemetry; never becomes application authority."""
-    from applypilot.database import append_agent_event
-
-    occurred_at = _ordered_agent_event_time()
-    idempotency_key = f"agent-turn:v2:{request.actor_id}:{request.turn_id}:started"
-    event = ApplicationEvent(
-        event_id=idempotency_key,
-        attempt_id=request.attempt_id,
-        run_id=request.run_id,
-        phase=request.phase,
-        actor=request.agent_role,
-        event_type="agent.turn.started",
-        payload={
-            "backend": backend,
-            "model": model,
-            "concurrency_mode": request.concurrency_mode,
-            "available_tools": list(request.available_tools),
-            "runtime": runtime_metadata,
-        },
-        idempotency_key=idempotency_key,
-        actor_id=request.actor_id,
-        turn_id=request.turn_id,
-        schema_version="2",
-        occurred_at=occurred_at,
-    )
-    try:
-        append_agent_event(event)
-    except Exception as exc:  # noqa: BLE001 - advisory telemetry must not alter apply outcome
-        logger.warning("Could not persist Agent turn start %s: %s", request.run_id, exc)
-    return occurred_at
-
-
-def _persist_agent_turn_progress(
-    request: AgentRunRequest,
-    *,
-    sequence: int,
-    last_tool: str,
-    tool_call_count: int,
-    browser_success_count: int,
-    browser_failure_count: int,
-    elapsed_ms: int,
-    occurred_after: datetime | None,
-) -> datetime:
-    """Persist a bounded heartbeat without page text, inputs, or tool outputs."""
-    from applypilot.database import append_agent_event
-
-    occurred_at = _ordered_agent_event_time(occurred_after)
-    safe_tool = re.sub(r"[^a-zA-Z0-9_.:-]+", "_", str(last_tool or "unknown"))[:80]
-    idempotency_key = (
-        f"agent-turn:v2:{request.actor_id}:{request.turn_id}:progress:{max(1, sequence)}"
-    )
-    event = ApplicationEvent(
-        event_id=idempotency_key,
-        attempt_id=request.attempt_id,
-        run_id=request.run_id,
-        phase=request.phase,
-        actor=request.agent_role,
-        event_type="agent.turn.progress",
-        payload={
-            "sequence": max(1, sequence),
-            "last_tool": safe_tool,
-            "tool_call_count": max(0, tool_call_count),
-            "browser_success_count": max(0, browser_success_count),
-            "browser_failure_count": max(0, browser_failure_count),
-            "elapsed_ms": max(0, elapsed_ms),
-        },
-        idempotency_key=idempotency_key,
-        actor_id=request.actor_id,
-        turn_id=request.turn_id,
-        schema_version="2",
-        occurred_at=occurred_at,
-    )
-    try:
-        append_agent_event(event)
-    except Exception as exc:  # noqa: BLE001 - advisory telemetry must not alter apply outcome
-        logger.warning("Could not persist Agent turn progress %s: %s", request.run_id, exc)
-    return occurred_at
-
-
-def _persist_supervisor_intervention(
-    request: AgentRunRequest,
-    decision: supervisor_loop_mod.SupervisorDecision,
-    *,
-    sequence: int,
-    backend: str,
-    stage: str,
-    outcome: str | None = None,
-    occurred_after: datetime | None,
-) -> datetime:
-    """Durably persist control intent/outcome; failures must stop the action."""
-
-    from applypilot.database import append_agent_event
-
-    if stage not in {"intent", "outcome"}:
-        raise ValueError("supervisor intervention stage must be intent or outcome")
-    if stage == "outcome" and not outcome:
-        raise ValueError("supervisor intervention outcome is required")
-    occurred_at = _ordered_agent_event_time(occurred_after)
-    idempotency_key = (
-        f"agent-turn:v2:{request.actor_id}:{request.turn_id}:supervisor:{sequence}:{stage}"
-    )
-    event = ApplicationEvent(
-        event_id=idempotency_key,
-        attempt_id=request.attempt_id,
-        run_id=request.run_id,
-        phase=request.phase,
-        actor="application_supervisor",
-        event_type=f"agent.supervisor.intervention.{stage}",
-        payload={
-            "sequence": sequence,
-            "stage": stage,
-            "outcome": outcome,
-            "level": decision.level,
-            "action": decision.action,
-            "reason_code": decision.reason_code,
-            "backend": backend,
-            "expected_turn_id": decision.expected_turn_id,
-            "receipt_only": decision.receipt_only,
-            "signals": {
-                "meaningful_progress": decision.signals.meaningful_progress,
-                "no_progress_window": round(decision.signals.no_progress_window, 3),
-                "tool_repeat_count": decision.signals.tool_repeat_count,
-                "page_signature": decision.signals.page_signature,
-                "unresolved_control_delta": decision.signals.unresolved_control_delta,
-                "validation_delta": decision.signals.validation_delta,
-                "last_successful_effect": decision.signals.last_successful_effect,
-            },
-        },
-        idempotency_key=idempotency_key,
-        actor_id=request.actor_id,
-        turn_id=request.turn_id,
-        schema_version="2",
-        occurred_at=occurred_at,
-    )
-    append_agent_event(event)
-    return occurred_at
+_agent_event_clock = agent_turn_journal_mod._agent_event_clock
+_ordered_agent_event_time = agent_turn_journal_mod._ordered_agent_event_time
+_persist_agent_turn_started = agent_turn_journal_mod._persist_agent_turn_started
+_persist_agent_turn_progress = agent_turn_journal_mod._persist_agent_turn_progress
+_persist_supervisor_intervention = agent_turn_journal_mod._persist_supervisor_intervention
+_persist_agent_turn_completed = agent_turn_journal_mod._persist_agent_turn_completed
+_bounded_control_text = agent_turn_journal_mod._bounded_control_text
+_durable_agent_result = agent_turn_journal_mod._durable_agent_result
+_persist_agent_proposal_outcomes = agent_turn_journal_mod._persist_agent_proposal_outcomes
 
 
 def _compile_agent_tool_surface(
@@ -2544,180 +2230,6 @@ def _apply_authoritative_supervisor_observation(
     return controller.apply(loop.observe(observation))
 
 
-def _persist_agent_turn_completed(
-    request: AgentRunRequest,
-    result: AgentTurnResult,
-    *,
-    application_status: str,
-    duration_ms: int,
-    source: str,
-    metrics: Mapping[str, object] | None = None,
-    conflict_classification: str | None = None,
-    conflict_status_families: Mapping[str, object] | None = None,
-    occurred_after: datetime | None = None,
-    expected_checkpoint_sequence: int | None = None,
-) -> datetime:
-    """Atomically save the terminal control event and resumable checkpoint."""
-    from applypilot.database import (
-        current_agent_checkpoint_sequence,
-        record_agent_turn_control,
-    )
-
-    actor_decision = application_actor_mod.decision_for_turn(
-        request,
-        result,
-        application_status=application_status,
-    )
-    actor_decision_json = contract_json(actor_decision)
-    legacy_actor_decision_json = {
-        key: actor_decision_json[key]
-        for key in (
-            "run_id",
-            "attempt_id",
-            "phase",
-            "disposition",
-            "next_phase",
-            "recovery_action",
-            "human_interruption",
-            "shadow_only",
-        )
-    }
-    legacy_actor_decision_json["schema_version"] = "1"
-    raw_evidence_refs = result.observations.get("evidence_refs", ())
-    evidence_ref_count = (
-        len(raw_evidence_refs) if isinstance(raw_evidence_refs, (list, tuple)) else 0
-    )
-    bounded_metrics: dict[str, int | float] = {}
-    for key, value in (metrics or {}).items():
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            continue
-        bounded_metrics[_bounded_control_text(key, maximum=80)] = max(0, value)
-    occurred_at = _ordered_agent_event_time(occurred_after)
-    completed_idempotency_key = (
-        f"agent-turn:v2:{request.actor_id}:{request.turn_id}:completed"
-    )
-    payload: dict[str, object] = {
-        "reported_status": result.status,
-        "application_status": application_status,
-        # Free-form Agent/page text stays in the transient turn result. The
-        # durable control plane records only bounded workflow metadata.
-        "summary_length": len(result.summary),
-        "duration_ms": max(0, duration_ms),
-        "source": source,
-        "proposal_ids": [proposal.proposal_id for proposal in result.proposals],
-        "evidence_ref_count": evidence_ref_count,
-        "metrics": bounded_metrics,
-        # Preserve the established v1 key for existing readers while the
-        # native v2 envelope is published alongside it for durable actors.
-        "actor_decision": legacy_actor_decision_json,
-        "actor_decision_v2": actor_decision_json,
-    }
-    if conflict_classification in {
-        "evidence_mismatch",
-        "legacy_result_invalid",
-        "status_mismatch",
-    }:
-        payload["conflict_classification"] = conflict_classification
-    if conflict_classification is not None and isinstance(
-        conflict_status_families, Mapping
-    ):
-        allowed_families = {
-            "failure",
-            "invalid",
-            "ready",
-            "applied",
-            "uncertain",
-            "manual_gate",
-            "non_submit",
-            "other",
-        }
-        safe_families = {
-            key: value
-            for key in ("structured", "legacy")
-            if (value := str(conflict_status_families.get(key) or ""))
-            in allowed_families
-        }
-        if safe_families:
-            payload["conflict_status_families"] = safe_families
-    event = ApplicationEvent(
-        event_id=completed_idempotency_key,
-        attempt_id=request.attempt_id,
-        run_id=request.run_id,
-        phase=request.phase,
-        actor=request.agent_role,
-        event_type="agent.turn.completed",
-        payload=payload,
-        evidence_refs=(),
-        idempotency_key=completed_idempotency_key,
-        actor_id=request.actor_id,
-        turn_id=request.turn_id,
-        schema_version="2",
-        occurred_at=occurred_at,
-    )
-    if expected_checkpoint_sequence is None:
-        try:
-            expected_checkpoint_sequence = current_agent_checkpoint_sequence(request.actor_id)
-        except Exception as exc:  # noqa: BLE001 - control state remains advisory
-            logger.warning(
-                "Could not read Agent actor sequence %s: %s",
-                request.actor_id,
-                exc,
-            )
-            return occurred_at
-    checkpoint = AgentCheckpoint(
-        checkpoint_id=f"{completed_idempotency_key}:checkpoint",
-        run_id=request.run_id,
-        attempt_id=request.attempt_id,
-        phase=request.phase,
-        sequence=expected_checkpoint_sequence + 1,
-        state={
-            "application_status": application_status,
-            "result": _durable_agent_result(result),
-            "source": source,
-            "actor_decision": legacy_actor_decision_json,
-            "actor_decision_v2": actor_decision_json,
-        },
-        actor_id=request.actor_id,
-        turn_id=request.turn_id,
-        idempotency_key=completed_idempotency_key,
-        expected_sequence=expected_checkpoint_sequence,
-        fresh_turn_resume_authorized=False,
-        schema_version="2",
-        created_at=occurred_at,
-    )
-    human_request = application_actor_mod.human_request_for_decision(actor_decision)
-    if (
-        human_request is None
-        and result.requested_human_input
-        and (
-            actor_decision.recovery_action is None
-            or (
-                actor_decision.recovery_action.action == "park"
-                and actor_decision.recovery_action.missing_material is not None
-            )
-        )
-    ):
-        human_request = HumanRequest(
-            request_id=f"{request.run_id}:human:1",
-            run_id=request.run_id,
-            attempt_id=request.attempt_id,
-            request_type="agent_clarification",
-            prompt="Agent requested human review; inspect the run evidence before continuing.",
-            context={
-                "actor_id": request.actor_id,
-                "turn_id": request.turn_id,
-                "phase": request.phase,
-                "application_status": application_status,
-                "requested_input_length": len(result.requested_human_input),
-            },
-        )
-    try:
-        record_agent_turn_control(event, checkpoint, human_request)
-    except Exception as exc:  # noqa: BLE001 - advisory telemetry must not alter apply outcome
-        logger.warning("Could not persist Agent turn completion %s: %s", request.run_id, exc)
-    return occurred_at
-
-
 def _control_contract_digest(payload: Mapping[str, object]) -> str:
     """Hash bounded control metadata without retaining prompt or environment text."""
     encoded = json.dumps(
@@ -2764,47 +2276,6 @@ def _confirmed_agent_checkpoint_id(request: AgentRunRequest) -> str | None:
     ):
         return None
     return expected
-
-
-def _bounded_control_text(value: object, *, maximum: int = 200) -> str:
-    """Normalize identifier-like control metadata without retaining page text."""
-    text = re.sub(r"[\x00-\x1f\x7f]+", " ", str(value)).strip()
-    return text[:maximum]
-
-
-def _durable_agent_result(result: AgentTurnResult) -> dict[str, object]:
-    """Project a turn result onto an allowlisted, resumable control summary."""
-    return {
-        "schema_version": "1",
-        "run_id": _bounded_control_text(result.run_id),
-        "status": _bounded_control_text(result.status),
-        "summary_length": len(result.summary),
-        "proposals": [
-            {
-                "proposal_id": _bounded_control_text(proposal.proposal_id),
-                "kind": _bounded_control_text(proposal.kind, maximum=100),
-                "depends_on": [
-                    _bounded_control_text(dependency)
-                    for dependency in proposal.depends_on
-                ],
-                "concurrency_mode": _bounded_control_text(
-                    proposal.concurrency_mode,
-                    maximum=100,
-                ),
-                "concurrency_key": (
-                    None
-                    if proposal.concurrency_key is None
-                    else _bounded_control_text(proposal.concurrency_key)
-                ),
-                "priority": proposal.priority,
-            }
-            for proposal in result.proposals
-        ],
-        "observation_keys": sorted(
-            _bounded_control_text(key, maximum=100) for key in result.observations
-        ),
-        "requested_human_input": result.requested_human_input is not None,
-    }
 
 
 def _proposal_orchestration_settings(
@@ -3011,61 +2482,6 @@ def _proposal_dispatch_allowed(
         result_source in {"structured", "structured+legacy"}
         and (phase.casefold() != "submit" or dry_run)
     )
-
-
-def _persist_agent_proposal_outcomes(
-    request: AgentRunRequest,
-    outcomes: Mapping[str, Mapping[str, object]],
-    *,
-    max_workers: int,
-    occurred_after: datetime | None = None,
-) -> datetime:
-    """Persist outcome metadata, never specialist return values or page content."""
-    from applypilot.database import append_agent_event
-
-    completed = [
-        _bounded_control_text(proposal_id)
-        for proposal_id, outcome in outcomes.items()
-        if outcome.get("status") == "completed"
-    ]
-    failed = [
-        _bounded_control_text(proposal_id)
-        for proposal_id, outcome in outcomes.items()
-        if outcome.get("status") == "failed"
-    ]
-    blocked = [
-        _bounded_control_text(proposal_id)
-        for proposal_id, outcome in outcomes.items()
-        if outcome.get("status") == "blocked"
-    ]
-    occurred_at = _ordered_agent_event_time(occurred_after)
-    idempotency_key = (
-        f"agent-turn:v2:{request.actor_id}:{request.turn_id}:proposals:1"
-    )
-    event = ApplicationEvent(
-        event_id=idempotency_key,
-        attempt_id=request.attempt_id,
-        run_id=request.run_id,
-        phase=request.phase,
-        actor="agent-orchestrator",
-        event_type="agent.proposals.executed",
-        payload={
-            "completed_ids": completed,
-            "failed_ids": failed,
-            "blocked_ids": blocked,
-            "max_workers": max_workers,
-        },
-        idempotency_key=idempotency_key,
-        actor_id=request.actor_id,
-        turn_id=request.turn_id,
-        schema_version="2",
-        occurred_at=occurred_at,
-    )
-    try:
-        append_agent_event(event)
-    except Exception as exc:  # noqa: BLE001 - advisory telemetry must not alter apply outcome
-        logger.warning("Could not persist Agent proposal outcomes %s: %s", request.run_id, exc)
-    return occurred_at
 
 
 def acquire_job(
@@ -4768,373 +4184,17 @@ def gen_prompt(target_url: str, min_score: int = 6,
     return prompt_file
 
 
-def _credential_relay_allowed(profile: dict, job: dict) -> bool:
-    return bool(
-        authentication_capability(profile, "credential_relay_authorized")
-        and job.get("_browser_backend") != "cloak"
-    )
-
-
-def _runtime_application_route(
-    job: Mapping[str, object],
-    *,
-    submission_phase: str,
-    direct_email_send_authorized: bool,
-) -> str:
-    """Keep email-only preparation off the browser tool surface."""
-    if submission_phase == "receipt":
-        return "receipt_mailbox"
-    if direct_email_send_authorized:
-        return "direct_email"
-    if (
-        submission_phase == "prepare"
-        and submission_surfaces_mod.classify_submission_surface(job)
-        == "official_direct_email"
-    ):
-        return "direct_email"
-    return "browser"
-
-
-def _identity_relay_allowed(profile: dict, job: dict) -> bool:
-    identity = profile.get("identity_materials", {})
-    fin_policy = identity.get("fin", {}) if isinstance(identity, Mapping) else {}
-    return bool(
-        isinstance(fin_policy, Mapping)
-        and fin_policy.get("secure_relay_authorized") is True
-        and job.get("_browser_backend") != "cloak"
-    )
-
-
-def _safe_ats_target_url(job: Mapping[str, object]) -> str:
-    """Return a query-free application target suitable for Agent context."""
-    raw = str(job.get("application_url") or job.get("url") or "")
-    parsed = urlparse(raw)
-    hostname = (parsed.hostname or "").casefold()
-    if not hostname:
-        return ""
-    port = f":{parsed.port}" if parsed.port else ""
-    scheme = parsed.scheme if parsed.scheme in {"http", "https"} else "https"
-    return f"{scheme}://{hostname}{port}{parsed.path or '/'}"
-
-
-def _credential_application_id(job: Mapping[str, object]) -> str:
-    """Derive an opaque, stable identity for this exact selected posting."""
-    payload = {
-        "url": str(job.get("url") or ""),
-        "application_url": str(job.get("application_url") or ""),
-        "canonical_job_url": str(job.get("canonical_job_url") or ""),
-        "platform_job_id": str(job.get("platform_job_id") or ""),
-        "provider_application_id": str(job.get("provider_application_id") or ""),
-        "requisition_id": str(job.get("requisition_id") or ""),
-        "company": str(job.get("company_name") or ""),
-        "title": str(job.get("title") or ""),
-    }
-    return hashlib.sha256(
-        json.dumps(
-            payload,
-            ensure_ascii=True,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-    ).hexdigest()
-
-
-def _credential_target_urls(
-    job: Mapping[str, object], *, attempt_id: str
-) -> list[str]:
-    """Return only launcher-selected exact application routes for this attempt."""
-    primary_target = job.get("application_url") or job.get("url")
-    candidates: list[object] = [primary_target, job.get("_discovered_application_url")]
-    runtime_binding = job.get("_linkedin_runtime_route_binding")
-    if (
-        isinstance(runtime_binding, Mapping)
-        and str(runtime_binding.get("attempt_id") or "") == attempt_id
-        and runtime_binding.get("lineage_verified") is True
-    ):
-        candidates.append(runtime_binding.get("target_application_url"))
-    provider_binding = job.get("_ats_application_binding")
-    if successfactors_binding_mod.successfactors_binding_is_resolved(
-        provider_binding
-    ):
-        candidates.append(
-            provider_binding.get("job_application_url")
-        )
-    routes: set[str] = set()
-    identity_query_keys = {
-        "career_job_req_id",
-        "career_ns",
-        "company",
-        "gh_jid",
-        "job",
-        "job_id",
-        "jobid",
-        "posting_id",
-        "postingid",
-        "reqid",
-        "requisition_id",
-        "requisitionid",
-    }
-    for candidate in candidates:
-        raw = str(candidate or "").strip()
-        if not raw:
-            continue
-        safe = _safe_ats_target_url({"application_url": raw})
-        if safe:
-            parsed = urlparse(raw)
-            identity_query = sorted(
-                (key, value)
-                for key, value in parse_qsl(parsed.query, keep_blank_values=True)
-                if key.casefold() in identity_query_keys
-            )
-            routes.add(
-                f"{safe}?{urlencode(identity_query)}" if identity_query else safe
-            )
-    return sorted(routes)
-
-
-def _available_semantic_fact_names(profile: Mapping[str, object], job: Mapping[str, object]) -> list[str]:
-    """List confirmed semantic source names without copying applicant values."""
-    facts: set[str] = set()
-    personal = profile.get("personal")
-    personal = personal if isinstance(personal, Mapping) else {}
-    if personal.get("full_name"):
-        facts.update({"full_name", "first_name", "last_name"})
-    semantic_personal = {
-        "email": ("email",),
-        "phone": ("phone", "phone_number"),
-        "linkedin": ("linkedin", "linkedin_url"),
-        "website": ("website", "portfolio", "github", "github_url"),
-        "location": ("location", "city", "country", "address"),
-    }
-    for semantic, keys in semantic_personal.items():
-        if any(personal.get(key) for key in keys):
-            facts.add(semantic)
-    if job.get("tailored_resume_path") or job.get("_staged_resume_path"):
-        facts.add("resume")
-    if job.get("cover_letter_path") or job.get("_staged_cover_letter_path"):
-        facts.add("cover_letter")
-    if isinstance(profile.get("work_authorization"), Mapping):
-        facts.update({"work_authorization", "sponsorship"})
-    application_facts = current_visible_fact_mappings(profile)
-    if isinstance(application_facts, list):
-        for fact in application_facts:
-            if not isinstance(fact, Mapping):
-                continue
-            key = str(fact.get("key") or "").strip().casefold()
-            if key and len(key) <= 120 and re.fullmatch(r"[a-z0-9_.-]+", key):
-                facts.add(key)
-    return sorted(facts)
-
-
-def _install_answer_provenance_context(job: dict) -> dict[str, object]:
-    """Install one host-owned, non-authorizing provenance binding."""
-
-    binding = answer_provenance_mod.build_host_provenance_binding(job)
-    job["_answer_provenance_binding"] = binding
-    return answer_provenance_mod.public_provenance_context(binding)
-
-
-def _install_application_plan_context(
-    job: dict,
-    profile: Mapping[str, object],
-    *,
-    runtime_route: str,
-) -> application_plan_mod.ApplicationPlan:
-    """Install one host-built, ref-only plan without adding effect authority."""
-
-    current = job.get("_application_plan")
-    if (
-        isinstance(current, application_plan_mod.ApplicationPlan)
-        and not current.plan_id.startswith("host-application-plan:")
-    ):
-        # Preserve the established injected ref-only contract used by callers
-        # and shadow compatibility tests. Production jobs do not carry one;
-        # only plans created here use the reserved host-owned prefix.
-        return current
-    previous = (
-        current if isinstance(current, application_plan_mod.ApplicationPlan) else None
-    )
-    plan = application_plan_runtime_mod.build_host_application_plan(
-        job,
-        profile,
-        runtime_route=runtime_route,
-        previous=previous,
-    )
-    if previous is None:
-        job.pop("_previous_application_plan", None)
-    elif plan.digest != previous.digest:
-        job["_previous_application_plan"] = previous
-    job["_application_plan"] = plan
-    return plan
-
-
-def _host_staged_field_risk(field: Mapping[str, object]) -> str:
-    """Derive risk from host-observed field state, never caller metadata."""
-
-    label = str(field.get("label") or field.get("text") or "")
-    semantic = str(field.get("semantic") or "unknown")
-    control = str(field.get("control") or "").casefold()
-    declaration = control == "checkbox" or bool(
-        re.search(
-            r"\b(?:declare|declaration|attest|attestation|certify|certification|"
-            r"acknowledge|consent|terms and conditions)\b",
-            label,
-            re.IGNORECASE,
-        )
-    )
-    staged_adapter_risk = field.get("risk")
-    adapter_risk = (
-        staged_adapter_risk
-        if staged_adapter_risk in {"low", "medium", "high"}
-        else None
-    )
-    return field_risk(
-        f"{label} {semantic}",
-        adapter_risk=adapter_risk,
-        direct_impact=field.get("direct_impact") is True,
-        declaration=declaration,
-    )
-
-
-def _build_ats_application_context(
-    job: Mapping[str, object],
-    profile: Mapping[str, object],
-    *,
-    attempt_id: str = "",
-) -> dict[str, object]:
-    """Build the bounded read/proposal-only context shared with ATS tools."""
-    target_url = _safe_ats_target_url(job)
-    adapter = ats_mod.detect_ats_site(target_url)
-    context: dict[str, object] = {
-        "schema_version": ats_mod.ATS_SCHEMA_VERSION,
-        "adapter": adapter,
-        "target_url": target_url,
-        "guidance": list(ats_mod.adapter_prompt_guidance(target_url)),
-        "available_fact_names": _available_semantic_fact_names(profile, job),
-        "side_effect": "proposal-only",
-    }
-    provenance_binding = job.get("_answer_provenance_binding")
-    if isinstance(provenance_binding, Mapping):
-        recomputed = answer_provenance_mod.build_host_provenance_binding(job)
-        if dict(provenance_binding) != recomputed:
-            raise ValueError("answer provenance binding drifted before context staging")
-        context["answer_provenance"] = answer_provenance_mod.public_provenance_context(
-            recomputed
-        )
-        context["_trusted_fact_scopes"] = list(recomputed["fact_scopes"])
-        trusted_scopes = set(recomputed["fact_scopes"])
-        available_fact_refs: list[dict[str, str]] = []
-        for fact in current_profile_facts(profile):
-            if fact.scope not in trusted_scopes:
-                continue
-            resolution = resolve_application_fact_ref(
-                current_profile_facts(profile),
-                fact_ref=fact.fact_ref,
-                scope=str(fact.scope),
-                minimum_sensitivity=fact.sensitivity,
-            )
-            if not resolution.production_ready:
-                continue
-            available_fact_refs.append(
-                {
-                    "key": fact.key[:120],
-                    "fact_ref": fact.fact_ref[:160],
-                    "sensitivity": fact.sensitivity,
-                }
-            )
-            if len(available_fact_refs) >= 200:
-                break
-        context["available_fact_refs"] = available_fact_refs
-    if attempt_id:
-        provider_binding = job.get("_ats_application_binding")
-        context["credential_binding"] = {
-            "schema_version": "1",
-            "attempt_id": attempt_id,
-            "application_id": _credential_application_id(job),
-            "target_urls": _credential_target_urls(job, attempt_id=attempt_id),
-            "provider_binding": (
-                dict(provider_binding)
-                if isinstance(provider_binding, Mapping)
-                else {}
-            ),
-        }
-    observation = job.get("_browser_observation")
-    if isinstance(observation, Mapping):
-        form_context = observation.get("ats_adapter_context")
-        if isinstance(form_context, Mapping):
-            safe_form = dict(form_context)
-            raw_fields = safe_form.get("fields")
-            if isinstance(raw_fields, list):
-                safe_fields: list[dict[str, object]] = []
-                for raw_field in raw_fields:
-                    if not isinstance(raw_field, Mapping):
-                        continue
-                    safe_field = {
-                        key: value
-                        for key, value in raw_field.items()
-                        if key not in {"options", "options_truncated"}
-                    }
-                    safe_field["risk"] = _host_staged_field_risk(raw_field)
-                    full_digest = raw_field.get("options_full_sha256")
-                    source_count = raw_field.get("options_source_count")
-                    source_truncated = raw_field.get("options_source_truncated")
-                    if not isinstance(full_digest, str) or not re.fullmatch(
-                        r"[0-9a-f]{64}", full_digest
-                    ):
-                        legacy_options = raw_field.get("options")
-                        declared_count = raw_field.get("option_count")
-                        count_matches = declared_count is None or (
-                            isinstance(declared_count, int)
-                            and not isinstance(declared_count, bool)
-                            and isinstance(legacy_options, list)
-                            and declared_count == len(legacy_options)
-                        )
-                        if (
-                            isinstance(legacy_options, list)
-                            and raw_field.get("options_truncated") is False
-                            and count_matches
-                        ):
-                            full_digest = hashlib.sha256(
-                                json.dumps(
-                                    legacy_options,
-                                    ensure_ascii=False,
-                                    sort_keys=True,
-                                    separators=(",", ":"),
-                                ).encode("utf-8")
-                            ).hexdigest()
-                            source_count = len(legacy_options)
-                            source_truncated = False
-                        else:
-                            full_digest = None
-                            source_count = declared_count
-                            source_truncated = True
-                    safe_field["options_sha256"] = full_digest
-                    safe_field["options_source_count"] = source_count
-                    safe_field["options_source_truncated"] = source_truncated
-                    safe_fields.append(safe_field)
-                safe_form["fields"] = safe_fields
-            context["observed_form"] = safe_form
-            context["adapter"] = str(form_context.get("adapter") or adapter)
-        provenance_observation = observation.get("answer_provenance")
-        provenance_context = context.get("answer_provenance")
-        if isinstance(provenance_observation, Mapping) and isinstance(
-            provenance_context, dict
-        ):
-            snapshot_digest = str(
-                provenance_observation.get("snapshot_digest") or ""
-            )
-            if re.fullmatch(r"[0-9a-f]{64}", snapshot_digest):
-                provenance_context["expected_snapshot_digest"] = snapshot_digest
-        workday_context = observation.get("workday_state")
-        if isinstance(workday_context, Mapping):
-            context["workday_state"] = dict(workday_context)
-    fill_plan = job.get("_ats_fill_plan_context")
-    if isinstance(fill_plan, Mapping):
-        context["fill_plan"] = dict(fill_plan)
-    return context
-
-
-
+_credential_relay_allowed = ats_application_context_mod._credential_relay_allowed
+_runtime_application_route = ats_application_context_mod._runtime_application_route
+_identity_relay_allowed = ats_application_context_mod._identity_relay_allowed
+_safe_ats_target_url = ats_application_context_mod._safe_ats_target_url
+_credential_application_id = ats_application_context_mod._credential_application_id
+_credential_target_urls = ats_application_context_mod._credential_target_urls
+_available_semantic_fact_names = ats_application_context_mod._available_semantic_fact_names
+_install_answer_provenance_context = ats_application_context_mod._install_answer_provenance_context
+_install_application_plan_context = ats_application_context_mod._install_application_plan_context
+_host_staged_field_risk = ats_application_context_mod._host_staged_field_risk
+_build_ats_application_context = ats_application_context_mod._build_ats_application_context
 
 
 def run_job(job: dict, port: int, worker_id: int = 0,
@@ -7729,37 +6789,6 @@ def run_job(job: dict, port: int, worker_id: int = 0,
                 ats_context_path.unlink()
             except OSError as exc:
                 logger.warning("Could not remove ATS context %s: %s", ats_context_path, exc)
-
-
-# ---------------------------------------------------------------------------
-# Permanent failure classification
-# ---------------------------------------------------------------------------
-
-PERMANENT_FAILURES: set[str] = {
-    "expired",
-    "already_applied",
-    "not_a_job_application", "unsafe_permissions",
-    "unsafe_verification",
-    "assessment", "assessment_required",
-}
-
-PERMANENT_PREFIXES: tuple[str, ...] = (
-    "manual_review_required:submission_validation",
-    "assessment",
-    "unsafe_verification",
-)
-
-def _is_permanent_failure(result: str) -> bool:
-    """Determine whether automatic retries should remain blocked."""
-    reason = result.split(":", 1)[-1] if ":" in result else result
-    descriptor = classify_failure(result)
-    return (
-        descriptor.permanent
-        or
-        result in PERMANENT_FAILURES
-        or reason in PERMANENT_FAILURES
-        or any(reason.startswith(p) for p in PERMANENT_PREFIXES)
-    )
 
 
 # ---------------------------------------------------------------------------
