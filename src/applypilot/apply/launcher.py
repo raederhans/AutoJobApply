@@ -5783,6 +5783,9 @@ def run_job(job: dict, port: int, worker_id: int = 0,
         )
 
         text_parts: list[str] = []
+        # Claude stream-json's terminal ``result`` message carries the final
+        # assistant text, which the stream has already emitted as a text block.
+        terminal_result_text = ""
         with open(worker_log, "a", encoding="utf-8") as lf:
             lf.write(log_header)
 
@@ -5993,7 +5996,10 @@ def run_job(job: dict, port: int, worker_id: int = 0,
                             "cost_usd": msg.get("total_cost_usd", 0),
                             "turns": msg.get("num_turns", 0),
                         }
-                        text_parts.append(msg.get("result", ""))
+                        result_text = msg.get("result", "")
+                        if isinstance(result_text, str):
+                            terminal_result_text = result_text.strip()
+                        text_parts.append(result_text)
                     elif msg_type == "item.started":
                         item = msg.get("item", {})
                         item_type = item.get("type")
@@ -6295,7 +6301,10 @@ def run_job(job: dict, port: int, worker_id: int = 0,
         # Codex emits progress agent_message items as well as a dedicated final
         # message. Only the latter is the legacy RESULT contract; parsing the
         # aggregate can turn harmless progress prose into a duplicate marker.
-        contract_output = final_text or output
+        # Claude has no final-message file; its terminal stream-json ``result``
+        # is the same final message and already appears once as a text block,
+        # so the aggregate would always carry a duplicated RESULT marker.
+        contract_output = final_text or terminal_result_text or output
         elapsed = int(time.time() - start)
         duration_ms = int((time.time() - start) * 1000)
 
