@@ -164,9 +164,10 @@ def _setup_profile() -> dict:
     console.print(
         "[dim]Job Apply Pilot no longer asks for or stores job-site passwords; one saved by an earlier "
         "setup is not kept when this profile is written. For login walls, sign in once in the "
-        "dedicated browser profile: set APPLYPILOT_BROWSER_PROFILE_MODE=persistent, then run "
-        "[bold]applypilot browser-session --url <login page>[/bold]. Sign-ins that cannot be completed "
-        "that way are handed to you.[/dim]"
+        "dedicated browser profile of this workspace: set APPLYPILOT_BROWSER_PROFILE_MODE=persistent, then "
+        f'run [bold]applypilot --workspace "{APP_DIR}" browser-session --url <login page>[/bold] (or the '
+        "same command through your workspace wrapper). Sign-ins that cannot be completed that way are "
+        "handed to you.[/dim]"
     )
 
     # -- Work Authorization --
@@ -261,15 +262,22 @@ _INDEED_COUNTRY_ALIASES = {
     "uae": "united arab emirates",
     "korea": "south korea",
     "czechia": "czech republic",
+    "turkey": "türkiye",
 }
+# Every country of the pinned python-jobspy 1.1.82 ``Country`` enum, by its canonical
+# (first) name, so a core install without jobspy accepts the same markets. The
+# multi-country ``usa/ca`` and ``worldwide`` entries are not single Indeed sites.
 _INDEED_COUNTRIES = frozenset(
     {
-        "argentina", "australia", "austria", "belgium", "brazil", "canada", "chile", "china", "colombia",
-        "czech republic", "denmark", "finland", "france", "germany", "greece", "hong kong", "hungary", "india", "indonesia",
-        "ireland", "israel", "italy", "japan", "malaysia", "mexico", "netherlands", "new zealand", "norway",
-        "pakistan", "philippines", "poland", "portugal", "qatar", "romania", "saudi arabia", "singapore",
-        "south africa", "south korea", "spain", "sweden", "switzerland", "taiwan", "thailand", "turkey",
-        "ukraine", "united arab emirates", "uk", "usa", "vietnam",
+        "argentina", "australia", "austria", "bahrain", "bangladesh", "belgium", "brazil", "bulgaria",
+        "canada", "chile", "china", "colombia", "costa rica", "croatia", "cyprus", "czech republic",
+        "denmark", "ecuador", "egypt", "estonia", "finland", "france", "germany", "greece", "hong kong",
+        "hungary", "india", "indonesia", "ireland", "israel", "italy", "japan", "kuwait", "latvia",
+        "lithuania", "luxembourg", "malaysia", "malta", "mexico", "morocco", "netherlands", "new zealand",
+        "nigeria", "norway", "oman", "pakistan", "panama", "peru", "philippines", "poland", "portugal",
+        "qatar", "romania", "saudi arabia", "singapore", "slovakia", "slovenia", "south africa",
+        "south korea", "spain", "sweden", "switzerland", "taiwan", "thailand", "türkiye", "uk", "ukraine",
+        "united arab emirates", "uruguay", "usa", "venezuela", "vietnam",
     }
 )
 

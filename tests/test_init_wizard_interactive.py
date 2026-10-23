@@ -639,8 +639,11 @@ def test_setup_profile_does_not_ask_for_or_store_a_password(
     assert "password" not in profile["personal"]
     saved = (workspace / "profile.json").read_text(encoding="utf-8")
     assert "password" not in saved and "hunter2" not in saved
-    # The removed question points at the real, existing browser-session workflow instead.
-    assert "browser-session" in " ".join(capsys.readouterr().out.split())
+    # The removed question points at the real browser-session workflow of this workspace;
+    # without --workspace the login would land in the default workspace's browser profile.
+    compact = "".join(capsys.readouterr().out.split())  # rich may wrap inside the long path
+    assert "browser-session" in compact
+    assert f'--workspace"{workspace}"'.replace(" ", "") in compact
 
 
 def test_setup_profile_drops_a_plaintext_password_left_by_an_older_profile(
@@ -670,11 +673,28 @@ def test_setup_profile_drops_a_plaintext_password_left_by_an_older_profile(
     assert "password" not in json.loads(saved)["personal"] and "legacy-secret" not in saved
 
 
-@pytest.mark.parametrize(("value", "expected"), [("Czechia", "czech republic"), ("Czech Republic", "czech republic")])
-def test_czechia_resolves_without_jobspy_installed(monkeypatch: pytest.MonkeyPatch, value, expected) -> None:
+@pytest.mark.parametrize(("value", "expected"), [
+    ("Czechia", "czech republic"), ("Czech Republic", "czech republic"), ("Nigeria", "nigeria"),
+    ("Bahrain", "bahrain"), ("Peru", "peru"), ("Costa Rica", "costa rica"), ("Turkey", "türkiye"),
+])
+def test_supported_countries_resolve_without_jobspy_installed(monkeypatch: pytest.MonkeyPatch, value, expected) -> None:
     monkeypatch.setattr(wizard, "_jobspy_country_name", lambda _value: None)
 
     assert wizard._normalize_indeed_country(value) == expected
+
+
+def test_builtin_country_table_matches_the_jobspy_enum() -> None:
+    model = pytest.importorskip("jobspy.model")
+    enum_names = {
+        country.value[0].split(",")[0] for country in model.Country
+        if country.name not in {"US_CANADA", "WORLDWIDE"}
+    }
+
+    assert set(wizard._INDEED_COUNTRIES) == enum_names
+    # Aliases are local conveniences (e.g. "england"); what they map to must be a name
+    # jobspy itself resolves back to the same canonical country.
+    for canonical in set(wizard._INDEED_COUNTRY_ALIASES.values()) | set(wizard._INDEED_COUNTRIES):
+        assert model.Country.from_string(canonical).value[0].split(",")[0] == canonical
 
 
 def test_wizard_profile_without_password_still_builds_the_application_prompt_summary(
