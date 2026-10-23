@@ -8,7 +8,7 @@ from types import ModuleType
 
 import pytest
 
-from applypilot.apply import launcher, runtime_failure_policy
+from applypilot.apply import ats_application_context, launcher, runtime_failure_policy
 
 MOVED_NAMES: dict[ModuleType, tuple[str, ...]] = {
     runtime_failure_policy: (
@@ -24,6 +24,19 @@ MOVED_NAMES: dict[ModuleType, tuple[str, ...]] = {
         "PERMANENT_FAILURES",
         "PERMANENT_PREFIXES",
         "_is_permanent_failure",
+    ),
+    ats_application_context: (
+        "_credential_relay_allowed",
+        "_runtime_application_route",
+        "_identity_relay_allowed",
+        "_safe_ats_target_url",
+        "_credential_application_id",
+        "_credential_target_urls",
+        "_available_semantic_fact_names",
+        "_install_answer_provenance_context",
+        "_install_application_plan_context",
+        "_host_staged_field_risk",
+        "_build_ats_application_context",
     ),
 }
 
