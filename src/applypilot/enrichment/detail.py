@@ -229,7 +229,10 @@ def extract_from_json_ld(intel: dict) -> dict | None:
 
     def find_job_posting(data):
         if isinstance(data, dict):
-            if data.get("@type") == "JobPosting":
+            # schema.org allows @type to be a list; match like discovery.official does.
+            type_value = data.get("@type", "")
+            types = type_value if isinstance(type_value, list) else [type_value]
+            if any(str(item).casefold() == "jobposting" for item in types):
                 return data
             if "@graph" in data and isinstance(data["@graph"], list):
                 for item in data["@graph"]:
@@ -668,7 +671,21 @@ def scrape_site_batch(
             for i, (url, title) in enumerate(jobs):
                 log.info("[%d/%d] %s", i + 1, len(jobs), title[:50] if title else url[:50])
 
-                result = scrape_detail_page(page, url)
+                try:
+                    result = scrape_detail_page(page, url)
+                except Exception as e:
+                    # Isolate a failure after navigation (e.g. the page is destroyed
+                    # mid-observation) to this job, so the rest of the batch still runs
+                    # and the row is marked as attempted instead of being re-selected.
+                    log.warning("Detail extraction failed for %s", url, exc_info=True)
+                    result = {
+                        "full_description": None,
+                        "application_url": None,
+                        "status": "error",
+                        "tier_used": None,
+                        "error": f"extraction failed: {type(e).__name__}: {e}"[:200],
+                        "elapsed": 0,
+                    }
                 result["application_url"] = sanitize_application_url(
                     url,
                     result.get("application_url"),
@@ -867,6 +884,7 @@ def stream_detail(
 
     try:
         while True:
+            changes_before = conn.total_changes
             skip_filter = " AND ".join(f"site != '{s}'" for s in SKIP_DETAIL_SITES)
             rows = conn.execute(
                 "SELECT url, title, source_site, site FROM jobs "
@@ -904,10 +922,16 @@ def stream_detail(
                     except Exception as e:
                         log.error("%s: CRASHED: %s", site, e)
 
+            # Pending jobs were selected but no row changed: every batch crashed before
+            # recording anything. Re-selecting them immediately would spin forever.
+            stalled = bool(rows) and conn.total_changes == changes_before
             upstream_finished = upstream_done is None or upstream_done.is_set()
             if upstream_finished and not rows:
                 break
-            if not rows:
+            if stalled and upstream_finished:
+                log.error("No progress on %d pending job(s); stopping detail scraping", len(rows))
+                break
+            if not rows or stalled:
                 time.sleep(poll_interval)
     finally:
         elapsed = time.time() - t0
