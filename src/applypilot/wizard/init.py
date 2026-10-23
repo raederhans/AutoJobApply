@@ -134,14 +134,13 @@ def _setup_resume() -> None:
 # Profile
 # ---------------------------------------------------------------------------
 
-def _existing_profile_password() -> str:
-    """Return a password saved in an earlier profile.json, or an empty string."""
+def _existing_profile_has_password() -> bool:
+    """Tell whether an earlier profile.json still stores a plaintext job-site password."""
     try:
         existing = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
-        value = existing["personal"]["password"]
+        return "password" in existing["personal"]
     except (OSError, ValueError, KeyError, TypeError):
-        return ""
-    return value if isinstance(value, str) else ""
+        return False
 
 
 def _setup_profile() -> dict:
@@ -168,11 +167,14 @@ def _setup_profile() -> dict:
         "portfolio_url": Prompt.ask("Portfolio URL (optional)", default=""),
         "website_url": Prompt.ask("Personal website URL (optional)", default=""),
     }
-    # Job-site passwords are deliberately not collected or written to profile.json.
-    # A password already stored by an older wizard run is carried over untouched.
-    legacy_password = _existing_profile_password()
-    if legacy_password:
-        profile["personal"]["password"] = legacy_password
+    # Job-site passwords are deliberately not collected or written to profile.json. Nothing
+    # reads profile passwords (the credential relay uses its own encrypted store), so a
+    # plaintext password left by an older wizard run is not carried into the new profile.
+    if _existing_profile_has_password():
+        console.print(
+            "[yellow]The plaintext job-site password saved by an earlier setup is not kept in the "
+            "new profile.json.[/yellow]"
+        )
     console.print(
         "[dim]Job Apply Pilot no longer asks for job-site passwords. For login walls, sign in once in the "
         "dedicated browser profile: set APPLYPILOT_BROWSER_PROFILE_MODE=persistent, then run "
@@ -276,7 +278,7 @@ _INDEED_COUNTRY_ALIASES = {
 _INDEED_COUNTRIES = frozenset(
     {
         "argentina", "australia", "austria", "belgium", "brazil", "canada", "chile", "china", "colombia",
-        "denmark", "finland", "france", "germany", "greece", "hong kong", "hungary", "india", "indonesia",
+        "czech republic", "denmark", "finland", "france", "germany", "greece", "hong kong", "hungary", "india", "indonesia",
         "ireland", "israel", "italy", "japan", "malaysia", "mexico", "netherlands", "new zealand", "norway",
         "pakistan", "philippines", "poland", "portugal", "qatar", "romania", "saudi arabia", "singapore",
         "south africa", "south korea", "spain", "sweden", "switzerland", "taiwan", "thailand", "turkey",

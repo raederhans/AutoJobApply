@@ -643,7 +643,7 @@ def test_setup_profile_does_not_ask_for_or_store_a_password(
     assert "browser-session" in " ".join(capsys.readouterr().out.split())
 
 
-def test_setup_profile_keeps_a_password_already_in_an_existing_profile(
+def test_setup_profile_drops_a_plaintext_password_left_by_an_older_profile(
     workspace: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     (workspace / "profile.json").write_text(
@@ -654,8 +654,16 @@ def test_setup_profile_keeps_a_password_already_in_an_existing_profile(
 
     profile = wizard._setup_profile()
 
-    assert profile["personal"]["password"] == "legacy-secret"
-    assert json.loads((workspace / "profile.json").read_text(encoding="utf-8"))["personal"]["password"] == "legacy-secret"
+    assert "password" not in profile["personal"]
+    saved = (workspace / "profile.json").read_text(encoding="utf-8")
+    assert "password" not in json.loads(saved)["personal"] and "legacy-secret" not in saved
+
+
+@pytest.mark.parametrize(("value", "expected"), [("Czechia", "czech republic"), ("Czech Republic", "czech republic")])
+def test_czechia_resolves_without_jobspy_installed(monkeypatch: pytest.MonkeyPatch, value, expected) -> None:
+    monkeypatch.setattr(wizard, "_jobspy_country_name", lambda _value: None)
+
+    assert wizard._normalize_indeed_country(value) == expected
 
 
 def test_wizard_profile_without_password_still_builds_the_application_prompt_summary(
