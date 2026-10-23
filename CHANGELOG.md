@@ -4,11 +4,96 @@ All notable changes to Job Apply Pilot will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `followup` for local recruiting feedback: reviewed JSON event import, per-job
+  timelines, pending-event resolution, actions with timezone-aware deadlines,
+  statistics, legacy history import and `.ics` export. It consumes operator-supplied
+  files and does not scan or send email.
+- Application progress tracked once per recruiting identity, separating current state
+  from historical stage reach; the dashboard shows counts, conversions, actual paths
+  and timelines, and missing rounds, dates and receipts stay unknown.
+- `followup export-progress` for private CSV/Markdown progress snapshots with inclusive
+  UTC date and status filters, and `followup export-html` for self-contained offline
+  HTML snapshots of progress and reminders. The workbench previews and downloads the
+  same reports.
+- Local follow-up reminders (`followup reminders`, `set-reminder`, `snooze-reminder`,
+  `dismiss-reminder`) grouped by UTC day. They are stored in a separate local file and
+  never change application status or the original action deadline; reminder groups
+  download as dated `.ics` snapshots, and none is offered when no dated event remains.
+- `compare-jobs` for side-by-side HTML and Markdown comparison of 2-6 saved jobs, with
+  `--list`, `--query` and repeatable `--job-id`. It never scores jobs or infers salary or
+  deadlines; the workbench compares and downloads 2-4 selected progress records.
+- `career` workbench for career-gap work: source-backed catalog and evidence import,
+  per-criterion diagnosis, versioned learning routes, task submissions and reviews,
+  and a loopback local UI (`career serve` / `career open`). Completing a task never
+  changes application status or skill level.
+- Workbench application inbox for paused applications: save a human answer, then
+  explicitly request continuation; browse and search history, view source-timed
+  progress, and link progress records to their exact inbox entries.
+- Workbench interview tracking tied to the exact job and round: preparation, to-dos,
+  results and rescheduling, plus interview search, deadline filters and overdue
+  visibility.
+- `interview prepare` for source-bound interview packs, local by default, with an
+  optional `--use-llm` question pass that is validated and falls back to the local
+  pack; `json-resume export`, `import` and `check` for JSON Resume exchange; and
+  `quality run` / `export-promptfoo` for offline evidence checks.
+- `writing` for standalone ATS open-question answers and cover letters grounded in
+  registered evidence, with `context-check`, `questions`, `plan`, `answer`, `cover`,
+  `evaluate` and `benchmark`. Drafts grant no browser-fill or submission authority.
+- `radar discover-careers` for official careers-page entry discovery, `radar lifecycle`
+  for posting open/closed evidence and advisory repost hints, and `radar budget` for
+  evidence-based search budgets; `radar explore` and `radar collect` accept `--budget`,
+  and `radar collect` also accepts `--due-only`.
+- `browser-prepare plan` / `execute` adapting reviewed Stagehand `observe()` results
+  into the existing Host queue without the Stagehand SDK, and `browser-host-path` to
+  locate the shipped Host modules of an installation.
+- Supervised browser Host additions: observed record semantics, bounded
+  `prepare_subgoal`, guarded attended recovery with source-bound consistency checks,
+  observed file selection with `required_source`, an explicit Playwright
+  `observationMode`, and operation slots shared by concurrent `execute` calls.
+- Bounded harness measurement, offline paired experiment planning and isolated
+  interactive evaluation with validated, opt-in, read-only procedural advice.
+- User guides and fictional examples for the commands above, included in source
+  release archives.
+
 ### Changed
 
+- The database now applies seven ordered migrations instead of one (posting lifecycle,
+  follow-up, career, career learning, workbench and workbench publication tables).
+  Existing workspaces upgrade in place on first open; an earlier release fails closed
+  on the newer schema version and will not open an upgraded workspace.
+- `.env.example` no longer lists the unused `PROXY` variable. JobSpy and Workday
+  proxies use the top-level `proxy` setting in `searches.yaml`.
+- JD resumes are evidence-led and reusable: supported product and applied-research
+  titles route by duties, supplemental fact sources are bound to generated editions and
+  rechecked on reuse and promotion, and page fill and short tails are editorial
+  warnings rather than hard failures.
+- README gains bilingual workflow demos and a getting-started guide.
+- Removed unused internal helpers and a superseded browser cleanup path; no command
+  was removed.
 - CI installs core development and job-board extras together and reuses its
   installed build backend for release builds. Source-to-wheel builds, archive
   privacy audits, compatibility tiers and clean-install smoke checks remain enabled.
+
+### Fixed
+
+- Attended Host recovery and resume are bound to durable identity and grant no replay
+  authority; delayed batch verification is invalidated at the Host refresh boundary;
+  Host request and permit envelopes are bound before input; browser deadlines apply at
+  every input boundary.
+- Dynamic tool schemas are validated on input and output, including nullable type
+  unions, and JSON booleans are no longer treated as numbers.
+- Installed packages ship and resolve the Browser Host modules, and the runtime-cell
+  source identity is computed the same way from an installed package; Windows listener
+  attestation works with localized `netstat` output.
+- Task cancellation recovers correctly and specialist subprocess cleanup is bounded.
+  A saved workbench answer is consumed once by its original owner and kept out of logs.
+- Workbench filters and stale-session recovery, the linked inbox filter query, unknown
+  versus zero inbox counts, and calendar downloads with no exportable events.
+- Harness evaluation keeps trials with malformed handoff classifications, rejects
+  harmful handoffs, does not invent wait time for blocked handoffs, and binds evidence
+  to runtime sources.
 
 ## [0.7.0] - 2026-09-22
 

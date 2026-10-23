@@ -82,7 +82,7 @@ applypilot apply --dry-run --url "https://employer.example/jobs/123"
 - **多任务准备**：v0.7 支持在 Codex 内置浏览器中并行准备多个岗位，查看各任务进度。[使用说明](docs/attended-runtime-batch.md)
 - **申请追踪**：保存岗位、材料、申请尝试及回执，集中跟进待处理事项。
 
-当前开发版新增：招聘反馈时间线、待办与日历导出，基于选定材料的面试准备包，JSON Resume 草稿互通，以及受控浏览器观察适配和离线质量评测。下面的新命令尚未包含在上面的 `v0.7.0` 安装包中，需使用当前源码安装。
+当前开发版新增：招聘反馈时间线、待办、提醒与日历导出，离线进度报告，含申请待处理收件箱的本地职业发展工作台，独立申请写作，岗位并排对比，基于选定材料的面试准备包，JSON Resume 草稿互通，雷达的官网招聘入口发现与岗位状态，以及受控浏览器观察适配和离线质量评测。下面的新命令尚未包含在上面的 `v0.7.0` 安装包中，需使用当前源码安装。
 
 ## 更多用法
 
@@ -94,6 +94,9 @@ applypilot apply --dry-run --url "https://employer.example/jobs/123"
 | 为一个岗位选择简历 | `applypilot resume-route --url "<job-url>"` |
 | 管理投后跟进和日历 | `applypilot followup --help` · [跟进指南](docs/followup.md) |
 | 准备一个岗位的面试 | `applypilot interview prepare --url "<job-url>" --output "<new-directory>"` · [材料来源规则](docs/interview-prep.md) |
+| 在本地工作台处理职业差距 | `applypilot career --help` · [职业发展指南](docs/career.md) |
+| 撰写申请开放题答案和求职信 | `applypilot writing --help` · [写作指南](docs/application-writing.md) |
+| 并排比较已保存岗位 | `applypilot compare-jobs --list` · [岗位对比指南](docs/job-comparison.md) |
 | 导入或导出 JSON Resume | `applypilot json-resume --help` · [互通指南](docs/json-resume.md) |
 | 适配外部浏览器观察结果 | `applypilot browser-prepare --help` · [适配边界](docs/browser-observation-adapter.md) |
 | 运行质量评测、导出 Promptfoo 用例 | `applypilot quality --help` · [评测指南](docs/quality-evaluation.md) |
