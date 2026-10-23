@@ -672,6 +672,44 @@ def test_previewed_and_failure_reports_do_not_require_final_answer_mappings() ->
         assert interpreted == status
 
 
+def _validated_preview_report() -> AgentTurnResult:
+    return AgentTurnResult(
+        run_id="run-preview-audit-in-report",
+        status="previewed",
+        summary="Form complete at review",
+        observations={"answer_provenance": {}, "preview_audit": {
+            "submission_attempted": False,
+            "resume_uploaded": True,
+            "filled_fields": ["email=alex.example@example.test"],
+            "manual_review_fields": [],
+            "final_control_label": "Submit application",
+        }},
+    )
+
+
+@pytest.mark.parametrize(("dry_run", "phase"), [(True, "submit"), (True, "prepare")])
+def test_previewed_marker_without_repeated_audit_agrees_with_a_validated_report(dry_run, phase) -> None:
+    # Observed with the Claude backend: the audit is only in the typed report and the
+    # final text ends with RESULT:PREVIEWED, which was recorded as a result conflict.
+    assert agent_output.reconcile_agent_turn_outputs(
+        "Form is complete at the review page.\n\nRESULT:PREVIEWED\nUNANSWERED_QUESTIONS: []",
+        _validated_preview_report(),
+        dry_run=dry_run,
+        submission_phase=phase,
+    ) == ("previewed", None, "structured+legacy")
+
+
+@pytest.mark.parametrize("legacy", [
+    'RESULT:PREVIEWED\nPREVIEW_AUDIT: {"submission_attempted": true}',
+    "RESULT:PREVIEWED\nPREVIEW_AUDIT: {not json",
+    "RESULT:FAILED:stuck",
+])
+def test_a_legacy_result_that_contradicts_a_validated_preview_still_conflicts(legacy) -> None:
+    assert agent_output.reconcile_agent_turn_outputs(
+        legacy, _validated_preview_report(), dry_run=True, submission_phase="submit",
+    ) == ("failed:conflicting_agent_results", None, "conflict")
+
+
 def test_non_dry_prepare_previewed_alias_requires_final_answer_mappings() -> None:
     result = AgentTurnResult(
         run_id="run-preview-alias-without-mappings",
