@@ -179,7 +179,13 @@ class SubprocessLaunchSpec:
                 raise ValueError(f"{name} is required")
         if self.run_id != self.turn_id:
             raise ValueError("run_id must remain the compatibility alias for turn_id")
-        if not self.command or any(not str(item).strip() for item in self.command):
+        # Only the executable must be non-blank. Empty arguments are meaningful: the
+        # Claude CLI receives ``--tools ""`` to disable every built-in tool.
+        if (
+            not self.command
+            or not all(isinstance(item, str) for item in self.command)
+            or not self.command[0].strip()
+        ):
             raise ValueError("command must contain executable arguments")
         if self.parent_run_id is not None and not self.parent_run_id.strip():
             raise ValueError("parent_run_id must be non-empty when provided")
