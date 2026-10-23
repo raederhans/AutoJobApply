@@ -26,14 +26,20 @@ DETAIL_DUE_SQL = (
     f"(detail_retry_after IS NULL OR detail_retry_after <= {_NOW_SQL})"
 )
 
-# Due rows whose site is not cooling down after a rate limit. A 429 row waiting for its
-# retry keeps the whole site out, including jobs discovered after it, so a streaming run
-# does not spend attempts on a throttled site. The predicate is correlated with an
-# unaliased ``jobs`` table in the enclosing query.
+# Sites cooling down after a rate limit: a 429 row still waiting for its retry. The
+# subquery is uncorrelated, so SQLite evaluates it once per statement instead of once per
+# candidate row (no index covers these columns).
+_COOLING_SITES_SQL = (
+    "SELECT site FROM jobs WHERE site IS NOT NULL "
+    f"AND detail_error = '{RATE_LIMIT_ERROR}' AND detail_scraped_at IS NULL "
+    f"AND detail_retry_after > {_NOW_SQL}"
+)
+
+# Due rows whose site is not cooling down. A 429 row waiting for its retry keeps the whole
+# site out, including jobs discovered after it, so a streaming run does not spend attempts
+# on a throttled site.
 DETAIL_PENDING_SQL = (
-    f"{DETAIL_DUE_SQL} AND NOT EXISTS (SELECT 1 FROM jobs AS limited "
-    f"WHERE limited.site = jobs.site AND limited.detail_error = '{RATE_LIMIT_ERROR}' "
-    f"AND limited.detail_scraped_at IS NULL AND limited.detail_retry_after > {_NOW_SQL})"
+    f"{DETAIL_DUE_SQL} AND (site IS NULL OR site NOT IN ({_COOLING_SITES_SQL}))"
 )
 
 

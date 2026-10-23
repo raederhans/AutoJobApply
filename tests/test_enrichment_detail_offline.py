@@ -1391,6 +1391,21 @@ def test_site_cooldown_ends_when_the_rate_limited_row_is_due_again(conn) -> None
     assert _pending_urls(conn) == {"https://example.com/limited", "https://example.com/found-later"}
 
 
+def test_site_cooldown_keeps_rows_without_a_site_and_is_evaluated_once(conn) -> None:
+    from applypilot.storage.detail_retry import DETAIL_PENDING_SQL
+
+    add_job(conn, "https://example.com/limited", detail_attempts=1, detail_retry_after=_FUTURE,
+            detail_error="HTTP 429")
+    conn.execute("INSERT INTO jobs (url, site) VALUES ('https://nosite.example.com/job', NULL)")
+    conn.commit()
+
+    assert _pending_urls(conn) == {"https://nosite.example.com/job"}
+    # An uncorrelated cooldown subquery runs once per statement; a correlated one would
+    # rescan the jobs table for every candidate row (no index covers these columns).
+    plan = " ".join(row[-1] for row in conn.execute(f"EXPLAIN QUERY PLAN SELECT url FROM jobs WHERE {DETAIL_PENDING_SQL}"))
+    assert "CORRELATED" not in plan
+
+
 def test_stream_detail_does_not_walk_a_rate_limited_site_job_by_job(conn, db_path, sleeps, monkeypatch) -> None:
     for n in (1, 2, 3):
         add_job(conn, f"https://example.com/limited/{n}")
