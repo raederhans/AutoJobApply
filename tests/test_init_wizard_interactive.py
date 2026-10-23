@@ -243,8 +243,12 @@ def _run_searches(
     radius: str = "0",
     roles: str = "Data Analyst",
     remote_only: bool | None = None,
+    indeed_country: str | None = None,
 ) -> tuple[dict, Script]:
-    _prompts(monkeypatch, {"Target location": location, "Search radius": radius, "Target job titles": roles})
+    answers: dict[str, object] = {"Target location": location, "Search radius": radius, "Target job titles": roles}
+    if indeed_country is not None:
+        answers["Indeed country"] = indeed_country
+    _prompts(monkeypatch, answers)
     confirms = _confirms(monkeypatch, {} if remote_only is None else {"Search remote jobs only": remote_only})
     wizard._setup_searches()
     text = (workspace / "searches.yaml").read_text(encoding="utf-8")
@@ -257,7 +261,8 @@ def test_setup_searches_generates_parseable_yaml_with_tiers(workspace: Path, mon
         monkeypatch, workspace, location="Singapore", radius="5", roles="Role A, Role B, Role C, Role D, , "
     )
 
-    assert list(cfg) == ["defaults", "locations", "queries"]
+    assert list(cfg) == ["defaults", "country", "locations", "queries"]
+    assert cfg["country"] == "singapore"
     assert cfg["defaults"] == {"location": "Singapore", "distance": 5, "hours_old": 72, "results_per_site": 50}
     assert cfg["locations"] == [{"location": "Singapore", "remote": False}]
     assert cfg["queries"] == [
@@ -535,6 +540,7 @@ def test_run_wizard_end_to_end_in_a_temporary_workspace(
     searches = yaml.safe_load((workspace / "searches.yaml").read_text(encoding="utf-8"))
     assert [q["query"] for q in searches["queries"]] == ["Data Analyst", "Product Analyst"]
     assert searches["locations"] == [{"location": "Singapore", "remote": False}]
+    assert searches["country"] == "singapore"
     assert dotenv_values(workspace / ".env")["GEMINI_API_KEY"] == "g-key"
     assert prompts.asked[0] == "Resume file path"
 
@@ -614,3 +620,123 @@ def test_initialize_from_files_imports_pdf_and_force_replaces(workspace: Path, t
 
     assert (workspace / "resume.pdf").read_bytes() == b"%PDF-1.4"
     assert json.loads((workspace / "profile.json").read_text(encoding="utf-8"))["personal"]["full_name"] == "New"
+
+
+# ---------------------------------------------------------------------------
+# Credentials are not collected; Indeed country is written to searches.yaml
+# ---------------------------------------------------------------------------
+
+
+def test_setup_profile_does_not_ask_for_or_store_a_password(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    script = _prompts(monkeypatch, {**_PROFILE_ANSWERS, "Job site password": "hunter2"})
+    _confirms(monkeypatch, {"Are you legally authorized": True, "Will you now": False})
+
+    profile = wizard._setup_profile()
+
+    assert not [question for question in script.asked if "password" in question.casefold()]
+    assert "password" not in profile["personal"]
+    saved = (workspace / "profile.json").read_text(encoding="utf-8")
+    assert "password" not in saved and "hunter2" not in saved
+    # The removed question points at the real, existing browser-session workflow instead.
+    assert "browser-session" in " ".join(capsys.readouterr().out.split())
+
+
+def test_setup_profile_keeps_a_password_already_in_an_existing_profile(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (workspace / "profile.json").write_text(
+        json.dumps({"personal": {"full_name": "Old", "password": "legacy-secret"}}), encoding="utf-8"
+    )
+    _prompts(monkeypatch, _PROFILE_ANSWERS)
+    _confirms(monkeypatch, {"Are you legally authorized": True, "Will you now": False})
+
+    profile = wizard._setup_profile()
+
+    assert profile["personal"]["password"] == "legacy-secret"
+    assert json.loads((workspace / "profile.json").read_text(encoding="utf-8"))["personal"]["password"] == "legacy-secret"
+
+
+def test_wizard_profile_without_password_still_builds_the_application_prompt_summary(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from applypilot.apply import prompt as apply_prompt
+
+    _prompts(monkeypatch, _PROFILE_ANSWERS)
+    _confirms(monkeypatch, {"Are you legally authorized": True, "Will you now": False})
+    profile = wizard._setup_profile()
+
+    summary = apply_prompt._build_profile_summary(profile)
+
+    assert "Ada Lovelace" in summary
+    assert "password" not in summary.casefold()
+
+
+@pytest.mark.parametrize(
+    ("location", "expected"),
+    [
+        ("Singapore", "singapore"),
+        ("  singapore ", "singapore"),
+        ("Raffles Place, Singapore", "singapore"),
+        ("Toronto, Canada", "canada"),
+        ("United States", "usa"),
+        ("London, United Kingdom", "uk"),
+        ("Remote", None),
+        ("", None),
+        ("Zürich", None),
+        ("New York, NY", None),
+    ],
+)
+def test_infer_indeed_country_from_the_target_location(location: str, expected: str | None) -> None:
+    assert wizard._infer_indeed_country(location) == expected
+
+
+def test_setup_searches_writes_the_inferred_indeed_country(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg, _ = _run_searches(monkeypatch, workspace, location="Singapore")
+
+    assert cfg["country"] == "singapore"
+    assert "country_indeed" not in cfg["defaults"]
+
+
+def test_setup_searches_does_not_guess_a_country_for_remote(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg, _ = _run_searches(monkeypatch, workspace, location="Remote")
+
+    assert "country" not in cfg
+
+
+def test_setup_searches_remote_user_can_still_name_a_country(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg, _ = _run_searches(monkeypatch, workspace, location="Remote", indeed_country="Malaysia")
+
+    assert cfg["country"] == "malaysia"
+
+
+def test_setup_searches_rejects_an_unknown_country_instead_of_writing_it(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(wizard, "_jobspy_country_name", lambda _value: None)
+    cfg, _ = _run_searches(monkeypatch, workspace, location="Singapore", indeed_country="Narnia")
+
+    assert "country" not in cfg
+    assert "not a supported Indeed country" in " ".join(capsys.readouterr().out.split())
+
+
+def test_setup_searches_blank_answer_keeps_the_default_country_fallback(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg, _ = _run_searches(monkeypatch, workspace, location="Singapore", indeed_country="")
+
+    assert "country" not in cfg
+
+
+def test_wizard_written_country_reaches_the_jobspy_indeed_defaults(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg, _ = _run_searches(monkeypatch, workspace, location="Singapore")
+    captured: dict = {}
+    monkeypatch.setattr(jobspy, "require_jobboards", lambda: object())
+    monkeypatch.setattr(jobspy, "_full_crawl", lambda **kwargs: captured.update(kwargs) or {"new": 0})
+
+    jobspy.run_discovery(cfg)
+
+    assert captured["search_cfg"]["defaults"]["country_indeed"] == "singapore"

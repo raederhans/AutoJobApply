@@ -134,6 +134,16 @@ def _setup_resume() -> None:
 # Profile
 # ---------------------------------------------------------------------------
 
+def _existing_profile_password() -> str:
+    """Return a password saved in an earlier profile.json, or an empty string."""
+    try:
+        existing = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
+        value = existing["personal"]["password"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return ""
+    return value if isinstance(value, str) else ""
+
+
 def _setup_profile() -> dict:
     """Walk through profile questions and return a nested profile dict."""
     console.print(Panel("[bold]Step 2: Profile[/bold]\nTell Job Apply Pilot about yourself. This powers scoring, tailoring, and auto-fill."))
@@ -157,8 +167,18 @@ def _setup_profile() -> dict:
         "github_url": Prompt.ask("GitHub URL (optional)", default=""),
         "portfolio_url": Prompt.ask("Portfolio URL (optional)", default=""),
         "website_url": Prompt.ask("Personal website URL (optional)", default=""),
-        "password": Prompt.ask("Job site password (used for login walls during auto-apply)", password=True, default=""),
     }
+    # Job-site passwords are deliberately not collected or written to profile.json.
+    # A password already stored by an older wizard run is carried over untouched.
+    legacy_password = _existing_profile_password()
+    if legacy_password:
+        profile["personal"]["password"] = legacy_password
+    console.print(
+        "[dim]Job Apply Pilot no longer asks for job-site passwords. For login walls, sign in once in the "
+        "dedicated browser profile: set APPLYPILOT_BROWSER_PROFILE_MODE=persistent, then run "
+        "[bold]applypilot browser-session --url <login page>[/bold]. Sign-ins that cannot be completed "
+        "that way are handed to you.[/dim]"
+    )
 
     # -- Work Authorization --
     console.print("\n[bold cyan]Work Authorization[/bold cyan]")
@@ -240,6 +260,63 @@ def _setup_profile() -> dict:
 # Search config
 # ---------------------------------------------------------------------------
 
+# Indeed country sites accepted by python-jobspy (``Country`` enum). jobspy is an
+# optional dependency, so a small common-country table works without it; names
+# that are not listed here are validated through jobspy when it can be imported.
+_INDEED_COUNTRY_ALIASES = {
+    "united states": "usa",
+    "us": "usa",
+    "united kingdom": "uk",
+    "great britain": "uk",
+    "england": "uk",
+    "uae": "united arab emirates",
+    "korea": "south korea",
+    "czechia": "czech republic",
+}
+_INDEED_COUNTRIES = frozenset(
+    {
+        "argentina", "australia", "austria", "belgium", "brazil", "canada", "chile", "china", "colombia",
+        "denmark", "finland", "france", "germany", "greece", "hong kong", "hungary", "india", "indonesia",
+        "ireland", "israel", "italy", "japan", "malaysia", "mexico", "netherlands", "new zealand", "norway",
+        "pakistan", "philippines", "poland", "portugal", "qatar", "romania", "saudi arabia", "singapore",
+        "south africa", "south korea", "spain", "sweden", "switzerland", "taiwan", "thailand", "turkey",
+        "ukraine", "united arab emirates", "uk", "usa", "vietnam",
+    }
+)
+
+
+def _known_indeed_country(value: str) -> str | None:
+    name = " ".join(value.casefold().split())
+    name = _INDEED_COUNTRY_ALIASES.get(name, name)
+    return name if name in _INDEED_COUNTRIES else None
+
+
+def _jobspy_country_name(value: str) -> str | None:
+    """Validate ``value`` against python-jobspy's Country enum when it is installed."""
+    try:
+        from jobspy.model import Country  # optional dependency
+
+        return Country.from_string(value.strip()).value[0].split(",")[0]
+    except (ImportError, ValueError, AttributeError, IndexError):  # missing/broken jobspy or unknown country
+        return None
+
+
+def _normalize_indeed_country(value: str) -> str | None:
+    """Return the Indeed country name jobspy accepts for ``value``, or None."""
+    return _known_indeed_country(value) or _jobspy_country_name(value)
+
+
+def _infer_indeed_country(location: str) -> str | None:
+    """Infer the Indeed country from a target location; None when unsure or remote."""
+    if location.strip().casefold() in {"", "remote"}:
+        return None
+    for part in reversed(location.split(",")):
+        country = _known_indeed_country(part)
+        if country:
+            return country
+    return None
+
+
 def _setup_searches() -> None:
     """Generate a searches.yaml from user input."""
     console.print(Panel("[bold]Step 3: Job Search Config[/bold]\nDefine what you're looking for."))
@@ -256,6 +333,21 @@ def _setup_searches() -> None:
         "Search remote jobs only?",
         default=location.strip().casefold() == "remote",
     )
+
+    # Indeed runs one site per country; without this jobspy falls back to the USA site.
+    inferred_country = _infer_indeed_country(location)
+    country_answer = Prompt.ask(
+        "Indeed country site (e.g. singapore, usa; leave blank to keep the default 'usa')",
+        default=inferred_country or "",
+    ).strip()
+    indeed_country = None
+    if country_answer:
+        indeed_country = _normalize_indeed_country(country_answer)
+        if indeed_country is None:
+            console.print(
+                f"[yellow]'{country_answer}' is not a supported Indeed country; not writing one. "
+                "Set `country` in searches.yaml to change it.[/yellow]"
+            )
 
     roles_raw = Prompt.ask(
         "Target job titles (comma-separated, e.g. 'Backend Engineer, Full Stack Developer')"
@@ -278,6 +370,15 @@ def _setup_searches() -> None:
         "locations": [{"location": location, "remote": remote_only}],
         "queries": [{"query": role, "tier": min(i + 1, 3)} for i, role in enumerate(roles)],
     }
+    if indeed_country:
+        # ``country`` is the key the shipped searches.example.yaml uses; run_discovery maps it
+        # to Indeed's country_indeed. Insert it after ``defaults`` to keep the file readable.
+        search_config = {
+            "defaults": search_config["defaults"],
+            "country": indeed_country,
+            "locations": search_config["locations"],
+            "queries": search_config["queries"],
+        }
     header = (
         "# Job Apply Pilot search configuration\n"
         "# Edit this file to refine your job search queries.\n\n"
