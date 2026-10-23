@@ -59,8 +59,9 @@ All notable changes to Job Apply Pilot will be documented in this file.
 
 ### Changed
 
-- The database now applies seven ordered migrations instead of one (posting lifecycle,
-  follow-up, career, career learning, workbench and workbench publication tables).
+- The database now applies eight ordered migrations instead of one (posting lifecycle,
+  follow-up, career, career learning, workbench and workbench publication tables, and
+  detail-fetch retry state).
   Existing workspaces upgrade in place on first open; an earlier release fails closed
   on the newer schema version and will not open an upgraded workspace.
 - `.env.example` no longer lists the unused `PROXY` variable. JobSpy and Workday
@@ -90,12 +91,35 @@ All notable changes to Job Apply Pilot will be documented in this file.
   apply or career layers. Old import paths remain as re-exports.
 - The test suite runs against a temporary workspace and never writes to
   `~/.applypilot`, and dumps thread stacks when one test phase stalls for 120 seconds.
+- Every `manual_review_required` outcome, whether the Agent reports a missing fact or
+  the host stops for review, now goes to the human review queue instead of being parked
+  as an unclassified failure for automated diagnosis. It grants no retry, resume or
+  submission authority.
+- `applypilot init` no longer asks for or stores a job-site password; it points to
+  `applypilot browser-session` with a persistent browser profile instead. A plaintext
+  password left in `profile.json` by an older setup is not carried into the rewritten
+  profile; nothing read it, and the credential relay's encrypted store is unaffected.
+  The wizard also asks for the Indeed country site,
+  defaulting from the target location, and writes `country` to `searches.yaml`;
+  discovery warns when Indeed falls back to the USA site.
+- Detail enrichment retries transient failures (HTTP 408/429, 5xx other than 501/505,
+  navigation timeouts and connection resets) for up to three attempts with 1h and 6h
+  backoff before marking them permanent. A rate limit pauses the whole site, including
+  jobs discovered later, until the limited job is due again.
+- Runtime output directories use short fixed-length digests instead of readable names
+  (full identities stay in the runtime namespace record). On Windows, a workspace path
+  that leaves no room for an Agent working directory fails with
+  `failed:workspace_path_too_long` before a browser is leased.
 
 ### Fixed
 
 - `apply --agent-backend claude` runs again. Since 0.5 the subprocess launch check
   rejected the empty `--tools ""` argument the Claude CLI needs, so every Claude turn
   failed before the CLI started.
+- Claude turns whose structured report and final `RESULT` agree are no longer recorded
+  as `failed:conflicting_agent_results` (the result line was read twice from the
+  stream). Claude now receives the visual bridge's form observation, and a configured
+  reasoning effort is passed to Claude with `--effort`.
 - The career workbench server reads the remaining request body before answering a
   rejected or invalid POST, so clients receive the JSON error instead of a reset
   connection (`WinError 10053/10054` on Windows).
