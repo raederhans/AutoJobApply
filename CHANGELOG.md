@@ -102,9 +102,10 @@ All notable changes to Job Apply Pilot will be documented in this file.
   The wizard also asks for the Indeed country site,
   defaulting from the target location, and writes `country` to `searches.yaml`;
   discovery warns when Indeed falls back to the USA site.
-- Detail enrichment retries transient failures (HTTP 408/429/5xx, navigation timeouts
-  and connection resets) for up to three attempts with 1h and 6h backoff before marking
-  them permanent, and a rate limit stops the rest of that site's batch.
+- Detail enrichment retries transient failures (HTTP 408/429, 5xx other than 501/505,
+  navigation timeouts and connection resets) for up to three attempts with 1h and 6h
+  backoff before marking them permanent. A rate limit pauses the whole site, including
+  jobs discovered later, until the limited job is due again.
 - Runtime output directories use short fixed-length digests instead of readable names
   (full identities stay in the runtime namespace record). On Windows, a workspace path
   that leaves no room for an Agent working directory fails with
