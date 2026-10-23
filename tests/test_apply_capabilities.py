@@ -204,6 +204,56 @@ def test_claude_surface_includes_resolver_from_canonical_registry(tmp_path: Path
     assert "mcp__applypilot_ats__detect_ats" not in allowed
 
 
+@pytest.mark.parametrize("phase", ["prepare", "submit"])
+def test_claude_command_is_accepted_by_the_subprocess_launch_spec(tmp_path: Path, phase: str) -> None:
+    # Regression: the launch spec once rejected the empty ``--tools ""`` argument, so
+    # every Claude turn failed before the CLI started.
+    command, _ = agent_runtime.build_agent_command(
+        "claude",
+        "model",
+        9432,
+        tmp_path,
+        tmp_path / "mcp.json",
+        resolve_claude=lambda: ["claude"],
+        capability_registry=scope_capability_registry(compose_runtime_capabilities(), phase=phase),
+    )
+    assert command[command.index("--tools") + 1] == ""
+
+    spec = agent_runtime.SubprocessLaunchSpec(
+        run_id="turn-1",
+        attempt_id="attempt-1",
+        actor_id="application:attempt-1",
+        turn_id="turn-1",
+        command=tuple(command),
+        prompt="prompt",
+        cwd=tmp_path,
+        env={},
+        runtime_id="claude:edge:cdp:9432",
+        profile_id="edge:worker:0",
+    )
+
+    assert spec.command == tuple(command)
+
+
+@pytest.mark.parametrize("command", [(), ("",), ("  ", "--json"), ("agent", None)])
+def test_subprocess_launch_spec_still_requires_a_string_executable(
+    tmp_path: Path, command: tuple
+) -> None:
+    with pytest.raises(ValueError, match="executable"):
+        agent_runtime.SubprocessLaunchSpec(
+            run_id="turn-1",
+            attempt_id="attempt-1",
+            actor_id="application:attempt-1",
+            turn_id="turn-1",
+            command=command,
+            prompt="prompt",
+            cwd=tmp_path,
+            env={},
+            runtime_id="claude:edge:cdp:9432",
+            profile_id="edge:worker:0",
+        )
+
+
 def test_prepare_runtime_surfaces_expose_answer_mapping_only_before_submit(
     tmp_path: Path,
 ) -> None:
