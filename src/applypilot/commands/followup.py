@@ -12,6 +12,7 @@ from typing import Annotated
 import typer
 
 from applypilot import followup
+from applypilot.storage.read_only import open_read_only
 
 app = typer.Typer(help="Local recruiting timeline, next actions and calendar export.", no_args_is_help=True)
 
@@ -33,7 +34,7 @@ def _connection(*, write: bool = False):
 
             conn = init_db(path)
         elif path.is_file():
-            conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+            conn = open_read_only(path)
         yield conn
     except (ValueError, TypeError, OSError, sqlite3.Error) as exc:
         raise typer.BadParameter(str(exc)) from exc

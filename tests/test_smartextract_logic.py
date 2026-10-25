@@ -434,7 +434,7 @@ def test_judge_api_responses_keeps_drops_and_keeps_on_error(monkeypatch) -> None
         RuntimeError("rate limited"),
         '{"reason": "missing flag"}',
     )
-    monkeypatch.setattr(smartextract, "get_client", lambda: client)
+    monkeypatch.setattr(smartextract, "get_client", lambda task=None: client)
     responses = [
         {"url": "https://x.test/api/jobs", "status": 200, "size": 10, "type": "array",
          "first_item_keys": ["title"], "first_item_sample": {"title": "Analyst"}},
@@ -453,7 +453,7 @@ def test_judge_api_responses_keeps_drops_and_keeps_on_error(monkeypatch) -> None
 
 
 def test_judge_api_responses_skips_client_creation_for_empty_input(monkeypatch) -> None:
-    monkeypatch.setattr(smartextract, "get_client", lambda: pytest.fail("client must not be created"))
+    monkeypatch.setattr(smartextract, "get_client", lambda task=None: pytest.fail("client must not be created"))
 
     assert smartextract.judge_api_responses([]) == []
 
@@ -654,7 +654,7 @@ def test_run_one_site_judges_api_responses_then_extracts_from_the_kept_ones(monk
     ]
     _patch_collect(monkeypatch, _intel(api_responses=api))
     client = _FakeClient('{"relevant": true}', '{"relevant": false}')
-    monkeypatch.setattr(smartextract, "get_client", lambda: client)
+    monkeypatch.setattr(smartextract, "get_client", lambda task=None: client)
     plan = {"strategy": "api_response", "reasoning": "api", "extraction": {
         "url_pattern": "/api/jobs", "items_path": "", "title": "name", "url": "link"}}
     monkeypatch.setattr(smartextract, "ask_llm", _llm(json.dumps(plan)))
@@ -833,7 +833,7 @@ def test_format_strategy_briefing_shows_top_level_item_keys_and_samples() -> Non
 
 def test_ask_llm_returns_text_timing_and_metadata(monkeypatch) -> None:
     client = _FakeClient("hello")
-    monkeypatch.setattr(smartextract, "get_client", lambda: client)
+    monkeypatch.setattr(smartextract, "get_client", lambda task=None: client)
 
     text, elapsed, meta = smartextract.ask_llm("prompt text")
 

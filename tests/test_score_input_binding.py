@@ -136,7 +136,7 @@ def test_long_description_tail_requirements_reach_model(monkeypatch):
             observed.append(messages[1]["content"])
             return "SCORE: 5\nKEYWORDS: engineering\nREASONING: License is missing.\nREVIEW: none"
 
-    monkeypatch.setattr(scorer, "get_client", FakeClient)
+    monkeypatch.setattr(scorer, "get_client", lambda task=None: FakeClient())
     monkeypatch.setattr(scorer, "current_profile_resume_fact_errors", lambda *_: [])
     result = scorer.score_job_with_review("Candidate project evidence", {"title": "Engineer", "full_description": description})
     assert result["score"] == 5

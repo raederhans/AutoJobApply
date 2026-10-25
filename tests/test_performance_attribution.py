@@ -4,11 +4,11 @@ import math
 
 import pytest
 
-from applypilot.apply.full_stack_no_submit_benchmark import (
+from applypilot_lab.full_stack_no_submit_benchmark import (
     CohortMetricCollector,
     _attribution_summary,
 )
-from applypilot.apply.p4_no_submit_worker import (
+from applypilot_lab.p4_no_submit_worker import (
     AGENT_RUNTIME_SPANS,
     ATTRIBUTION_SCHEMA_VERSION,
     TaskAttribution,

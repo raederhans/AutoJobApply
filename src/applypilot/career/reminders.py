@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import re
-import sqlite3
 from pathlib import Path
 
 from applypilot import followup_reminders, local_report_html
 from applypilot.career.interviews import action_interview_links
 from applypilot.career.reminder_calendar import render_calendar
+from applypilot.storage.read_only import open_read_only
 
 
 def _call(function, *args, **kwargs):
@@ -36,9 +36,8 @@ def list_items(workspace, *, limit=100):
     result = {**_call(followup_reminders.list_reminders, workspace, limit=limit), "limit": limit}
     path = Path(workspace).resolve() / "applypilot.db"
     if path.is_file():
-        conn = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True)
+        conn = open_read_only(path)
         try:
-            conn.execute("PRAGMA query_only=ON")
             links = {followup_reminders._id("action-", action_id): identity
                      for action_id, identity in action_interview_links(conn).items()}
         finally:

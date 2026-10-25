@@ -133,10 +133,10 @@ def diagnose(conn: sqlite3.Connection, target_id: str, *, use_model: bool = Fals
         from applypilot.career.model import suggest
         owned_client = client is None
         if client is None:
-            from applypilot.llm import LLMClient, _detect_provider
+            from applypilot.llm import create_client
             # Resolve this invocation's environment; a singleton could retain
             # another workspace's model configuration in a long-lived process.
-            client = LLMClient(*_detect_provider())
+            client = create_client(task="career")
         try:
             suggestions, model_meta = suggest(conn, target=target, input_digest=input_digest, jobs=jobs,
                                               evidence=evidence, client=client, retry_unknown=retry_unknown)

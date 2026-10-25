@@ -6,7 +6,6 @@ import hashlib
 import json
 import os
 import re
-import sqlite3
 import tempfile
 from collections import defaultdict
 from contextlib import contextmanager
@@ -14,6 +13,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 from applypilot.progress_report import _instant, _rows, _text, collect_report
+from applypilot.storage.read_only import open_read_only
 
 STORE_NAME = "followup-reminders.json"
 BUCKETS = ("overdue", "today", "future", "undated")
@@ -100,10 +100,8 @@ def _snapshot(workspace: Path) -> tuple[dict, dict, list[dict]]:
     path = workspace / "applypilot.db"
     if not path.is_file():
         return {}, {}, []
-    conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=10)
+    conn = open_read_only(path, timeout=10, snapshot=True)
     try:
-        conn.execute("PRAGMA query_only=ON")
-        conn.execute("BEGIN")
         targets = {row["record_id"]: row for row in collect_report(conn)["rows"]}
         registries = _rows(conn, "followup_applications", ("application_id", "job_url"))
         by_url = defaultdict(list)

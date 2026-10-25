@@ -12,6 +12,7 @@ import sqlite3
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
+from applypilot.storage.read_only import open_read_only
 from applypilot.storage.transactions import write_transaction
 
 DATABASE_SCHEMA_COMPONENT = "applypilot_database"
@@ -65,10 +66,7 @@ def require_supported_database_path(
     database_path = Path(path)
     if not database_path.exists():
         return 0
-    probe = sqlite3.connect(
-        f"{database_path.resolve().as_uri()}?mode=ro",
-        uri=True,
-    )
+    probe = open_read_only(database_path)
     try:
         return require_supported_database_schema(
             probe,
