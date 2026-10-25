@@ -25,7 +25,7 @@
   `applypilot-job-scout` (lead collection from visible pages into a lead JSON file),
   `applypilot-fit-reviewer` (second look at a borderline score) and
   `applypilot-materials-reviewer` (evidence check of a candidate-facing draft).
-- The parent session keeps every authority: running `..un.ps1` / `..un-radar.ps1`,
+- The parent session keeps every authority: running `..un.ps1` / `..un-radar.ps1`,
   imports with `-AttendedReview`, scoring decisions, browser form work, final clicks,
   receipts, CAPTCHA handoffs and anything touching credentials or identity material.
   Codex subagents inherit the parent's sandbox, so these limits are instructions, not
