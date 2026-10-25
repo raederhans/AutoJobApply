@@ -64,7 +64,7 @@ class _FakeResponse:
 def test_default_transport_returns_status_body_and_headers(monkeypatch):
     seen = {}
 
-    def fake_urlopen(request, timeout=None):
+    def fake_urlopen(request, timeout=None, **_kwargs):
         seen["request"] = request
         seen["timeout"] = timeout
         return _FakeResponse(200, b'{"ok": true}', {"Content-Type": "application/json"})
@@ -95,14 +95,14 @@ def test_default_transport_sends_read_only_user_agent_by_default(monkeypatch):
     monkeypatch.setattr(
         official.urllib.request,
         "urlopen",
-        lambda request, timeout=None: seen.setdefault("request", request) and _FakeResponse(),
+        lambda request, timeout=None, **_kwargs: seen.setdefault("request", request) and _FakeResponse(),
     )
     official._default_transport("https://example.test/jobs")
     assert seen["request"].get_header("User-agent") == official._USER_AGENT
 
 
 def test_default_transport_converts_http_error_to_mapping(monkeypatch):
-    def fake_urlopen(request, timeout=None):
+    def fake_urlopen(request, timeout=None, **_kwargs):
         headers = email.message.Message()
         headers["Retry-After"] = "30"
         raise urllib.error.HTTPError(
@@ -119,7 +119,7 @@ def test_default_transport_converts_http_error_to_mapping(monkeypatch):
 
 
 def test_default_transport_lets_network_errors_propagate(monkeypatch):
-    def fake_urlopen(request, timeout=None):
+    def fake_urlopen(request, timeout=None, **_kwargs):
         raise urllib.error.URLError("connection refused")
 
     monkeypatch.setattr(official.urllib.request, "urlopen", fake_urlopen)
@@ -717,7 +717,7 @@ def test_radar_collect_runs_real_transport_adapter_and_ingestion(conn, monkeypat
     monkeypatch.setattr(official, "load_company_watchlist", lambda: [_watchlist_entry()])
     requests = []
 
-    def fake_urlopen(request, timeout=None):
+    def fake_urlopen(request, timeout=None, **_kwargs):
         requests.append((request.full_url, request.get_header("User-agent"), timeout))
         return _FakeResponse(200, _fixture("greenhouse_jobs.json").encode("utf-8"))
 
@@ -749,7 +749,7 @@ def test_radar_collect_runs_real_transport_adapter_and_ingestion(conn, monkeypat
 def test_radar_collect_records_blocked_http_status_in_run_ledger(conn, monkeypatch):
     monkeypatch.setattr(official, "load_company_watchlist", lambda: [_watchlist_entry()])
 
-    def fake_urlopen(request, timeout=None):
+    def fake_urlopen(request, timeout=None, **_kwargs):
         raise urllib.error.HTTPError(request.full_url, 403, "Forbidden", email.message.Message(), io.BytesIO(b""))
 
     monkeypatch.setattr(official.urllib.request, "urlopen", fake_urlopen)
@@ -773,7 +773,7 @@ def test_radar_collect_records_blocked_http_status_in_run_ledger(conn, monkeypat
 def test_radar_collect_closes_run_when_network_error_escapes_the_adapter(conn, monkeypatch):
     monkeypatch.setattr(official, "load_company_watchlist", lambda: [_watchlist_entry()])
 
-    def fake_urlopen(request, timeout=None):
+    def fake_urlopen(request, timeout=None, **_kwargs):
         raise urllib.error.URLError("name resolution failed")
 
     monkeypatch.setattr(official.urllib.request, "urlopen", fake_urlopen)

@@ -23,6 +23,7 @@ import yaml
 from applypilot import config
 from applypilot.config import CONFIG_DIR
 from applypilot.database import get_connection, init_db
+from applypilot.discovery.tls import public_web_tls_context
 
 log = logging.getLogger(__name__)
 
@@ -130,7 +131,9 @@ def setup_proxy(proxy_str: str | None) -> None:
         "http": proxy_url,
         "https": proxy_url,
     })
-    _opener = urllib.request.build_opener(proxy_handler)
+    _opener = urllib.request.build_opener(
+        proxy_handler, urllib.request.HTTPSHandler(context=public_web_tls_context())
+    )
     log.info("Proxy configured: %s:%s", parts[0], parts[1])
 
 
@@ -138,7 +141,7 @@ def _urlopen(req, timeout=30):
     """Open a URL using the configured opener (with or without proxy)."""
     if _opener:
         return _opener.open(req, timeout=timeout)
-    return urllib.request.urlopen(req, timeout=timeout)
+    return urllib.request.urlopen(req, timeout=timeout, context=public_web_tls_context())
 
 
 # -- Workday API -------------------------------------------------------------

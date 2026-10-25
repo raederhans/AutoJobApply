@@ -199,7 +199,9 @@ def test_urlopen_uses_configured_opener_else_module_urlopen(monkeypatch) -> None
     assert workday._urlopen("req", timeout=7) == ("opener", "req", 7)
 
     monkeypatch.setattr(workday, "_opener", None)
-    monkeypatch.setattr(workday.urllib.request, "urlopen", lambda req, timeout: ("plain", req, timeout))
+    monkeypatch.setattr(
+        workday.urllib.request, "urlopen", lambda req, timeout, **_kwargs: ("plain", req, timeout)
+    )
     assert workday._urlopen("req", timeout=9) == ("plain", "req", 9)
 
 
