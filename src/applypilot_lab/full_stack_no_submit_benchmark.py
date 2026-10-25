@@ -243,7 +243,16 @@ def load_fixture(path: Path | str) -> tuple[dict[str, Any], str]:
 
 
 def _source_manifest_sha256(source_root: Path) -> str:
-    paths = sorted((source_root / "src" / "applypilot" / "apply").glob("*.py"))
+    # The P4 worker and this runner live in applypilot_lab but still define the
+    # measured behaviour, so they are part of the fingerprint.
+    lab = source_root / "src" / "applypilot_lab"
+    paths = sorted(
+        [
+            *(source_root / "src" / "applypilot" / "apply").glob("*.py"),
+            lab / "p4_no_submit_worker.py",
+            lab / "full_stack_no_submit_benchmark.py",
+        ]
+    )
     manifest = [
         {
             "path": path.relative_to(source_root).as_posix(),

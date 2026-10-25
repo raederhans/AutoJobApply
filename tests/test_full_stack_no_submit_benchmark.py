@@ -253,3 +253,23 @@ def test_thresholds_match_the_promotion_contract() -> None:
         "submit_lane_wait_max_ms_max": 1000.0,
         "submit_lane_hold_p95_ms_max": 200.0,
     }
+
+
+def test_source_manifest_covers_the_relocated_lab_modules(tmp_path: Path) -> None:
+    from applypilot_lab import full_stack_no_submit_benchmark as benchmark
+
+    apply_dir = tmp_path / "src" / "applypilot" / "apply"
+    lab_dir = tmp_path / "src" / "applypilot_lab"
+    apply_dir.mkdir(parents=True)
+    lab_dir.mkdir(parents=True)
+    (apply_dir / "launcher.py").write_text("x = 1\n", encoding="utf-8")
+    for name in ("p4_no_submit_worker.py", "full_stack_no_submit_benchmark.py"):
+        (lab_dir / name).write_text("y = 1\n", encoding="utf-8")
+    before = benchmark._source_manifest_sha256(tmp_path)
+
+    (lab_dir / "p4_no_submit_worker.py").write_text("y = 2\n", encoding="utf-8")
+    after_worker = benchmark._source_manifest_sha256(tmp_path)
+    (lab_dir / "full_stack_no_submit_benchmark.py").write_text("y = 3\n", encoding="utf-8")
+
+    assert after_worker != before
+    assert benchmark._source_manifest_sha256(tmp_path) != after_worker
