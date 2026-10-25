@@ -778,3 +778,71 @@ def test_direct_mcp_process_does_not_require_a_package_or_version() -> None:
 
     assert spec.package is None
     assert spec.process_args() == ["--stdio"]
+
+
+def _claude_command(tmp_path: Path, **kwargs):
+    command, _ = agent_runtime.build_agent_command(
+        "claude",
+        "model",
+        9432,
+        tmp_path,
+        tmp_path / "mcp.json",
+        resolve_claude=lambda: ["claude"],
+        **kwargs,
+    )
+    return command
+
+
+@pytest.mark.parametrize("effort", ["low", "medium", "high", "xhigh", "max"])
+def test_claude_command_passes_configured_effort(tmp_path: Path, effort: str) -> None:
+    metadata: dict = {}
+    command = _claude_command(
+        tmp_path,
+        workload_class="submit-review",
+        reasoning_efforts={"submit-review": effort},
+        runtime_metadata=metadata,
+    )
+
+    assert command[command.index("--effort") + 1] == effort
+    assert command.index("--effort") < command.index("-p")
+    assert metadata["runtime_configuration"]["reasoning_effort_applied"] is True
+
+
+@pytest.mark.parametrize("effort", ["none", "minimal", "ultra"])
+def test_claude_command_omits_effort_that_claude_cannot_express(tmp_path: Path, effort: str) -> None:
+    metadata: dict = {}
+    command = _claude_command(
+        tmp_path,
+        workload_class="submit-review",
+        reasoning_efforts={"submit-review": effort},
+        runtime_metadata=metadata,
+    )
+
+    assert "--effort" not in command
+    assert metadata["runtime_configuration"]["reasoning_effort"] == effort
+    assert metadata["runtime_configuration"]["reasoning_effort_applied"] is False
+
+
+def test_claude_command_omits_effort_when_nothing_is_configured(tmp_path: Path) -> None:
+    metadata: dict = {}
+    command = _claude_command(tmp_path, runtime_metadata=metadata)
+
+    assert "--effort" not in command
+    assert metadata["runtime_configuration"]["reasoning_effort_source"] == "default"
+    assert metadata["runtime_configuration"]["reasoning_effort_applied"] is False
+
+
+def test_codex_command_never_gets_claude_effort_flag(tmp_path: Path) -> None:
+    command, _ = agent_runtime.build_agent_command(
+        "codex",
+        "model",
+        9432,
+        tmp_path,
+        tmp_path / "mcp.json",
+        resolve_codex=lambda: ["codex"],
+        workload_class="submit-review",
+        reasoning_efforts={"submit-review": "max"},
+    )
+
+    assert "--effort" not in command
+    assert 'model_reasoning_effort="max"' in command

@@ -643,6 +643,13 @@ def run_discovery(cfg: dict | None = None) -> dict:
         defaults["country_indeed"] = cfg["country"]
     normalized_cfg["defaults"] = defaults
 
+    effective_boards = cfg.get("boards") or cfg.get("sites")
+    if not defaults.get("country_indeed") and (not effective_boards or "indeed" in effective_boards):
+        log.warning(
+            "No Indeed country configured; Indeed searches fall back to the 'usa' site. "
+            "Set `country` (for example `country: singapore`) in searches.yaml."
+        )
+
     proxy = cfg.get("proxy")
     sites = cfg.get("boards") or cfg.get("sites")
     results_per_site = defaults.get("results_per_site", 100)
