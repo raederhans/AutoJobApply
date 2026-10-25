@@ -130,6 +130,22 @@ All notable changes to Job Apply Pilot will be documented in this file.
 
 ### Fixed
 
+- A closed or otherwise failed posting that the browser agent reports during observation
+  (or, in a preview, during preparation) is classified by its typed failure, for example
+  `expired`, instead of `failed:conflicting_agent_results`.
+- Fetches of official employer and ATS pages (`radar advance`, official boards, Workday)
+  trust the Mozilla CA bundle in addition to the operating-system store, so a site whose
+  newer root is missing from the local Windows store no longer fails TLS verification.
+- Detail enrichment, smart extraction and resume PDF rendering fall back to the installed
+  Edge/Chrome when Playwright's bundled Chromium has not been downloaded for the current
+  Playwright release, instead of failing at launch.
+- Detail enrichment reads the description block of LinkedIn's public job pages
+  deterministically; these pages previously fell through to the LLM tier, which often
+  returned nothing.
+- An explicit `--workspace` given after configuration was already loaded in the same
+  process rebinds every workspace path, including copies held by other modules.
+- Read-only report, plan and export commands open the database through one helper that
+  refuses writes; the `attended-plan` command now closes its connection.
 - The Gemini default model is now `gemini-3.8-flash`; the previous default,
   `gemini-2.0-flash`, was shut down by Google on 2026-06-01. `doctor` and `init`
   share the same defaults. An explicit `LLM_MODEL` still wins.
