@@ -18,6 +18,29 @@ from applypilot.apply.visual_bridge import (
 BRIDGE_DIR_ENV = "APPLYPILOT_VISUAL_BRIDGE_DIR"
 TOOL_NAME = "visual_operation"
 
+# Set from the MCP initialize request. Claude Code gives the model structuredContent
+# INSTEAD of content whenever both are present (verified against claude-code 2.1.239),
+# which hides the host's content blocks (form_state) from it.
+_client_name = ""
+
+
+def _adapt_for_client(result: dict[str, object]) -> dict[str, object]:
+    """Make a tool result fully visible to Claude Code without adding any new data.
+
+    The compact structuredContent JSON is appended to content and the duplicate
+    structuredContent is dropped, so every field the model needs is in content.
+    Other clients (Codex reads content and structuredContent) are left unchanged.
+    """
+    structured = result.get("structuredContent")
+    if not _client_name.casefold().startswith("claude") or structured is None:
+        return result
+    adapted = {key: value for key, value in result.items() if key != "structuredContent"}
+    adapted["content"] = [
+        *result["content"],
+        {"type": "text", "text": json.dumps(structured, ensure_ascii=False, separators=(",", ":"))},
+    ]
+    return adapted
+
 
 def _result(request_id: object, result: object) -> dict[str, object]:
     return {"jsonrpc": "2.0", "id": request_id, "result": result}
@@ -135,9 +158,25 @@ def _tool() -> dict[str, object]:
 
 
 def _handle(message: dict[str, object]) -> dict[str, object] | None:
+    response = _dispatch(message)
+    if (
+        response is not None
+        and message.get("method") == "tools/call"
+        and isinstance(response.get("result"), dict)
+    ):
+        response["result"] = _adapt_for_client(response["result"])
+    return response
+
+
+def _dispatch(message: dict[str, object]) -> dict[str, object] | None:
+    global _client_name
     method = str(message.get("method") or "")
     request_id = message.get("id")
     if method == "initialize":
+        params = message.get("params")
+        client_info = params.get("clientInfo") if isinstance(params, dict) else None
+        name = client_info.get("name") if isinstance(client_info, dict) else None
+        _client_name = name if isinstance(name, str) else ""
         return _result(
             request_id,
             {

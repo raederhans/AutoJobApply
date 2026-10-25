@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 from applypilot import config
 from applypilot.apply.agent_configuration import (
     AgentRuntimeConfiguration,
+    claude_effort_argument,
     resolve_agent_runtime_configuration,
 )
 from applypilot.apply.capabilities import (
@@ -443,6 +444,7 @@ def build_agent_command(
             direct_email_send_authorized=effective_direct_email_send
         )
     if backend == "claude":
+        claude_effort = claude_effort_argument(runtime_configuration.reasoning)
         allowed_mcp_tools = [
             *(f"mcp__playwright__{name}" for name in playwright_tools),
             *(f"mcp__applypilot_control__{name}" for name in control_tool_names),
@@ -475,6 +477,7 @@ def build_agent_command(
             resolve_claude()
             + [
                 "--model", model,
+                *(("--effort", claude_effort) if claude_effort else ()),
                 "-p",
                 "--mcp-config", str(mcp_config_path),
                 "--strict-mcp-config",

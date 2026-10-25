@@ -28,6 +28,19 @@ class ReasoningEffortResolution:
         }
 
 
+# Claude Code `--effort` levels; project efforts outside this set (none, minimal, ultra)
+# have no Claude equivalent and are not passed.
+CLAUDE_EFFORT_VALUES = frozenset({"low", "medium", "high", "xhigh", "max"})
+
+
+def claude_effort_argument(reasoning: ReasoningEffortResolution) -> str | None:
+    """Return the `--effort` value for Claude, or None when nothing explicit maps."""
+
+    if reasoning.source == "default" or reasoning.value not in CLAUDE_EFFORT_VALUES:
+        return None
+    return reasoning.value
+
+
 @dataclass(frozen=True, slots=True)
 class AgentRuntimeConfiguration:
     """One resolved model/effort pair shared by CLI and App Server."""
@@ -52,7 +65,10 @@ class AgentRuntimeConfiguration:
             "model": self.model,
             "model_source": self.model_source,
             **self.reasoning.as_dict(),
-            "reasoning_effort_applied": self.backend == "codex",
+            "reasoning_effort_applied": (
+                self.backend == "codex"
+                or claude_effort_argument(self.reasoning) is not None
+            ),
         }
 
 

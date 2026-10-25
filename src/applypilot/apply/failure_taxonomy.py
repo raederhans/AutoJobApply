@@ -272,6 +272,16 @@ def classify_failure(result: str) -> FailureDescriptor:
             "requires_human_boundary",
             "correct_directly_false_or_sensitive_answer",
         )
+    if reason.startswith("manual_review_required"):
+        # The prompt contract defines this as an explicit Agent handoff: a human
+        # decision or confirmed fact is required. More specific material and
+        # boundary tokens above keep their own categories; only the generic
+        # remainder lands here, and it grants no retry or resume authority.
+        return FailureDescriptor(
+            "manual_review_required",
+            "requires_human_boundary",
+            "review_manually_and_supply_missing_fact_or_decision",
+        )
     return FailureDescriptor(
         "unclassified_application_failure",
         "retry_new_session",
