@@ -1,6 +1,9 @@
 """Attended browser entry points, separate from the unattended apply launcher."""
 import sqlite3
+from contextlib import closing
 from pathlib import Path
+
+from applypilot.storage.read_only import open_read_only
 
 
 def run_browser_work(runtime, *, bridge_dir, task_file, phase, timeout_seconds):
@@ -39,8 +42,7 @@ def run_attended_plan(runtime, *, db: Path, attempt_id: str):
 
     try:
         # Read-only URI prevents this status command from creating/upgrading a DB.
-        with sqlite3.connect(db.resolve().as_uri() + "?mode=ro", uri=True) as connection:
-            connection.row_factory = sqlite3.Row
+        with closing(open_read_only(db, row_factory=sqlite3.Row)) as connection:
             result = build_attended_plan(connection, attempt_id)
     except (ValueError, OSError, sqlite3.Error) as exc:
         runtime.console.print(str(exc), markup=False)

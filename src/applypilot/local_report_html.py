@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import html
-import sqlite3
 import sys
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -11,6 +10,7 @@ from pathlib import Path
 
 from applypilot.followup_reminders import STORE_NAME, _day, list_reminders
 from applypilot.progress_report import APPLICATION_STATUSES, _stage, collect_report
+from applypilot.storage.read_only import open_read_only
 
 _CSS = """
 :root{color-scheme:light;--ink:#142b32;--muted:#56696d;--line:#dce6e5;--accent:#16776b}
@@ -209,10 +209,8 @@ def export_report_html(workspace: Path | str, output_dir: Path | str, *, kind: s
         database = root / "applypilot.db"
         if not database.is_file():
             raise ValueError("Existing applypilot.db is required; HTML export does not initialize data")
-        conn = sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True, timeout=10)
+        conn = open_read_only(database, timeout=10, snapshot=True)
         try:
-            conn.execute("PRAGMA query_only=ON")
-            conn.execute("BEGIN")
             report = collect_report(conn, since=since, until=until, statuses=statuses, date_field=date_field)
         finally:
             conn.close()

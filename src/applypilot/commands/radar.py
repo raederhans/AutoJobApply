@@ -6,6 +6,8 @@ import sqlite3
 from contextlib import contextmanager
 from types import ModuleType
 
+from applypilot.storage.read_only import open_read_only
+
 
 def run_radar_main(runtime: ModuleType, values: dict[str, object]) -> None:
     """Restrict discovery-only execution to the explicit radar allowlist."""
@@ -132,8 +134,11 @@ def _planning_connection():
     from applypilot import database
 
     path = database.DB_PATH
-    conn = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True) if path.exists() else sqlite3.connect(":memory:")
-    conn.row_factory = sqlite3.Row
+    if path.exists():
+        conn = open_read_only(path, row_factory=sqlite3.Row)
+    else:
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
     try:
         yield conn
     finally:
