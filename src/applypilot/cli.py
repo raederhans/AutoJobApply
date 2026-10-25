@@ -492,6 +492,15 @@ def main(
     """Job Apply Pilot — evidence-driven discovery, preparation, application, and verification."""
     if workspace is not None:
         os.environ["APPLYPILOT_DIR"] = str(workspace)
+        # Command bodies import config lazily, so this is normally the first binding.
+        # When an explicit --workspace arrives after config is already loaded (an
+        # in-process caller ran another workspace first), rebind it and its copies
+        # instead of keeping the earlier paths. An APPLYPILOT_DIR value was already
+        # in the environment when config was imported.
+        loaded_config = sys.modules.get("applypilot.config")
+        source = ctx.get_parameter_source("workspace")
+        if loaded_config is not None and getattr(source, "name", None) == "COMMANDLINE":
+            loaded_config.bind_workspace(workspace)
     _assert_discovery_only_command(ctx.invoked_subcommand, {"sync-linkedin-applied", "radar"})
 
 

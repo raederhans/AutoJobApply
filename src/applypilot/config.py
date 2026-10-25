@@ -12,26 +12,90 @@ from applypilot.runtime_settings import load_runtime_settings
 # User data directory — all user-specific files live here
 APP_DIR = Path(os.environ["APPLYPILOT_DIR"]) if "APPLYPILOT_DIR" in os.environ else Path.home() / ".applypilot"
 
-# Core paths
-DB_PATH = APP_DIR / "applypilot.db"
-PROFILE_PATH = APP_DIR / "profile.json"
-RESUME_PATH = APP_DIR / "resume.txt"
-RESUME_PDF_PATH = APP_DIR / "resume.pdf"
-SEARCH_CONFIG_PATH = APP_DIR / "searches.yaml"
-RADAR_CONFIG_PATH = APP_DIR / "radar.yaml"
-ENV_PATH = APP_DIR / ".env"
-RADAR_IMPORT_DIR = APP_DIR / "radar-imports"
-RADAR_REPORT_DIR = APP_DIR / "reports"
 
-# Generated output
-TAILORED_DIR = APP_DIR / "tailored_resumes"
-COVER_LETTER_DIR = APP_DIR / "cover_letters"
-LOG_DIR = APP_DIR / "logs"
+def workspace_paths(app_dir: Path) -> dict[str, Path]:
+    """Return every workspace-derived path constant for ``app_dir``."""
+    return {
+        "APP_DIR": app_dir,
+        # Core paths
+        "DB_PATH": app_dir / "applypilot.db",
+        "PROFILE_PATH": app_dir / "profile.json",
+        "RESUME_PATH": app_dir / "resume.txt",
+        "RESUME_PDF_PATH": app_dir / "resume.pdf",
+        "SEARCH_CONFIG_PATH": app_dir / "searches.yaml",
+        "RADAR_CONFIG_PATH": app_dir / "radar.yaml",
+        "ENV_PATH": app_dir / ".env",
+        "RADAR_IMPORT_DIR": app_dir / "radar-imports",
+        "RADAR_REPORT_DIR": app_dir / "reports",
+        # Generated output
+        "TAILORED_DIR": app_dir / "tailored_resumes",
+        "COVER_LETTER_DIR": app_dir / "cover_letters",
+        "LOG_DIR": app_dir / "logs",
+        # Chrome worker isolation
+        "CHROME_WORKER_DIR": app_dir / "chrome-workers",
+        "CLOAK_WORKER_DIR": app_dir / "cloak-workers",
+        "APPLY_WORKER_DIR": app_dir / "apply-workers",
+    }
 
-# Chrome worker isolation
-CHROME_WORKER_DIR = APP_DIR / "chrome-workers"
-CLOAK_WORKER_DIR = APP_DIR / "cloak-workers"
-APPLY_WORKER_DIR = APP_DIR / "apply-workers"
+
+_paths = workspace_paths(APP_DIR)
+DB_PATH = _paths["DB_PATH"]
+PROFILE_PATH = _paths["PROFILE_PATH"]
+RESUME_PATH = _paths["RESUME_PATH"]
+RESUME_PDF_PATH = _paths["RESUME_PDF_PATH"]
+SEARCH_CONFIG_PATH = _paths["SEARCH_CONFIG_PATH"]
+RADAR_CONFIG_PATH = _paths["RADAR_CONFIG_PATH"]
+ENV_PATH = _paths["ENV_PATH"]
+RADAR_IMPORT_DIR = _paths["RADAR_IMPORT_DIR"]
+RADAR_REPORT_DIR = _paths["RADAR_REPORT_DIR"]
+TAILORED_DIR = _paths["TAILORED_DIR"]
+COVER_LETTER_DIR = _paths["COVER_LETTER_DIR"]
+LOG_DIR = _paths["LOG_DIR"]
+CHROME_WORKER_DIR = _paths["CHROME_WORKER_DIR"]
+CLOAK_WORKER_DIR = _paths["CLOAK_WORKER_DIR"]
+APPLY_WORKER_DIR = _paths["APPLY_WORKER_DIR"]
+del _paths
+
+# Modules that copy workspace paths at import time (``from applypilot.config import
+# DB_PATH``). bind_workspace() keeps those copies in step; tests/test_workspace_binding.py
+# fails when a new top-level copy is added without being listed here.
+WORKSPACE_PATH_COPIES: dict[str, tuple[str, ...]] = {
+    "applypilot.database": ("DB_PATH",),
+    "applypilot.resume_library": ("TAILORED_DIR",),
+    "applypilot.scoring.cover_letter": ("COVER_LETTER_DIR",),
+    "applypilot.scoring.pdf": ("TAILORED_DIR",),
+    "applypilot.scoring.tailor": ("RESUME_PATH", "TAILORED_DIR"),
+    "applypilot.single_job": ("COVER_LETTER_DIR", "RESUME_PATH"),
+    "applypilot.view": ("APP_DIR", "DB_PATH"),
+    "applypilot.wizard.init": (
+        "APP_DIR", "ENV_PATH", "PROFILE_PATH", "RESUME_PATH", "RESUME_PDF_PATH", "SEARCH_CONFIG_PATH",
+    ),
+}
+
+
+def bind_workspace(app_dir: Path) -> None:
+    """Point this process at ``app_dir`` even after config was first imported.
+
+    Rebinds the path constants here and in already-imported modules that copied
+    them. A copy that no longer matches the previous workspace was replaced on
+    purpose (for example by a test) and is left alone.
+    """
+    import sys
+
+    module = sys.modules[__name__]
+    previous = workspace_paths(module.APP_DIR)
+    current = workspace_paths(Path(app_dir))
+    os.environ["APPLYPILOT_DIR"] = str(app_dir)
+    for name, path in current.items():
+        setattr(module, name, path)
+    for module_name, names in WORKSPACE_PATH_COPIES.items():
+        copy = sys.modules.get(module_name)
+        if copy is None:
+            continue
+        for name in names:
+            if getattr(copy, name, None) == previous[name]:
+                setattr(copy, name, current[name])
+
 
 # Package-shipped config (YAML registries)
 PACKAGE_DIR = Path(__file__).parent
