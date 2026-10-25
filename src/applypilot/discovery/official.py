@@ -29,6 +29,7 @@ import yaml
 from bs4 import BeautifulSoup
 
 from applypilot.config import CONFIG_DIR
+from applypilot.discovery.tls import public_web_tls_context
 
 Transport = Callable[..., Any]
 _BLOCKED_HTTP_CODES = {401, 403, 407, 429}
@@ -89,7 +90,7 @@ def _default_transport(url: str, headers: Mapping[str, str] | None = None) -> di
     request_headers.update(headers or {})
     request = urllib.request.Request(url, headers=request_headers, method="GET")
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
+        with urllib.request.urlopen(request, timeout=20, context=public_web_tls_context()) as response:
             return {
                 "status_code": response.getcode(),
                 "body": response.read(),

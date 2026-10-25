@@ -7,7 +7,6 @@ import http.client
 import ipaddress
 import json
 import socket
-import ssl
 import time
 from collections import defaultdict
 from collections.abc import Callable, Mapping
@@ -25,6 +24,7 @@ from applypilot.database import (
 )
 from applypilot.discovery.ecosystem import _official_url
 from applypilot.discovery.official import collect_jobposting_jsonld
+from applypilot.discovery.tls import public_web_tls_context
 
 Transport = Callable[..., Any]
 _MAX_BODY_BYTES = 2_000_000
@@ -71,7 +71,7 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
     """Connect to a validated IP while retaining hostname TLS verification/SNI."""
 
     def __init__(self, hostname: str, address: str, port: int, timeout: float):
-        super().__init__(hostname, port=port, timeout=timeout, context=ssl.create_default_context())
+        super().__init__(hostname, port=port, timeout=timeout, context=public_web_tls_context())
         self._validated_address = address
 
     def connect(self) -> None:
