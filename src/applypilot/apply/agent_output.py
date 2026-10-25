@@ -580,6 +580,16 @@ def reconcile_agent_turn_outputs_with_diagnostics(
         # control-plane status.  The legacy result carries the more specific
         # branch the worker needs in order to continue the same application.
         return legacy_status, legacy_evidence, "structured+legacy", None
+    if (
+        status == "previewed"
+        and parsed_legacy[0] == "PREVIEWED"
+        and legacy_status == "failed:preview_audit_missing"
+    ):
+        # ``status`` is only ``previewed`` once the typed report's preview audit has
+        # passed validation. A legacy-compatible PREVIEWED marker that does not repeat
+        # that audit states the same result; an audit that is present but unsafe or
+        # malformed still conflicts below.
+        return status, evidence, "structured+legacy", None
     if legacy_status != status:
         conflict = (
             "submission_uncertain"

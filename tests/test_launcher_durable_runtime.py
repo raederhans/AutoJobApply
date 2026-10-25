@@ -345,6 +345,121 @@ def test_run_job_durable_launch_attaches_before_prompt_and_advisory_start(
     )
 
 
+def _claude_stream(final_text: str) -> str:
+    """Claude Code ``--output-format stream-json`` shape for one turn.
+
+    The terminal ``result`` message repeats the last assistant text block, and
+    earlier assistant blocks are progress prose.
+    """
+    return "\n".join(
+        json.dumps(message)
+        for message in (
+            {"type": "system", "subtype": "init", "session_id": "s-1"},
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {"type": "text", "text": "Reviewing the form before RESULT."}
+                    ]
+                },
+            },
+            {
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": final_text}]},
+            },
+            {
+                "type": "result",
+                "subtype": "success",
+                "is_error": False,
+                "result": final_text,
+                "num_turns": 3,
+                "total_cost_usd": 0.0,
+                "usage": {},
+            },
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    ("final_text", "expected_status"),
+    [
+        ("RESULT:READY_TO_SUBMIT", "ready_to_submit"),
+        ("RESULT:FAILED:page_error", "failed:conflicting_agent_results"),
+    ],
+)
+def test_run_job_claude_stream_uses_terminal_result_as_legacy_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    final_text: str,
+    expected_status: str,
+) -> None:
+    events: list[str] = []
+    db_path = _configure_launcher(monkeypatch, tmp_path, events)
+    monkeypatch.setattr(launcher, "_resolve_claude_command", lambda: ["claude"])
+
+    def popen(_command, **kwargs):
+        events.append("popen")
+        process = _FakeProcess(4801, events, kwargs["env"])
+        process.stdout = io.StringIO(_claude_stream(final_text))
+        return process
+
+    monkeypatch.setattr(launcher.subprocess, "Popen", popen)
+    job = _job("attempt-claude-stream")
+
+    status, _ = launcher.run_job(
+        job,
+        port=9432,
+        worker_id=0,
+        model="opus",
+        agent_backend="claude",
+        submission_phase="prepare",
+    )
+
+    # The structured report says ready_to_submit. A consistent Claude final
+    # message must agree with it; a genuinely contradictory one still conflicts.
+    assert status == expected_status
+    with sqlite3.connect(db_path) as connection:
+        completed_row = connection.execute(
+            "SELECT payload_json FROM agent_events "
+            "WHERE event_type='agent.turn.completed' ORDER BY occurred_at DESC LIMIT 1"
+        ).fetchone()
+    assert completed_row is not None
+    payload = json.loads(completed_row[0])
+    assert payload["application_status"] == expected_status
+    if expected_status == "ready_to_submit":
+        assert payload["source"] == "structured+legacy"
+        assert "conflict_classification" not in payload
+    else:
+        assert payload["conflict_classification"] == "status_mismatch"
+
+
+def test_run_job_reports_an_overlong_workspace_before_taking_a_browser_lease(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from applypilot.apply import runtime_namespace
+
+    events: list[str] = []
+    _configure_launcher(monkeypatch, tmp_path, events)
+    long_root = tmp_path.resolve()
+    while len(str(long_root)) < 230:
+        long_root = long_root / ("w" * 40)
+    monkeypatch.setattr(config, "APPLY_WORKER_DIR", long_root)
+    monkeypatch.setattr(runtime_namespace, "_ENFORCE_PROCESS_CWD_LIMIT", True)
+
+    def lease_must_not_be_taken(*_args, **_kwargs):
+        raise AssertionError("browser lease taken for an unusable workspace path")
+
+    monkeypatch.setattr(launcher, "_browser_lease_for_agent_turn", lease_must_not_be_taken)
+
+    status, duration = launcher.run_job(
+        _job("attempt-long-path"), port=9432, worker_id=0, model="model",
+        agent_backend="codex", submission_phase="prepare",
+    )
+
+    assert (status, duration) == ("failed:workspace_path_too_long", 0)
+    assert "popen" not in events
+
+
 def test_run_job_ingests_repeated_authoritative_events_and_parks_cli(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

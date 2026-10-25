@@ -103,3 +103,34 @@ def test_failure_taxonomy_separates_policy_material_runtime_and_receipt_states(
     assert descriptor.category == category
     assert descriptor.recoverability == recoverability
     assert descriptor.permanent is permanent
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        "failed:manual_review_required:professional_engineering_licence",
+        "RESULT:FAILED:manual_review_required:work_authorization",
+        "failed:manual_review_required",
+    ],
+)
+def test_explicit_manual_review_handoff_is_a_human_boundary_not_unclassified(
+    result: str,
+) -> None:
+    descriptor = classify_failure(result)
+
+    assert descriptor.category == "manual_review_required"
+    assert descriptor.recoverability == "requires_human_boundary"
+    assert descriptor.next_action == "review_manually_and_supply_missing_fact_or_decision"
+    assert descriptor.permanent is False
+
+
+def test_manual_review_handoff_keeps_more_specific_existing_categories() -> None:
+    assert classify_failure("failed:manual_review_required:required_document").category == (
+        "required_material_missing"
+    )
+    assert classify_failure("failed:manual_review_required:cover_letter").category == (
+        "cover_letter_missing"
+    )
+    assert classify_failure("failed:manual_review_required:captcha").category == (
+        "human_verification_required"
+    )

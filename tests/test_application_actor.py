@@ -201,6 +201,42 @@ def test_failure_taxonomy_has_one_deterministic_policy_projection(
     ) == interruption_type
 
 
+def test_missing_fact_manual_review_routes_to_human_review_without_retry() -> None:
+    request = AgentRunRequest(
+        run_id="run-1",
+        actor_id=application_actor_id("attempt-1"),
+        turn_id="run-1",
+        attempt_id="attempt-1",
+        agent_role="browser-application-agent",
+        phase="prepare",
+        objective="Prepare application",
+        context={
+            "actor_same_application_retries_remaining": 1,
+            "actor_new_session_retries_remaining": 1,
+        },
+    )
+    status = "failed:manual_review_required:professional_engineering_licence"
+    result = AgentTurnResult(run_id="run-1", status=status, summary="Missing fact")
+
+    decision = decision_for_turn(request, result, application_status=status)
+    human_request = human_request_for_decision(decision)
+
+    assert decision.recovery_action is not None
+    assert decision.recovery_action.action == "human_only"
+    assert decision.recovery_action.failure_category == "manual_review_required"
+    assert decision.recovery_action.next_action == (
+        "review_manually_and_supply_missing_fact_or_decision"
+    )
+    assert decision.recovery_action.retry_budget_remaining == 0
+    assert decision.disposition == "checkpoint"
+    assert decision.fresh_turn_resume_authorized is False
+    assert decision.human_interruption is not None
+    assert decision.human_interruption.interruption_type == "human_boundary"
+    assert human_request is not None
+    assert human_request.request_type == "human_boundary"
+    assert human_request.context["recovery_action"] == "human_only"
+
+
 def test_technical_recovery_consumes_budget_before_parking() -> None:
     state = actor(phase="verify", same_application_retries_remaining=1)
     decision = decide_recovery(state, "failed:resume_upload")

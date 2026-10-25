@@ -168,7 +168,7 @@ from applypilot.apply.router import (
     resolve_interaction_mode,
 )
 from applypilot.apply.run_progress import RunProgress
-from applypilot.apply.runtime_namespace import RuntimeNamespace
+from applypilot.apply.runtime_namespace import RuntimeNamespace, RuntimeOutputPathTooLong
 from applypilot.apply.semantic_batch import (
     BatchPageBinding,
     BrowserResourceIdentity,
@@ -4601,6 +4601,20 @@ def run_job(job: dict, port: int, worker_id: int = 0,
     if txt_path and txt_path.exists():
         resume_text = txt_path.read_text(encoding="utf-8")
 
+    # Namespace components are fixed-length digests, so a placeholder identity predicts
+    # the real output path length. Check it before taking a browser lease, and report a
+    # recorded failure instead of letting the error escape to the worker fallback.
+    try:
+        _ = RuntimeNamespace(
+            root=config.APPLY_WORKER_DIR,
+            run_id="path-budget",
+            session_id="path-budget",
+            profile_id="path-budget",
+        ).output_root
+    except RuntimeOutputPathTooLong as exc:
+        logger.error("[worker-%d] %s", worker_id, exc)
+        return "failed:workspace_path_too_long", 0
+
     broker_session_persistent = bool(job.get("_browser_root_runtime"))
     browser_lease_bundle = _browser_lease_for_agent_turn(
         job,
@@ -5783,6 +5797,9 @@ def run_job(job: dict, port: int, worker_id: int = 0,
         )
 
         text_parts: list[str] = []
+        # Claude stream-json's terminal ``result`` message carries the final
+        # assistant text, which the stream has already emitted as a text block.
+        terminal_result_text = ""
         with open(worker_log, "a", encoding="utf-8") as lf:
             lf.write(log_header)
 
@@ -5993,7 +6010,10 @@ def run_job(job: dict, port: int, worker_id: int = 0,
                             "cost_usd": msg.get("total_cost_usd", 0),
                             "turns": msg.get("num_turns", 0),
                         }
-                        text_parts.append(msg.get("result", ""))
+                        result_text = msg.get("result", "")
+                        if isinstance(result_text, str):
+                            terminal_result_text = result_text.strip()
+                        text_parts.append(result_text)
                     elif msg_type == "item.started":
                         item = msg.get("item", {})
                         item_type = item.get("type")
@@ -6295,7 +6315,10 @@ def run_job(job: dict, port: int, worker_id: int = 0,
         # Codex emits progress agent_message items as well as a dedicated final
         # message. Only the latter is the legacy RESULT contract; parsing the
         # aggregate can turn harmless progress prose into a duplicate marker.
-        contract_output = final_text or output
+        # Claude has no final-message file; its terminal stream-json ``result``
+        # is the same final message and already appears once as a text block,
+        # so the aggregate would always carry a duplicated RESULT marker.
+        contract_output = final_text or terminal_result_text or output
         elapsed = int(time.time() - start)
         duration_ms = int((time.time() - start) * 1000)
 
