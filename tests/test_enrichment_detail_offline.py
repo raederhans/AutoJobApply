@@ -569,6 +569,15 @@ def test_extract_description_deterministic_threshold_and_errors() -> None:
     assert detail.extract_description_deterministic(FakePage()) is None
 
 
+def test_linkedin_public_job_description_is_extracted_without_the_llm() -> None:
+    # Observed 2026-10-25: 33 of 70 LinkedIn job pages fell through to the LLM tier and
+    # returned no description although this block held the full posting.
+    page = FakePage(default=PageSpec(elements={".show-more-less-html__markup": FakeElement(text=LONG_DESC)}))
+    page.goto("https://www.linkedin.com/jobs/view/4454984004")
+
+    assert detail.extract_description_deterministic(page) == LONG_DESC
+
+
 def test_extract_main_content_prefers_main_then_falls_back_to_body() -> None:
     big = FakeElement(text="x" * 300, html="<div class='a-1' id='k'>kept</div><nav>menu</nav>")
     page = FakePage(default=PageSpec(elements={"main": big}))

@@ -313,6 +313,9 @@ DESCRIPTION_SELECTORS = [
     "#app_body .content",
     "#grnhse_app .content",
     ".ashby-job-posting-description",
+    # LinkedIn's public job page (localized UI; the description block is the same).
+    ".show-more-less-html__markup",
+    ".description__text",
     '[class*="posting-description"]',
     '[class*="job-detail"]',
     '[class*="jobDetail"]',
