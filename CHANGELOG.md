@@ -6,6 +6,13 @@ All notable changes to Job Apply Pilot will be documented in this file.
 
 ### Added
 
+- Project subagents for agent harnesses: `.codex/agents/` defines `applypilot-job-scout`
+  (lead collection on a light model), `applypilot-fit-reviewer` (second look at a
+  borderline score) and `applypilot-materials-reviewer` (evidence check of a draft), with
+  Claude Code mirrors in `.claude/agents/`. They hold no import, form, submission or
+  credential authority; AGENTS.md records the delegation boundary.
+- `status --json` and `doctor --json` for machine-readable pipeline counts and setup
+  checks; `doctor --json` includes the model chain each CLI task resolves to.
 - `followup` for local recruiting feedback: reviewed JSON event import, per-job
   timelines, pending-event resolution, actions with timezone-aware deadlines,
   statistics, legacy history import and `.ics` export. It consumes operator-supplied

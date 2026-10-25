@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import ModuleType
 
 
-def run_doctor(runtime: ModuleType) -> None:
+def run_doctor(runtime: ModuleType, *, json_output: bool = False) -> None:
     """Check your setup and diagnose missing requirements."""
     console = runtime.console
     os = runtime.os
@@ -85,6 +85,7 @@ def run_doctor(runtime: ModuleType) -> None:
         results.append(("python-jobspy", warn_mark, str(exc)))
 
     # --- Tier 2 checks ---
+    llm_routes: list[dict[str, object]] = []
     try:
         provider, base_url, _api_key = _provider_credentials(os.environ)
     except RuntimeError:
@@ -97,6 +98,7 @@ def run_doctor(runtime: ModuleType) -> None:
         groups: dict[tuple[str, tuple[str, ...], str], list[str]] = {}
         for task in sorted(TASK_TIERS, key=lambda name: (TIERS.index(TASK_TIERS[name]), name)):
             route = resolve_model_route(task)
+            llm_routes.append(route.as_dict())
             groups.setdefault((route.tier, route.models, route.source), []).append(task)
         for (tier, models, source), tasks in groups.items():
             results.append((f"LLM {tier} ({', '.join(tasks)})", ok_mark,
@@ -162,6 +164,23 @@ def run_doctor(runtime: ModuleType) -> None:
             "Transient challenges are re-observed; persistent visible gates require the applicant",
         ))
 
+    from applypilot.config import TIER_LABELS, get_apply_backend, get_tier
+    tier = get_tier()
+
+    if json_output:
+        from rich.text import Text
+
+        runtime._print_json(data={
+            "checks": [
+                {"check": check, "status": Text.from_markup(status).plain.casefold(), "note": note}
+                for check, status, note in results
+            ],
+            "llm_routes": llm_routes,
+            "tier": tier,
+            "tier_label": TIER_LABELS[tier],
+        })
+        return
+
     # --- Render results ---
     console.print()
     console.print("[bold]Job Apply Pilot Doctor[/bold]\n")
@@ -173,8 +192,6 @@ def run_doctor(runtime: ModuleType) -> None:
 
     console.print()
     # Tier summary
-    from applypilot.config import TIER_LABELS, get_apply_backend, get_tier
-    tier = get_tier()
     console.print(f"[bold]Current tier: Tier {tier} — {TIER_LABELS[tier]}[/bold]")
 
     if tier == 1:
