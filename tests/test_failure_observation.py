@@ -409,3 +409,53 @@ def test_mcp_schema_exposes_facts_but_no_recovery_policy() -> None:
     assert '"failure"' in serialized
     assert "recoverability" not in serialized
     assert "next_action" not in serialized
+
+
+def _expired(phase: str) -> AgentTurnResult:
+    return AgentTurnResult(
+        run_id="run-failure-1",
+        status="expired",
+        summary="The posting is closed",
+        observations={"preview_audit": {"submission_attempted": False}},
+        failure=_failure(
+            code="expired", source="browser_observer", phase=phase, field_semantic=None,
+            missing_capability=None,
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("phase", "dry_run", "submission_phase"),
+    [
+        # Observed in the 2026-10-25 live preview: a closed Ashby posting reported with a
+        # pre-submit phase was recorded as failed:conflicting_agent_results.
+        ("observe", True, "submit"),
+        ("prepare", True, "submit"),
+        ("submit", True, "submit"),
+        ("observe", False, "prepare"),
+        ("prepare", False, "prepare"),
+    ],
+)
+def test_closed_posting_found_before_submission_is_expired(phase, dry_run, submission_phase) -> None:
+    assert reconcile_agent_turn_outputs(
+        "Posting closed.\nRESULT:EXPIRED\nUNANSWERED_QUESTIONS: []",
+        _expired(phase),
+        dry_run=dry_run,
+        submission_phase=submission_phase,
+    ) == ("expired", None, "structured+legacy")
+
+
+@pytest.mark.parametrize(
+    ("phase", "dry_run", "submission_phase"),
+    [("verify", False, "prepare"), ("receipt", True, "submit"), ("submit", False, "prepare")],
+)
+def test_failures_from_other_phases_still_fail_closed(phase, dry_run, submission_phase) -> None:
+    assert interpret_agent_turn_result(
+        _expired(phase), dry_run=dry_run, submission_phase=submission_phase,
+    ) == ("failed:failure_phase_mismatch", None)
+
+
+def test_real_submit_turn_failure_stays_uncertain_for_any_pre_submit_phase() -> None:
+    assert interpret_agent_turn_result(
+        _expired("observe"), dry_run=False, submission_phase="submit",
+    ) == ("submission_uncertain", None)

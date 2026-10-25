@@ -456,6 +456,18 @@ def interpret_agent_turn_result(
     )
 
 
+def _failure_phase_belongs_to_turn(failure_phase: str, turn_phase: str, *, dry_run: bool) -> bool:
+    """Return whether a not-submitted failure was observed during this turn.
+
+    Every turn observes the page before acting, so ``observe`` belongs to it. A
+    preview runs under the submit result contract but only fills the form, so a
+    ``prepare`` failure belongs to it too. Other phases still fail closed.
+    """
+    if failure_phase == turn_phase or failure_phase == "observe":
+        return True
+    return dry_run and turn_phase == "submit" and failure_phase == "prepare"
+
+
 def _interpret_failure_observation(
     failure: FailureObservation,
     *,
@@ -466,7 +478,7 @@ def _interpret_failure_observation(
     phase = submission_phase.strip().casefold()
     if failure.submit_started:
         return "submission_uncertain", None
-    if failure.phase != phase:
+    if not _failure_phase_belongs_to_turn(failure.phase, phase, dry_run=dry_run):
         status = (
             "submission_uncertain"
             if phase == "submit" and not dry_run
