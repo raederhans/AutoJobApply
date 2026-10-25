@@ -13,6 +13,8 @@ from typing import Annotated
 import httpx
 import typer
 
+from applypilot.storage.read_only import open_read_only
+
 app = typer.Typer(help="Import career research, diagnose gaps and track scoped learning tasks.", no_args_is_help=True)
 
 
@@ -53,7 +55,7 @@ def _connection(*, write: bool = False):
         else:
             if not path.is_file():
                 raise ValueError("career_workspace_missing: run career import first")
-            conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+            conn = open_read_only(path)
         yield conn
     except (ValueError, TypeError, OSError, sqlite3.Error) as exc:
         raise typer.BadParameter(str(exc)) from exc

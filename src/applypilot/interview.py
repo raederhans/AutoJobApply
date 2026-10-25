@@ -17,6 +17,7 @@ from xml.etree import ElementTree
 
 from applypilot.apply.authorization import compute_job_fingerprint
 from applypilot.resume_versions import text_digest
+from applypilot.storage.read_only import open_read_only
 
 
 def _sha(value: bytes) -> str:
@@ -399,10 +400,8 @@ def build_pack(workspace: Path, *, url: str, resume: str | None = None,
     database = workspace / "applypilot.db"
     if not database.is_file():
         raise FileNotFoundError(f"Existing workspace database required: {database}")
-    conn = sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True)
-    conn.row_factory = sqlite3.Row
+    conn = open_read_only(database, row_factory=sqlite3.Row)
     try:
-        conn.execute("PRAGMA query_only=ON")
         jobs = _rows(conn, "jobs", "url=?", (url,))
         if not jobs:
             raise ValueError("Exact job URL is not registered in this workspace")

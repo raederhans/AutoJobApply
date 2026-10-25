@@ -15,6 +15,7 @@ from pathlib import Path
 
 from applypilot.application_progress import collect_progress
 from applypilot.apply.failure_taxonomy import classify_failure
+from applypilot.storage.read_only import open_read_only
 
 FIELDS = (
     "record_id", "title", "company", "location", "application_status", "recruiting_stage",
@@ -247,10 +248,8 @@ def export_progress(db_path: Path | str, output_dir: Path | str, **filters: obje
     paths = {"csv": directory / "job-progress.csv", "markdown": directory / "job-progress.md"}
     if any(path.exists() for path in paths.values()):
         raise ValueError("Report files already exist; choose a new output directory")
-    conn = sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True, timeout=10)
+    conn = open_read_only(database, timeout=10, snapshot=True)
     try:
-        conn.execute("PRAGMA query_only=ON")
-        conn.execute("BEGIN")
         report = collect_report(conn, **filters)
     finally:
         conn.close()

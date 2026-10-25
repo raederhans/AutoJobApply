@@ -14,6 +14,7 @@ from pathlib import Path
 
 from applypilot.apply.authorization import authorize_job
 from applypilot.apply.submission_admission import evaluate_submission_admission
+from applypilot.storage.read_only import open_read_only
 
 _MAX_PAGE = 10
 
@@ -23,9 +24,7 @@ def open_read_only_database(path: str | Path) -> sqlite3.Connection | None:
     database_path = Path(path).expanduser().resolve()
     if not database_path.is_file():
         return None
-    connection = sqlite3.connect(f"{database_path.as_uri()}?mode=ro", uri=True)
-    connection.execute("PRAGMA query_only=ON")
-    return connection
+    return open_read_only(database_path)
 
 
 def _table_columns(connection: sqlite3.Connection | None, table: str) -> set[str]:

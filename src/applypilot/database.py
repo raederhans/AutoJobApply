@@ -46,6 +46,7 @@ from applypilot.storage.database_migrations import (
     run_database_migrations,
 )
 from applypilot.storage.detail_retry import DETAIL_PENDING_SQL
+from applypilot.storage.read_only import open_read_only
 
 canonicalize_job_url = _job_identity.canonicalize_job_url
 extract_platform_job_id = _job_identity.extract_platform_job_id
@@ -980,9 +981,7 @@ def prune_application_runtime_history(
                     "in_progress",
                 ],
             }
-        uri = f"{DB_PATH.resolve().as_uri()}?mode=ro"
-        read_only = sqlite3.connect(uri, uri=True)
-        read_only.row_factory = sqlite3.Row
+        read_only = open_read_only(DB_PATH, row_factory=sqlite3.Row)
         try:
             return _application_ledger.preview_runtime_history(
                 read_only,

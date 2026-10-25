@@ -28,6 +28,7 @@ from applypilot.frontend.contracts import (
     build_verify_job,
     build_verify_summary,
 )
+from applypilot.storage.read_only import open_read_only
 
 console = Console()
 DATA_PLACEHOLDER = "__APPLYPILOT_DASHBOARD_DATA__"
@@ -107,10 +108,7 @@ def _empty_dashboard(system: dict[str, Any]) -> dict[str, Any]:
 
 
 def _read_only_connection(path: Path) -> sqlite3.Connection:
-    uri = f"{path.resolve().as_uri()}?mode=ro"
-    conn = sqlite3.connect(uri, uri=True)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return open_read_only(path, row_factory=sqlite3.Row)
 
 
 def _career_workbench_entry(workspace: Path) -> dict[str, Any]:

@@ -14,6 +14,7 @@ from pathlib import Path
 
 from applypilot.local_report_html import _CSS
 from applypilot.progress_report import APPLICATION_STATUSES, _markdown, _rows, _text
+from applypilot.storage.read_only import open_read_only
 
 UNKNOWN = "未知（未记录或不可安全展示）"
 _FIELDS = (
@@ -152,10 +153,7 @@ def _connection(workspace: Path) -> sqlite3.Connection:
     path = workspace / "applypilot.db"
     if not path.is_file():
         raise ValueError("Existing applypilot.db is required; comparison does not initialize a workspace")
-    conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=10)
-    conn.execute("PRAGMA query_only=ON")
-    conn.execute("BEGIN")
-    return conn
+    return open_read_only(path, timeout=10, snapshot=True)
 
 
 def list_comparison_jobs(workspace: Path | str, *, query: str = "", limit: int = 40) -> dict:
