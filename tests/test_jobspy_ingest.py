@@ -793,3 +793,32 @@ def test_search_job_board_rejects_invalid_arguments_before_scraping(monkeypatch,
 
     with pytest.raises(ValueError, match=message):
         jobspy.search_job_board("analyst", **kwargs)
+
+
+def test_run_discovery_warns_when_indeed_falls_back_to_the_usa_site(monkeypatch, caplog) -> None:
+    monkeypatch.setattr(jobspy, "require_jobboards", lambda: object())
+    monkeypatch.setattr(jobspy, "_full_crawl", lambda **_k: {"new": 0})
+
+    with caplog.at_level(logging.WARNING, logger=jobspy.log.name):
+        jobspy.run_discovery({"queries": [{"query": "q"}]})
+
+    messages = [record.getMessage() for record in caplog.records if record.levelno == logging.WARNING]
+    assert any("searches.yaml" in message and "country" in message and "usa" in message for message in messages)
+
+
+@pytest.mark.parametrize(
+    "cfg",
+    [
+        {"queries": [{"query": "q"}], "country": "Singapore"},
+        {"queries": [{"query": "q"}], "defaults": {"country_indeed": "singapore"}},
+        {"queries": [{"query": "q"}], "boards": ["linkedin"]},
+    ],
+)
+def test_run_discovery_does_not_warn_when_country_is_set_or_indeed_is_unused(monkeypatch, caplog, cfg) -> None:
+    monkeypatch.setattr(jobspy, "require_jobboards", lambda: object())
+    monkeypatch.setattr(jobspy, "_full_crawl", lambda **_k: {"new": 0})
+
+    with caplog.at_level(logging.WARNING, logger=jobspy.log.name):
+        jobspy.run_discovery(cfg)
+
+    assert not [record for record in caplog.records if record.levelno == logging.WARNING]
