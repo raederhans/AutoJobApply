@@ -226,6 +226,15 @@ def test_count_pending_sql_per_stage(pending_db) -> None:
     assert pipeline._count_pending("discover") == 0  # no SQL: always zero
 
 
+def test_pending_enrich_count_excludes_rows_waiting_for_a_detail_retry(pending_db) -> None:
+    conn = pending_db
+    _job(conn, "due", detail_scraped_at=None, detail_attempts=1, detail_retry_after="2000-01-01T00:00:00+00:00")
+    _job(conn, "waiting", detail_scraped_at=None, detail_attempts=1, detail_retry_after="2999-01-01T00:00:00+00:00")
+    conn.commit()
+
+    assert pipeline._count_pending("enrich") == 1  # the row in backoff is not pending work yet
+
+
 # ---------------------------------------------------------------------------
 # Streaming stages
 # ---------------------------------------------------------------------------

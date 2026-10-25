@@ -26,6 +26,7 @@ from playwright.sync_api import sync_playwright
 from applypilot import config
 from applypilot.database import init_db
 from applypilot.llm import get_client
+from applypilot.storage.detail_retry import DETAIL_DUE_SQL, DETAIL_PENDING_SQL, RATE_LIMIT_ERROR, retry_after
 
 log = logging.getLogger(__name__)
 
@@ -554,7 +555,26 @@ SITE_DELAYS = {
 }
 
 RETRYABLE_STATUSES = {408, 429, 500, 502, 503, 504}
+# Server errors that do not clear on their own; every other 5xx (including CDN codes
+# such as 520-526) is retried like the listed ones.
+NON_RETRYABLE_SERVER_ERRORS = {501, 505}
+
+
+def is_retryable_status(status: int) -> bool:
+    """Tell whether an HTTP status is a transient failure worth a bounded retry."""
+    return status in RETRYABLE_STATUSES or (500 <= status <= 599 and status not in NON_RETRYABLE_SERVER_ERRORS)
 PERMANENT_FAILURES = {404, 410, 451}
+# Chromium network errors that usually clear on their own; other navigation errors
+# (e.g. an unresolvable host) keep the immediate permanent marking.
+TRANSIENT_NAVIGATION_ERRORS = (
+    "ERR_CONNECTION_RESET",
+    "ERR_CONNECTION_CLOSED",
+    "ERR_CONNECTION_TIMED_OUT",
+    "ERR_TIMED_OUT",
+    "ERR_EMPTY_RESPONSE",
+    "ERR_HTTP2_PROTOCOL_ERROR",
+    "ERR_NETWORK_CHANGED",
+)
 
 
 def scrape_detail_page(page, url: str) -> dict:
@@ -565,13 +585,19 @@ def scrape_detail_page(page, url: str) -> dict:
         "status": "error",
         "tier_used": None,
         "error": None,
+        "retryable": False,
     }
     t0 = time.time()
 
     try:
         resp = page.goto(url, timeout=45000)
-        if resp and resp.status in PERMANENT_FAILURES:
+        if resp and (
+            resp.status in PERMANENT_FAILURES
+            or resp.status in NON_RETRYABLE_SERVER_ERRORS
+            or is_retryable_status(resp.status)
+        ):
             result["error"] = f"HTTP {resp.status}"
+            result["retryable"] = is_retryable_status(resp.status)
             result["elapsed"] = time.time() - t0
             return result
         page.wait_for_load_state("domcontentloaded", timeout=15000)
@@ -583,8 +609,10 @@ def scrape_detail_page(page, url: str) -> dict:
         err_str = str(e)
         if "timeout" in err_str.lower():
             result["error"] = "timeout"
+            result["retryable"] = True
         else:
             result["error"] = err_str[:200]
+            result["retryable"] = any(marker in err_str for marker in TRANSIENT_NAVIGATION_ERRORS)
         result["elapsed"] = time.time() - t0
         return result
 
@@ -655,6 +683,49 @@ def _replace_failed_page(browser, context, page):
     except Exception:
         log.debug("Browser unusable after a job failure", exc_info=True)
         return None
+
+
+def _record_detail_failure(conn: sqlite3.Connection, url: str, result: dict) -> None:
+    """Persist a failed fetch: defer a transient failure, otherwise mark it final.
+
+    A transient failure keeps ``detail_scraped_at`` NULL with a backoff in
+    ``detail_retry_after`` until the attempt budget is spent; the last attempt, and
+    any failure that is not transient, is marked as scraped so it is not selected again.
+    """
+    error = result.get("error", "unknown")
+    attempts = None
+    if result.get("retryable"):
+        row = conn.execute("SELECT COALESCE(detail_attempts, 0) FROM jobs WHERE url = ?", (url,)).fetchone()
+        attempts = (row[0] if row else 0) + 1
+        deferred_until = retry_after(attempts)
+        if deferred_until:
+            conn.execute(
+                "UPDATE jobs SET detail_error = ?, detail_attempts = ?, detail_retry_after = ? WHERE url = ?",
+                (error, attempts, deferred_until, url),
+            )
+            return
+    # A final 429 still records when the site's rate limit is expected to clear, so the
+    # cooldown outlives the exhausted job; the row itself is scraped and never re-selected.
+    cooldown_until = retry_after(1) if error == RATE_LIMIT_ERROR else None
+    conn.execute(
+        "UPDATE jobs SET detail_error = ?, detail_scraped_at = ?, detail_retry_after = ?, "
+        "detail_attempts = COALESCE(?, detail_attempts) WHERE url = ?",
+        (error, datetime.now(UTC).isoformat(), cooldown_until, attempts, url),
+    )
+
+
+def _defer_rate_limited_site(conn: sqlite3.Connection, site: str, limited_url: str) -> int:
+    """Postpone the site's other pending jobs after a 429, keeping their attempt counts.
+
+    Only rows that are due now are moved; a row already backing off keeps its own,
+    possibly later, retry time. Returns the number of deferred rows.
+    """
+    deferred_until = retry_after(1)
+    cursor = conn.execute(
+        f"UPDATE jobs SET detail_retry_after = ? WHERE site = ? AND url != ? AND {DETAIL_DUE_SQL}",
+        (deferred_until, site, limited_url),
+    )
+    return cursor.rowcount
 
 
 def scrape_site_batch(
@@ -742,15 +813,12 @@ def scrape_site_batch(
                     stats[status] += 1
                     conn.execute(
                         "UPDATE jobs SET full_description = ?, application_url = ?, "
-                        "detail_scraped_at = ?, detail_error = NULL WHERE url = ?",
+                        "detail_scraped_at = ?, detail_error = NULL, detail_retry_after = NULL WHERE url = ?",
                         (result.get("full_description"), result.get("application_url"), now, url),
                     )
                 else:
                     stats["error"] += 1
-                    conn.execute(
-                        "UPDATE jobs SET detail_error = ?, detail_scraped_at = ? WHERE url = ?",
-                        (result.get("error", "unknown"), now, url),
-                    )
+                    _record_detail_failure(conn, url, result)
 
                 conn.commit()
 
@@ -758,6 +826,17 @@ def scrape_site_batch(
                     # Leave the remaining jobs unscraped so a later run retries them.
                     log.error("%s: browser unusable; stopping batch with %d job(s) left",
                               site, len(jobs) - i - 1)
+                    break
+
+                if result.get("error") == RATE_LIMIT_ERROR:
+                    # A rate limit applies to the whole site. Defer every other pending job
+                    # of this site for the first backoff window without spending their
+                    # attempts, so callers that re-query at once (stream_detail) do not
+                    # hit the same throttled site again with the next job.
+                    deferred = _defer_rate_limited_site(conn, site, url)
+                    conn.commit()
+                    log.warning("%s: rate limited; stopping batch and deferring %d pending job(s)",
+                                site, deferred)
                     break
 
                 if i < len(jobs) - 1:
@@ -790,7 +869,7 @@ def _run_detail_scraper(
     Returns aggregate stats dict.
     """
     skip_filter = " AND ".join(f"site != '{s}'" for s in SKIP_DETAIL_SITES)
-    where = f"WHERE detail_scraped_at IS NULL AND {skip_filter}"
+    where = f"WHERE {DETAIL_PENDING_SQL} AND {skip_filter}"
     rows = conn.execute(
         f"SELECT url, title, source_site, site FROM jobs {where} ORDER BY site"
     ).fetchall()
@@ -927,7 +1006,7 @@ def stream_detail(
             skip_filter = " AND ".join(f"site != '{s}'" for s in SKIP_DETAIL_SITES)
             rows = conn.execute(
                 "SELECT url, title, source_site, site FROM jobs "
-                f"WHERE detail_scraped_at IS NULL AND {skip_filter} "
+                f"WHERE {DETAIL_PENDING_SQL} AND {skip_filter} "
                 "ORDER BY site LIMIT 200"
             ).fetchall()
 
