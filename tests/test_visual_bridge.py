@@ -275,3 +275,60 @@ def test_host_pause_cancels_waiting_input_promptly(tmp_path: Path) -> None:
     assert time.monotonic() - started < 3
     assert not list((tmp_path / "pending").glob("*.json"))
     assert len(list((tmp_path / "cancelled").glob("*.json"))) == 1
+
+
+def _initialize(client_name: str | None) -> None:
+    params = {"clientInfo": {"name": client_name, "version": "1"}} if client_name else {}
+    visual_bridge_mcp._handle({"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": params})
+
+
+def _observe_with_form_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict:
+    form_state = {"fields": [{"field_key": "[id=\"full-name\"]", "label": "Full legal name"}]}
+    host_response = {
+        "ok": True,
+        "outcome": "completed",
+        "session_id": "s",
+        "token_epoch": "e",
+        "observation_id": "obs-1",
+        "content": [{"type": "text", "text": json.dumps({"form_state": form_state})}],
+    }
+    monkeypatch.setenv(visual_bridge_mcp.BRIDGE_DIR_ENV, str(tmp_path))
+    monkeypatch.setattr(visual_bridge_mcp, "request_visual_operation", lambda *a, **k: dict(host_response))
+    response = visual_bridge_mcp._handle(
+        {"jsonrpc": "2.0", "id": 9, "method": "tools/call",
+         "params": {"name": "visual_operation", "arguments": {"operation": "observe", "arguments": {}}}}
+    )
+    assert response is not None
+    return response["result"]
+
+
+def test_claude_code_client_sees_form_state_and_observation_id_in_content(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Claude Code hands the model structuredContent INSTEAD of content when both exist,
+    # so for that client the structured metadata moves into content and the duplicate is dropped.
+    monkeypatch.setattr(visual_bridge_mcp, "_client_name", "")
+    _initialize("claude-code")
+    result = _observe_with_form_state(monkeypatch, tmp_path)
+
+    assert "structuredContent" not in result
+    payloads = [json.loads(block["text"]) for block in result["content"] if block["type"] == "text"]
+    form = next(p["form_state"] for p in payloads if "form_state" in p)
+    assert form["fields"][0]["field_key"] == '[id="full-name"]'
+    assert any(p.get("observation_id") == "obs-1" and p.get("ok") is True for p in payloads)
+    structured_block = result["content"][-1]["text"]
+    assert " " not in structured_block  # compact separators
+    assert set(json.loads(structured_block)) == {"ok", "outcome", "session_id", "token_epoch", "observation_id"}
+
+
+def test_other_clients_keep_structured_content_and_content_unchanged(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(visual_bridge_mcp, "_client_name", "")
+    _initialize("codex-mcp-client")
+    result = _observe_with_form_state(monkeypatch, tmp_path)
+
+    assert len(result["content"]) == 1
+    assert result["structuredContent"] == {
+        "ok": True, "outcome": "completed", "session_id": "s", "token_epoch": "e", "observation_id": "obs-1",
+    }
