@@ -59,6 +59,15 @@ All notable changes to Job Apply Pilot will be documented in this file.
 
 ### Changed
 
+- LLM calls are routed by task tier: extraction uses the `fast` tier, scoring, resume
+  judging and interview packs `standard`, and resume tailoring, cover letters, answers,
+  writing and career suggestions `quality`. `LLM_MODEL_<TASK>`, `LLM_MODEL_<TIER>` and
+  `LLM_MODEL` override in that order and accept comma-separated fallback chains. When
+  the provider reports a model unknown, retired or out of quota after retries, the
+  next model in the chain serves the rest of the process and is the model recorded on
+  generated artifacts. With no override, DeepSeek extraction now uses `deepseek-flash`
+  and Gemini extraction `gemini-3.5-flash-lite`; other tasks keep their previous model.
+  `applypilot doctor` lists the resolved chain for every task.
 - The database now applies eight ordered migrations instead of one (posting lifecycle,
   follow-up, career, career learning, workbench and workbench publication tables, and
   detail-fetch retry state).

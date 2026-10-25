@@ -199,7 +199,7 @@ def generate_answer(question: dict, context: dict, *, client=None, siblings=(), 
                               previous_revision=previous_revision)
     if client is None:
         from applypilot.llm import get_client
-        client = get_client()
+        client = get_client(task="answers")
     feedback = None
     calls = 0
     usage = []
