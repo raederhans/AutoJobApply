@@ -433,6 +433,33 @@ def test_run_job_claude_stream_uses_terminal_result_as_legacy_contract(
         assert payload["conflict_classification"] == "status_mismatch"
 
 
+def test_run_job_reports_an_overlong_workspace_before_taking_a_browser_lease(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from applypilot.apply import runtime_namespace
+
+    events: list[str] = []
+    _configure_launcher(monkeypatch, tmp_path, events)
+    long_root = tmp_path.resolve()
+    while len(str(long_root)) < 230:
+        long_root = long_root / ("w" * 40)
+    monkeypatch.setattr(config, "APPLY_WORKER_DIR", long_root)
+    monkeypatch.setattr(runtime_namespace, "_ENFORCE_PROCESS_CWD_LIMIT", True)
+
+    def lease_must_not_be_taken(*_args, **_kwargs):
+        raise AssertionError("browser lease taken for an unusable workspace path")
+
+    monkeypatch.setattr(launcher, "_browser_lease_for_agent_turn", lease_must_not_be_taken)
+
+    status, duration = launcher.run_job(
+        _job("attempt-long-path"), port=9432, worker_id=0, model="model",
+        agent_backend="codex", submission_phase="prepare",
+    )
+
+    assert (status, duration) == ("failed:workspace_path_too_long", 0)
+    assert "popen" not in events
+
+
 def test_run_job_ingests_repeated_authoritative_events_and_parks_cli(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
