@@ -2,8 +2,8 @@
 Unified LLM client for ApplyPilot.
 
 Auto-detects provider from environment:
-  GEMINI_API_KEY  -> Google Gemini (default: gemini-2.0-flash)
-  OPENAI_API_KEY  -> OpenAI (default: gpt-4o-mini)
+  GEMINI_API_KEY  -> Google Gemini (default: DEFAULT_GEMINI_MODEL)
+  OPENAI_API_KEY  -> OpenAI (default: DEFAULT_OPENAI_MODEL)
   DEEPSEEK_API_KEY -> DeepSeek OpenAI-compatible API
   LLM_URL         -> Local llama.cpp / Ollama compatible endpoint
 
@@ -17,6 +17,12 @@ import time
 import httpx
 
 log = logging.getLogger(__name__)
+
+# Defaults shared by provider detection, `doctor` and the init wizard.
+# gemini-2.0-flash was shut down on 2026-06-01; Google recommends 3.8 Flash for new projects.
+DEFAULT_GEMINI_MODEL = "gemini-3.8-flash"
+DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
+DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-pro"
 
 # ---------------------------------------------------------------------------
 # Provider detection
@@ -37,21 +43,21 @@ def _detect_provider() -> tuple[str, str, str]:
     if gemini_key and not local_url:
         return (
             "https://generativelanguage.googleapis.com/v1beta/openai",
-            model_override or "gemini-2.0-flash",
+            model_override or DEFAULT_GEMINI_MODEL,
             gemini_key,
         )
 
     if openai_key and not local_url:
         return (
             "https://api.openai.com/v1",
-            model_override or "gpt-4o-mini",
+            model_override or DEFAULT_OPENAI_MODEL,
             openai_key,
         )
 
     if deepseek_key and not local_url:
         return (
             os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/"),
-            model_override or "deepseek-v4-pro",
+            model_override or DEFAULT_DEEPSEEK_MODEL,
             deepseek_key,
         )
 
