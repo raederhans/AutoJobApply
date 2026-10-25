@@ -35,12 +35,12 @@ def _write(path: Path, value: dict) -> None:
 @contextmanager
 def _client():
     from applypilot.commands.interview import _llm_environment
-    from applypilot.llm import LLMClient, _detect_provider
+    from applypilot.llm import create_client
 
     workspace = Path(os.environ.get("APPLYPILOT_DIR", str(Path.home() / ".applypilot")))
     with _llm_environment(workspace):
         # A fresh client binds this invocation's environment, not an old singleton.
-        client = LLMClient(*_detect_provider())
+        client = create_client(task="writing")
         try:
             yield client
         finally:

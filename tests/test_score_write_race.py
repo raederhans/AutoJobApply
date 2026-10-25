@@ -120,7 +120,7 @@ def test_exact_entrypoints_reject_changes_during_model_call(scoring_run, monkeyp
                         writer.execute("UPDATE jobs SET fit_score=9,scored_at='newer',score_status='scored'")
             return "SCORE: 8\nKEYWORDS: Python\nREASONING: Evidence matches\nREVIEW: none"
 
-    monkeypatch.setattr(scorer, "get_client", FakeClient)
+    monkeypatch.setattr(scorer, "get_client", lambda task=None: FakeClient())
     expected = {"jd": "JD changed", "source": "resume source changed", "worker": "scoring state changed"}
     with pytest.raises(RuntimeError, match=expected[change]):
         if mode == "exact":

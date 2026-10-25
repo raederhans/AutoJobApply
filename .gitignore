@@ -47,5 +47,6 @@ build/
 .DS_Store
 Thumbs.db
 
-# Claude Code
-.claude/
+# Claude Code (project subagents are shared; other local state is not)
+.claude/*
+!.claude/agents/

@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import ModuleType
 
 
-def run_doctor(runtime: ModuleType) -> None:
+def run_doctor(runtime: ModuleType, *, json_output: bool = False) -> None:
     """Check your setup and diagnose missing requirements."""
     console = runtime.console
     os = runtime.os
@@ -24,7 +24,7 @@ def run_doctor(runtime: ModuleType) -> None:
         get_chrome_path,
         load_env,
     )
-    from applypilot.llm import DEFAULT_DEEPSEEK_MODEL, DEFAULT_GEMINI_MODEL, DEFAULT_OPENAI_MODEL
+    from applypilot.llm import TASK_TIERS, TIERS, _provider_credentials, resolve_model_route
 
     load_env()
 
@@ -85,24 +85,24 @@ def run_doctor(runtime: ModuleType) -> None:
         results.append(("python-jobspy", warn_mark, str(exc)))
 
     # --- Tier 2 checks ---
-    has_gemini = bool(os.environ.get("GEMINI_API_KEY"))
-    has_openai = bool(os.environ.get("OPENAI_API_KEY"))
-    has_deepseek = bool(os.environ.get("DEEPSEEK_API_KEY"))
-    has_local = bool(os.environ.get("LLM_URL"))
-    if has_gemini:
-        model = os.environ.get("LLM_MODEL", DEFAULT_GEMINI_MODEL)
-        results.append(("LLM API key", ok_mark, f"Gemini ({model})"))
-    elif has_openai:
-        model = os.environ.get("LLM_MODEL", DEFAULT_OPENAI_MODEL)
-        results.append(("LLM API key", ok_mark, f"OpenAI ({model})"))
-    elif has_deepseek:
-        model = os.environ.get("LLM_MODEL", DEFAULT_DEEPSEEK_MODEL)
-        results.append(("LLM API key", ok_mark, f"DeepSeek ({model})"))
-    elif has_local:
-        results.append(("LLM API key", ok_mark, f"Local: {os.environ.get('LLM_URL')}"))
-    else:
+    llm_routes: list[dict[str, object]] = []
+    try:
+        provider, base_url, _api_key = _provider_credentials(os.environ)
+    except RuntimeError:
         results.append(("LLM API key", fail_mark,
                         "Set GEMINI_API_KEY, OPENAI_API_KEY, or DEEPSEEK_API_KEY in the local .env"))
+    else:
+        labels = {"gemini": "Gemini", "openai": "OpenAI", "deepseek": "DeepSeek"}
+        results.append(("LLM API key", ok_mark, labels.get(provider) or f"Local: {base_url}"))
+        # Group tasks that resolve to the same chain so overrides stand out.
+        groups: dict[tuple[str, tuple[str, ...], str], list[str]] = {}
+        for task in sorted(TASK_TIERS, key=lambda name: (TIERS.index(TASK_TIERS[name]), name)):
+            route = resolve_model_route(task)
+            llm_routes.append(route.as_dict())
+            groups.setdefault((route.tier, route.models, route.source), []).append(task)
+        for (tier, models, source), tasks in groups.items():
+            results.append((f"LLM {tier} ({', '.join(tasks)})", ok_mark,
+                            f"{' -> '.join(models)} (from {source})"))
 
     # --- Tier 3 checks ---
     # Selected browser-agent CLI (Codex by default)
@@ -164,6 +164,23 @@ def run_doctor(runtime: ModuleType) -> None:
             "Transient challenges are re-observed; persistent visible gates require the applicant",
         ))
 
+    from applypilot.config import TIER_LABELS, get_apply_backend, get_tier
+    tier = get_tier()
+
+    if json_output:
+        from rich.text import Text
+
+        runtime._print_json(data={
+            "checks": [
+                {"check": check, "status": Text.from_markup(status).plain.casefold(), "note": note}
+                for check, status, note in results
+            ],
+            "llm_routes": llm_routes,
+            "tier": tier,
+            "tier_label": TIER_LABELS[tier],
+        })
+        return
+
     # --- Render results ---
     console.print()
     console.print("[bold]Job Apply Pilot Doctor[/bold]\n")
@@ -175,8 +192,6 @@ def run_doctor(runtime: ModuleType) -> None:
 
     console.print()
     # Tier summary
-    from applypilot.config import TIER_LABELS, get_apply_backend, get_tier
-    tier = get_tier()
     console.print(f"[bold]Current tier: Tier {tier} — {TIER_LABELS[tier]}[/bold]")
 
     if tier == 1:
