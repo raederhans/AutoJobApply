@@ -4177,6 +4177,159 @@ _host_staged_field_risk = ats_application_context_mod._host_staged_field_risk
 _build_ats_application_context = ats_application_context_mod._build_ats_application_context
 
 
+def _bound_runtime_parent(
+    job: dict,
+    *,
+    submission_phase: str,
+    actor_id: str,
+    attempt_id: str,
+    recovery_command: RecoveryCommand | None,
+    operator_resume: Mapping[str, object] | None,
+    audit_verification: Mapping[str, object] | None,
+    submit_continuation: Mapping[str, object] | None,
+) -> tuple[str | None, str | None, str | None]:
+    """Return (parent turn, parent checkpoint, authorization) for this turn.
+
+    Only the scoped command that is currently executing may bind a parent; a
+    stale binding raises instead of starting a child process.
+    """
+    stored_parent_turn_id = str(job.get("_parent_agent_run_id") or "").strip()
+    stored_parent_checkpoint_id = str(
+        job.get("_parent_agent_checkpoint_id") or ""
+    ).strip()
+    if recovery_command is not None:
+        if (
+            recovery_command.actor_id != actor_id
+            or recovery_command.attempt_id != attempt_id
+            or recovery_command.turn_id != stored_parent_turn_id
+            or not stored_parent_checkpoint_id
+        ):
+            raise RuntimeError("runtime recovery parent/checkpoint binding is stale")
+        return recovery_command.turn_id, stored_parent_checkpoint_id, recovery_command.command_id
+    elif operator_resume is not None:
+        if (
+            submission_phase != "prepare"
+            or operator_resume.get("actor_id") != actor_id
+            or operator_resume.get("attempt_id") != attempt_id
+            or operator_resume.get("parent_turn_id") != stored_parent_turn_id
+            or operator_resume.get("checkpoint_id") != stored_parent_checkpoint_id
+        ):
+            raise RuntimeError("operator resume parent/checkpoint binding is stale")
+        return (
+            stored_parent_turn_id,
+            stored_parent_checkpoint_id,
+            str(operator_resume.get("authorization_id") or ""),
+        )
+    elif audit_verification is not None:
+        if (
+            submission_phase != "prepare"
+            or job.get("_answer_provenance_verification_child") is not True
+            or audit_verification.get("actor_id") != actor_id
+            or audit_verification.get("attempt_id") != attempt_id
+            or audit_verification.get("parent_turn_id") != stored_parent_turn_id
+            or audit_verification.get("checkpoint_id")
+            != stored_parent_checkpoint_id
+        ):
+            raise RuntimeError("audit verification parent/checkpoint binding is stale")
+        return (
+            stored_parent_turn_id,
+            stored_parent_checkpoint_id,
+            str(audit_verification.get("authorization_id") or ""),
+        )
+    elif submit_continuation is not None:
+        if (
+            submission_phase != "submit"
+            or submit_continuation.get("actor_id") != actor_id
+            or submit_continuation.get("attempt_id") != attempt_id
+            or submit_continuation.get("parent_turn_id") != stored_parent_turn_id
+            or submit_continuation.get("checkpoint_id")
+            != stored_parent_checkpoint_id
+        ):
+            raise RuntimeError("submit continuation parent/checkpoint binding is stale")
+        return (
+            stored_parent_turn_id,
+            stored_parent_checkpoint_id,
+            str(submit_continuation.get("authorization_id") or ""),
+        )
+    else:
+        # A job-carried parent is diagnostic only.  It cannot authorize a child
+        # process without the currently executing recovery command capability.
+        return None, None, None
+
+
+def _restart_admission_status(
+    job: dict,
+    restart_admission: object,
+    *,
+    scoped_recovery_requested: bool,
+    runtime_parent_turn_id: str | None,
+) -> str | None:
+    """Record the durable restart admission and return a terminal status, if any."""
+    job["_runtime_recovery_admission"] = {
+        "disposition": restart_admission.disposition,
+        "parent_turn_id": restart_admission.parent_turn_id,
+        "reason_code": restart_admission.reason_code,
+        "requires_fresh_observation": restart_admission.requires_fresh_observation,
+    }
+    if restart_admission.disposition == "live_owner":
+        return "failed:runtime_owner_active"
+    if restart_admission.disposition == "blocked":
+        return "failed:runtime_recovery_blocked"
+    if restart_admission.disposition == "receipt_only":
+        return "submission_uncertain"
+    if restart_admission.disposition == "recovery_required":
+        scoped_recovery_matches = bool(
+            scoped_recovery_requested
+            and runtime_parent_turn_id == restart_admission.parent_turn_id
+        )
+        if not scoped_recovery_matches:
+            return "failed:runtime_recovery_required"
+    return None
+
+
+def _agent_timeout_for_job(base_seconds: int, job: Mapping[str, object]) -> int:
+    """Stretch the Agent timeout by the job's multiplier (at most 2x, capped at 1h)."""
+    agent_timeout_seconds = base_seconds
+    timeout_multiplier = job.get("_agent_timeout_multiplier", 1)
+    if (
+        isinstance(timeout_multiplier, (int, float))
+        and not isinstance(timeout_multiplier, bool)
+        and timeout_multiplier > 1
+    ):
+        agent_timeout_seconds = min(
+            3600,
+            max(
+                agent_timeout_seconds,
+                int(agent_timeout_seconds * min(float(timeout_multiplier), 2.0)),
+            ),
+        )
+    return agent_timeout_seconds
+
+
+def _initial_runtime_state(job: Mapping[str, object], *, submission_phase: str, dry_run: bool) -> set[str]:
+    """Return the launcher-owned runtime states implied by phase and observation."""
+    runtime_state = {submission_phase}
+    if dry_run:
+        # Preview uses the submit result contract but still needs bounded form
+        # writes on the already-bound page. Keep this state launcher-owned so
+        # an Agent report or browser observation cannot grant it to a real
+        # submit turn.
+        runtime_state.add("preview")
+    observation = job.get("_browser_observation")
+    if isinstance(observation, Mapping):
+        if observation.get("repair_mode") is True:
+            runtime_state.add("repair")
+            if _repair_requires_resume_upload(observation):
+                runtime_state.add("repair_resume_upload")
+        if observation.get("verification_resume") is True:
+            runtime_state.add("verification_resumed")
+        if observation.get("submission_gate") is True:
+            runtime_state.add("reserved")
+    if submission_phase == "submit" and job.get("_submission_gate"):
+        runtime_state.add("reserved")
+    return runtime_state
+
+
 def run_job(job: dict, port: int, worker_id: int = 0,
             model: str = "sonnet", dry_run: bool = False,
             agent_backend: str = "codex",
@@ -4210,117 +4363,41 @@ def run_job(job: dict, port: int, worker_id: int = 0,
         )
     )
     actor_id = application_actor_id(attempt_id)
-    stored_parent_turn_id = str(job.get("_parent_agent_run_id") or "").strip()
-    stored_parent_checkpoint_id = str(
-        job.get("_parent_agent_checkpoint_id") or ""
-    ).strip()
     recovery_command = _scoped_runtime_recovery()
     operator_resume = _scoped_operator_resume()
     audit_verification = _scoped_audit_verification()
     submit_continuation = _scoped_submit_continuation()
-    if recovery_command is not None:
-        if (
-            recovery_command.actor_id != actor_id
-            or recovery_command.attempt_id != attempt_id
-            or recovery_command.turn_id != stored_parent_turn_id
-            or not stored_parent_checkpoint_id
-        ):
-            raise RuntimeError("runtime recovery parent/checkpoint binding is stale")
-        runtime_parent_turn_id: str | None = recovery_command.turn_id
-        runtime_parent_checkpoint_id: str | None = stored_parent_checkpoint_id
-        runtime_authorization_id: str | None = recovery_command.command_id
-    elif operator_resume is not None:
-        if (
-            submission_phase != "prepare"
-            or operator_resume.get("actor_id") != actor_id
-            or operator_resume.get("attempt_id") != attempt_id
-            or operator_resume.get("parent_turn_id") != stored_parent_turn_id
-            or operator_resume.get("checkpoint_id") != stored_parent_checkpoint_id
-        ):
-            raise RuntimeError("operator resume parent/checkpoint binding is stale")
-        runtime_parent_turn_id = stored_parent_turn_id
-        runtime_parent_checkpoint_id = stored_parent_checkpoint_id
-        runtime_authorization_id = str(
-            operator_resume.get("authorization_id") or ""
-        )
-    elif audit_verification is not None:
-        if (
-            submission_phase != "prepare"
-            or job.get("_answer_provenance_verification_child") is not True
-            or audit_verification.get("actor_id") != actor_id
-            or audit_verification.get("attempt_id") != attempt_id
-            or audit_verification.get("parent_turn_id") != stored_parent_turn_id
-            or audit_verification.get("checkpoint_id")
-            != stored_parent_checkpoint_id
-        ):
-            raise RuntimeError("audit verification parent/checkpoint binding is stale")
-        runtime_parent_turn_id = stored_parent_turn_id
-        runtime_parent_checkpoint_id = stored_parent_checkpoint_id
-        runtime_authorization_id = str(
-            audit_verification.get("authorization_id") or ""
-        )
-    elif submit_continuation is not None:
-        if (
-            submission_phase != "submit"
-            or submit_continuation.get("actor_id") != actor_id
-            or submit_continuation.get("attempt_id") != attempt_id
-            or submit_continuation.get("parent_turn_id") != stored_parent_turn_id
-            or submit_continuation.get("checkpoint_id")
-            != stored_parent_checkpoint_id
-        ):
-            raise RuntimeError("submit continuation parent/checkpoint binding is stale")
-        runtime_parent_turn_id = stored_parent_turn_id
-        runtime_parent_checkpoint_id = stored_parent_checkpoint_id
-        runtime_authorization_id = str(
-            submit_continuation.get("authorization_id") or ""
-        )
-    else:
-        # A job-carried parent is diagnostic only.  It cannot authorize a child
-        # process without the currently executing recovery command capability.
-        runtime_parent_turn_id = None
-        runtime_parent_checkpoint_id = None
-        runtime_authorization_id = None
+    (
+        runtime_parent_turn_id,
+        runtime_parent_checkpoint_id,
+        runtime_authorization_id,
+    ) = _bound_runtime_parent(
+        job,
+        submission_phase=submission_phase,
+        actor_id=actor_id,
+        attempt_id=attempt_id,
+        recovery_command=recovery_command,
+        operator_resume=operator_resume,
+        audit_verification=audit_verification,
+        submit_continuation=submit_continuation,
+    )
     restart_admission = _durable_agent_runtime.reconcile_actor(actor_id, attempt_id)
-    job["_runtime_recovery_admission"] = {
-        "disposition": restart_admission.disposition,
-        "parent_turn_id": restart_admission.parent_turn_id,
-        "reason_code": restart_admission.reason_code,
-        "requires_fresh_observation": restart_admission.requires_fresh_observation,
-    }
-    if restart_admission.disposition == "live_owner":
-        return "failed:runtime_owner_active", 0
-    if restart_admission.disposition == "blocked":
-        return "failed:runtime_recovery_blocked", 0
-    if restart_admission.disposition == "receipt_only":
-        return "submission_uncertain", 0
-    if restart_admission.disposition == "recovery_required":
-        scoped_recovery_matches = bool(
-            (
-                recovery_command is not None
-                or operator_resume is not None
-                or audit_verification is not None
-            )
-            and runtime_parent_turn_id == restart_admission.parent_turn_id
-        )
-        if not scoped_recovery_matches:
-            return "failed:runtime_recovery_required", 0
+    admission_status = _restart_admission_status(
+        job,
+        restart_admission,
+        scoped_recovery_requested=(
+            recovery_command is not None
+            or operator_resume is not None
+            or audit_verification is not None
+        ),
+        runtime_parent_turn_id=runtime_parent_turn_id,
+    )
+    if admission_status is not None:
+        return admission_status, 0
     setup_started = time.perf_counter()
     setup_metrics: dict[str, int | float] = {}
     runtime_settings = load_runtime_settings()
-    agent_timeout_seconds = runtime_settings.agent_timeout_seconds
-    timeout_multiplier = job.get("_agent_timeout_multiplier", 1)
-    if (
-        isinstance(timeout_multiplier, (int, float))
-        and not isinstance(timeout_multiplier, bool)
-        and timeout_multiplier > 1
-    ):
-        agent_timeout_seconds = min(
-            3600,
-            max(
-                agent_timeout_seconds,
-                int(agent_timeout_seconds * min(float(timeout_multiplier), 2.0)),
-            ),
-        )
+    agent_timeout_seconds = _agent_timeout_for_job(runtime_settings.agent_timeout_seconds, job)
     profile = config.load_profile()
     authentication = profile.get("authentication", {})
     credential_relay_authorized = _credential_relay_allowed(profile, job)
@@ -4357,25 +4434,8 @@ def run_job(job: dict, port: int, worker_id: int = 0,
             "direct_email_application_authorized", False
         )
     )
-    runtime_state = {submission_phase}
-    if dry_run:
-        # Preview uses the submit result contract but still needs bounded form
-        # writes on the already-bound page. Keep this state launcher-owned so
-        # an Agent report or browser observation cannot grant it to a real
-        # submit turn.
-        runtime_state.add("preview")
+    runtime_state = _initial_runtime_state(job, submission_phase=submission_phase, dry_run=dry_run)
     observation = job.get("_browser_observation")
-    if isinstance(observation, Mapping):
-        if observation.get("repair_mode") is True:
-            runtime_state.add("repair")
-            if _repair_requires_resume_upload(observation):
-                runtime_state.add("repair_resume_upload")
-        if observation.get("verification_resume") is True:
-            runtime_state.add("verification_resumed")
-        if observation.get("submission_gate") is True:
-            runtime_state.add("reserved")
-    if submission_phase == "submit" and job.get("_submission_gate"):
-        runtime_state.add("reserved")
     mailbox_mcp = mailbox_mcp_for_phase(
         mailbox_mcp,
         submission_phase=submission_phase,
