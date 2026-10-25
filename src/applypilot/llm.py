@@ -20,6 +20,7 @@ chat() moves to the next model in the chain for the rest of the process and
 
 import logging
 import os
+import threading
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -192,6 +193,8 @@ class LLMClient:
         self.model = model
         self.api_key = api_key
         self._fallback_models: list[str] = [item for item in fallback_models if item != model]
+        # Workers share one client per chain; advance it once per unavailable model.
+        self._fallback_lock = threading.Lock()
         request_timeout = float(os.environ.get("APPLYPILOT_LLM_TIMEOUT_SECONDS", str(_TIMEOUT)))
         self._client = httpx.Client(timeout=request_timeout)
         # True once we've confirmed the native Gemini API works for this model
@@ -347,6 +350,7 @@ class LLMClient:
     ) -> str:
         """Send a chat completion request and return the assistant message text."""
         while True:
+            requested_model = self.model
             try:
                 return self._chat_current_model(
                     messages,
@@ -357,14 +361,19 @@ class LLMClient:
                     reasoning_effort=reasoning_effort,
                 )
             except httpx.HTTPStatusError as exc:
-                if not self._fallback_models or not _model_unavailable(exc.response):
+                if not _model_unavailable(exc.response):
                     raise
-                unavailable = self.model
-                self.model = self._fallback_models.pop(0)
-                self._use_native_gemini = False
+                with self._fallback_lock:
+                    if self.model != requested_model:
+                        # Another request already moved past this model; use its choice.
+                        continue
+                    if not self._fallback_models:
+                        raise
+                    self.model = self._fallback_models.pop(0)
+                    self._use_native_gemini = False
                 log.warning(
                     "LLM model '%s' is unavailable (HTTP %s). Falling back to '%s' for this process.",
-                    unavailable, exc.response.status_code, self.model,
+                    requested_model, exc.response.status_code, self.model,
                 )
 
     def _chat_current_model(
@@ -412,6 +421,9 @@ class LLMClient:
                 try:
                     return self._chat_native_gemini(messages, temperature, max_tokens)
                 except httpx.HTTPStatusError as native_exc:
+                    if self._fallback_models and _model_unavailable(native_exc.response):
+                        # Let chat() move to the next model in the chain.
+                        raise
                     raise RuntimeError(
                         f"Both Gemini endpoints failed. Compat: 403 Forbidden. "
                         f"Native: {native_exc.response.status_code} — "

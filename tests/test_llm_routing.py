@@ -178,3 +178,58 @@ def test_create_client_returns_a_fresh_client_with_the_task_chain(monkeypatch) -
     assert (first.model, first._fallback_models) == ("big", ["small"])
     first.close()
     second.close()
+
+
+def test_request_that_lost_a_fallback_race_uses_the_already_selected_model(monkeypatch) -> None:
+    client = llm.LLMClient("https://fixture.example/v1", "old", "k", fallback_models=("new",))
+    requested: list[str] = []
+
+    def send(self, request, **_kwargs):
+        model = json.loads(request.content)["model"]
+        requested.append(model)
+        if model == "old":
+            # Another worker hit the same retired model first and already advanced the chain.
+            client.model = "new"
+            client._fallback_models.clear()
+            return httpx.Response(404, request=request, json={"error": "model not found"})
+        return httpx.Response(200, request=request, json=_ok(model).json())
+
+    monkeypatch.setattr(httpx.Client, "send", send)
+
+    assert client.chat([{"role": "user", "content": "hi"}]) == "from new"
+    assert requested == ["old", "new"]
+
+
+def test_native_gemini_unavailable_model_reaches_the_fallback_chain(monkeypatch) -> None:
+    requested: list[tuple[str, str]] = []
+
+    def send(self, request, **_kwargs):
+        path = request.url.path
+        if path.endswith("/chat/completions"):
+            model = json.loads(request.content)["model"]
+            requested.append(("compat", model))
+            if model == "old":
+                return httpx.Response(403, request=request, json={"error": "forbidden"})
+            return httpx.Response(200, request=request, json=_ok(model).json())
+        requested.append(("native", path.rsplit("/", 1)[-1]))
+        return httpx.Response(404, request=request, json={"error": "model not found"})
+
+    monkeypatch.setattr(httpx.Client, "send", send)
+    client = llm.LLMClient(llm._GEMINI_COMPAT_BASE, "old", "k", fallback_models=("new",))
+
+    assert client.chat([{"role": "user", "content": "hi"}]) == "from new"
+    assert requested == [("compat", "old"), ("native", "old:generateContent"), ("compat", "new")]
+    assert client._use_native_gemini is False
+
+
+def test_native_gemini_failure_without_a_chain_keeps_the_combined_error(monkeypatch) -> None:
+    def send(self, request, **_kwargs):
+        if request.url.path.endswith("/chat/completions"):
+            return httpx.Response(403, request=request, json={"error": "forbidden"})
+        return httpx.Response(404, request=request, json={"error": "model not found"})
+
+    monkeypatch.setattr(httpx.Client, "send", send)
+    client = llm.LLMClient(llm._GEMINI_COMPAT_BASE, "old", "k")
+
+    with pytest.raises(RuntimeError, match="Both Gemini endpoints failed"):
+        client.chat([{"role": "user", "content": "hi"}])
