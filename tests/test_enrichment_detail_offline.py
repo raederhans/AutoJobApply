@@ -628,7 +628,7 @@ def _llm_page(**kwargs) -> FakePage:
 def test_extract_with_llm_parses_fenced_json(monkeypatch) -> None:
     llm = FakeLLM('Here you go:\n```json\n{"full_description": "<p>Line one</p><p>Line two</p>", '
                   '"application_url": "https://apply.example.com/9"}\n```')
-    monkeypatch.setattr(detail, "get_client", lambda: llm)
+    monkeypatch.setattr(detail, "get_client", lambda task=None: llm)
 
     result = detail.extract_with_llm(_llm_page(), "https://example.com/job/1")
 
@@ -641,7 +641,7 @@ def test_extract_with_llm_parses_fenced_json(monkeypatch) -> None:
 def test_extract_with_llm_failure_modes(monkeypatch) -> None:
     # no content on the page: the LLM is never consulted
     llm = FakeLLM("{}")
-    monkeypatch.setattr(detail, "get_client", lambda: llm)
+    monkeypatch.setattr(detail, "get_client", lambda task=None: llm)
     empty_page = FakePage(default=PageSpec(evaluate_error=RuntimeError("closed")))
     empty_page.goto("https://example.com/job/1")
     assert detail.extract_with_llm(empty_page, "u") == {"full_description": None, "application_url": None}
@@ -650,11 +650,11 @@ def test_extract_with_llm_failure_modes(monkeypatch) -> None:
     # transport error, unparsable output and non-object output all degrade to "nothing found"
     nothing = {"full_description": None, "application_url": None}
     for client in (FakeLLM(error=RuntimeError("boom")), FakeLLM("no json at all"), FakeLLM("[1, 2]")):
-        monkeypatch.setattr(detail, "get_client", lambda client=client: client)
+        monkeypatch.setattr(detail, "get_client", lambda task=None, client=client: client)
         assert detail.extract_with_llm(_llm_page(), "u") == nothing
 
     # an unreadable title does not stop the extraction
-    monkeypatch.setattr(detail, "get_client", lambda: FakeLLM('{"full_description": null, "application_url": null}'))
+    monkeypatch.setattr(detail, "get_client", lambda task=None: FakeLLM('{"full_description": null, "application_url": null}'))
     assert detail.extract_with_llm(_llm_page(title_error=RuntimeError("gone")), "u") == nothing
 
 
@@ -705,7 +705,7 @@ def test_scrape_detail_page_tier2_css() -> None:
 
 def test_scrape_detail_page_tier3_llm(monkeypatch) -> None:
     llm = FakeLLM('```json\n{"full_description": "Full text from the model", "application_url": null}\n```')
-    monkeypatch.setattr(detail, "get_client", lambda: llm)
+    monkeypatch.setattr(detail, "get_client", lambda task=None: llm)
     elements = {
         "main": FakeElement(text="x" * 300, html="<p>body</p>"),
         'a[class*="apply-btn"]': FakeElement(attrs={"href": "https://apply.example.com/3"}),
@@ -724,12 +724,12 @@ def test_scrape_detail_page_tier3_partial_and_failure(monkeypatch) -> None:
     main = {"main": FakeElement(text="x" * 300, html="<p>body</p>")}
 
     # only an apply URL found: partial
-    monkeypatch.setattr(detail, "get_client", lambda: FakeLLM('{"application_url": "https://a.example/1"}'))
+    monkeypatch.setattr(detail, "get_client", lambda task=None: FakeLLM('{"application_url": "https://a.example/1"}'))
     result = detail.scrape_detail_page(FakePage(default=PageSpec(elements=dict(main))), JOB_URL)
     assert (result["tier_used"], result["status"], result["error"]) == (3, "partial", None)
 
     # LLM failure with nothing else on the page: error
-    monkeypatch.setattr(detail, "get_client", lambda: FakeLLM(error=RuntimeError("llm down")))
+    monkeypatch.setattr(detail, "get_client", lambda task=None: FakeLLM(error=RuntimeError("llm down")))
     result = detail.scrape_detail_page(FakePage(default=PageSpec(elements=dict(main))), JOB_URL)
     assert (result["tier_used"], result["status"], result["error"]) == (3, "error", "no data extracted")
     assert result["full_description"] is None

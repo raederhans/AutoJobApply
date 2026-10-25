@@ -2,76 +2,155 @@
 Unified LLM client for ApplyPilot.
 
 Auto-detects provider from environment:
-  GEMINI_API_KEY  -> Google Gemini (default: DEFAULT_GEMINI_MODEL)
-  OPENAI_API_KEY  -> OpenAI (default: DEFAULT_OPENAI_MODEL)
+  GEMINI_API_KEY  -> Google Gemini
+  OPENAI_API_KEY  -> OpenAI
   DEEPSEEK_API_KEY -> DeepSeek OpenAI-compatible API
   LLM_URL         -> Local llama.cpp / Ollama compatible endpoint
 
-LLM_MODEL env var overrides the model name for any provider.
+Each task (see TASK_TIERS) runs on a tier: fast, standard or quality. A tier
+resolves to an ordered model chain, most specific setting first:
+
+  LLM_MODEL_<TASK>  ->  LLM_MODEL_<TIER>  ->  LLM_MODEL  ->  provider default
+
+Values may list several comma-separated models. When the provider reports that
+a model is unavailable (unknown, retired, or quota exhausted after retries),
+chat() moves to the next model in the chain for the rest of the process and
+``client.model`` names the model that actually answered.
 """
 
 import logging
 import os
 import time
+from collections.abc import Mapping
+from dataclasses import dataclass
 
 import httpx
 
 log = logging.getLogger(__name__)
 
-# Defaults shared by provider detection, `doctor` and the init wizard.
-# gemini-2.0-flash was shut down on 2026-06-01; Google recommends 3.8 Flash for new projects.
-DEFAULT_GEMINI_MODEL = "gemini-3.8-flash"
-DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
-DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-pro"
+TIERS = ("fast", "standard", "quality")
+
+# Task -> tier. Extraction is high-volume and structured; judgment tasks use the
+# standard tier; candidate-facing writing uses the quality tier.
+TASK_TIERS = {
+    "extract": "fast",
+    "score": "standard",
+    "judge": "standard",
+    "interview": "standard",
+    "tailor": "quality",
+    "cover": "quality",
+    "answers": "quality",
+    "writing": "quality",
+    "career": "quality",
+}
+
+# Provider defaults per tier, checked against the providers' model pages on
+# 2026-10-25. gemini-2.0-flash was shut down on 2026-06-01; gemini-4-argon has
+# no free tier, so it is opt-in through LLM_MODEL_QUALITY rather than a default.
+PROVIDER_TIER_MODELS = {
+    "gemini": {
+        "fast": ("gemini-3.5-flash-lite", "gemini-3.1-flash-lite"),
+        "standard": ("gemini-3.8-flash", "gemini-3.6-flash"),
+        "quality": ("gemini-3.8-flash", "gemini-3.6-flash"),
+    },
+    "openai": {
+        "fast": ("gpt-4o-mini",),
+        "standard": ("gpt-4o-mini",),
+        "quality": ("gpt-4o-mini",),
+    },
+    "deepseek": {
+        "fast": ("deepseek-flash",),
+        "standard": ("deepseek-v4-pro",),
+        "quality": ("deepseek-v4-pro",),
+    },
+    "local": {
+        "fast": ("local-model",),
+        "standard": ("local-model",),
+        "quality": ("local-model",),
+    },
+}
+
+# Defaults shown by `doctor` and offered by the init wizard.
+DEFAULT_GEMINI_MODEL = PROVIDER_TIER_MODELS["gemini"]["standard"][0]
+DEFAULT_OPENAI_MODEL = PROVIDER_TIER_MODELS["openai"]["standard"][0]
+DEFAULT_DEEPSEEK_MODEL = PROVIDER_TIER_MODELS["deepseek"]["standard"][0]
 
 # ---------------------------------------------------------------------------
 # Provider detection
 # ---------------------------------------------------------------------------
 
-def _detect_provider() -> tuple[str, str, str]:
-    """Return (base_url, model, api_key) based on environment variables.
 
-    Reads env at call time (not module import time) so that load_env() called
-    in _bootstrap() is always visible here.
-    """
-    gemini_key = os.environ.get("GEMINI_API_KEY", "")
-    openai_key = os.environ.get("OPENAI_API_KEY", "")
-    deepseek_key = os.environ.get("DEEPSEEK_API_KEY", "")
-    local_url = os.environ.get("LLM_URL", "")
-    model_override = os.environ.get("LLM_MODEL", "")
+@dataclass(frozen=True)
+class ModelRoute:
+    """The resolved model chain for one task."""
 
-    if gemini_key and not local_url:
-        return (
-            "https://generativelanguage.googleapis.com/v1beta/openai",
-            model_override or DEFAULT_GEMINI_MODEL,
-            gemini_key,
-        )
+    task: str
+    tier: str
+    provider: str
+    models: tuple[str, ...]
+    source: str
 
-    if openai_key and not local_url:
-        return (
-            "https://api.openai.com/v1",
-            model_override or DEFAULT_OPENAI_MODEL,
-            openai_key,
-        )
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "task": self.task,
+            "tier": self.tier,
+            "provider": self.provider,
+            "models": list(self.models),
+            "source": self.source,
+        }
 
-    if deepseek_key and not local_url:
-        return (
-            os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/"),
-            model_override or DEFAULT_DEEPSEEK_MODEL,
-            deepseek_key,
-        )
 
+def _provider_credentials(environ: Mapping[str, str]) -> tuple[str, str, str]:
+    """Return (provider, base_url, api_key) from environment variables."""
+    local_url = environ.get("LLM_URL", "")
+    if environ.get("GEMINI_API_KEY") and not local_url:
+        return "gemini", "https://generativelanguage.googleapis.com/v1beta/openai", environ["GEMINI_API_KEY"]
+    if environ.get("OPENAI_API_KEY") and not local_url:
+        return "openai", "https://api.openai.com/v1", environ["OPENAI_API_KEY"]
+    if environ.get("DEEPSEEK_API_KEY") and not local_url:
+        base_url = environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
+        return "deepseek", base_url, environ["DEEPSEEK_API_KEY"]
     if local_url:
-        return (
-            local_url.rstrip("/"),
-            model_override or "local-model",
-            os.environ.get("LLM_API_KEY", ""),
-        )
-
+        return "local", local_url.rstrip("/"), environ.get("LLM_API_KEY", "")
     raise RuntimeError(
         "No LLM provider configured. "
         "Set GEMINI_API_KEY, OPENAI_API_KEY, DEEPSEEK_API_KEY, or LLM_URL in your environment."
     )
+
+
+def _model_chain(raw: str) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(item.strip() for item in raw.split(",") if item.strip()))
+
+
+def resolve_model_route(task: str | None = None, *, environ: Mapping[str, str] | None = None) -> ModelRoute:
+    """Resolve the model chain for ``task`` (None means the standard tier)."""
+    environment = os.environ if environ is None else environ
+    name = (task or "default").strip().casefold()
+    if task is None:
+        tier = "standard"
+    elif name in TASK_TIERS:
+        tier = TASK_TIERS[name]
+    else:
+        raise ValueError(f"unknown LLM task {task!r}; expected one of {', '.join(sorted(TASK_TIERS))}")
+    provider, _base_url, _api_key = _provider_credentials(environment)
+    variables = [f"LLM_MODEL_{tier.upper()}", "LLM_MODEL"]
+    if task is not None:
+        variables.insert(0, f"LLM_MODEL_{name.upper()}")
+    for variable in variables:
+        models = _model_chain(environment.get(variable, ""))
+        if models:
+            return ModelRoute(name, tier, provider, models, variable)
+    return ModelRoute(name, tier, provider, PROVIDER_TIER_MODELS[provider][tier], "provider_default")
+
+
+def _detect_provider(task: str | None = None) -> tuple[str, str, str]:
+    """Return (base_url, first model, api_key) for ``task``.
+
+    Reads env at call time (not module import time) so that load_env() called
+    in _bootstrap() is always visible here.
+    """
+    _provider, base_url, api_key = _provider_credentials(os.environ)
+    return base_url, resolve_model_route(task).models[0], api_key
 
 
 # ---------------------------------------------------------------------------
@@ -97,12 +176,22 @@ class LLMClient:
     happens with preview/experimental models not exposed via compat), it
     automatically switches to the native generateContent API and stays there
     for the lifetime of the process.
+
+    ``fallback_models`` are tried in order by chat() when the provider reports
+    the current model unavailable; the switch also lasts for the process.
     """
 
-    def __init__(self, base_url: str, model: str, api_key: str) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        api_key: str,
+        fallback_models: tuple[str, ...] = (),
+    ) -> None:
         self.base_url = base_url
         self.model = model
         self.api_key = api_key
+        self._fallback_models: list[str] = [item for item in fallback_models if item != model]
         request_timeout = float(os.environ.get("APPLYPILOT_LLM_TIMEOUT_SECONDS", str(_TIMEOUT)))
         self._client = httpx.Client(timeout=request_timeout)
         # True once we've confirmed the native Gemini API works for this model
@@ -257,6 +346,36 @@ class LLMClient:
         reasoning_effort: str | None = None,
     ) -> str:
         """Send a chat completion request and return the assistant message text."""
+        while True:
+            try:
+                return self._chat_current_model(
+                    messages,
+                    temperature,
+                    max_tokens,
+                    response_format=response_format,
+                    thinking=thinking,
+                    reasoning_effort=reasoning_effort,
+                )
+            except httpx.HTTPStatusError as exc:
+                if not self._fallback_models or not _model_unavailable(exc.response):
+                    raise
+                unavailable = self.model
+                self.model = self._fallback_models.pop(0)
+                self._use_native_gemini = False
+                log.warning(
+                    "LLM model '%s' is unavailable (HTTP %s). Falling back to '%s' for this process.",
+                    unavailable, exc.response.status_code, self.model,
+                )
+
+    def _chat_current_model(
+        self,
+        messages: list[dict],
+        temperature: float,
+        max_tokens: int,
+        response_format: dict | None,
+        thinking: dict | None,
+        reasoning_effort: str | None,
+    ) -> str:
         # Qwen3 optimization: prepend /no_think to skip chain-of-thought
         # reasoning, saving tokens on structured extraction tasks.
         if "qwen" in self.model.lower() and messages:
@@ -403,6 +522,34 @@ class LLMClient:
         self._client.close()
 
 
+_UNAVAILABLE_MODEL_MARKERS = (
+    "not found",
+    "does not exist",
+    "not supported",
+    "deprecated",
+    "decommissioned",
+    "no longer available",
+    "invalid model",
+)
+
+
+def _model_unavailable(resp: httpx.Response) -> bool:
+    """Return whether ``resp`` says this model cannot serve requests now.
+
+    chat() retries 429 before raising it, so a raised 429 means the model's
+    quota is exhausted rather than a momentary burst.
+    """
+    if resp.status_code in (404, 410, 429):
+        return True
+    if resp.status_code != 400:
+        return False
+    try:
+        text = resp.text.casefold()
+    except httpx.ResponseNotRead:
+        return False
+    return "model" in text and any(marker in text for marker in _UNAVAILABLE_MODEL_MARKERS)
+
+
 class _GeminiCompatForbidden(Exception):
     """Sentinel: Gemini OpenAI-compat returned 403. Switch to native API."""
     def __init__(self, response: httpx.Response) -> None:
@@ -414,14 +561,31 @@ class _GeminiCompatForbidden(Exception):
 # Singleton
 # ---------------------------------------------------------------------------
 
-_instance: LLMClient | None = None
+_instances: dict[tuple[str, tuple[str, ...]], LLMClient] = {}
 
 
-def get_client() -> LLMClient:
-    """Return (or create) the module-level LLMClient singleton."""
-    global _instance
-    if _instance is None:
-        base_url, model, api_key = _detect_provider()
-        log.info("LLM provider: %s  model: %s", base_url, model)
-        _instance = LLMClient(base_url, model, api_key)
-    return _instance
+def create_client(task: str | None = None) -> LLMClient:
+    """Create a new client for ``task`` from the current environment.
+
+    Callers that may run under several workspaces in one process use this
+    instead of get_client() and close the client themselves.
+    """
+    base_url, model, api_key = _detect_provider(task)
+    route = resolve_model_route(task)
+    fallbacks = route.models[1:] if route.models[0] == model else ()
+    return LLMClient(base_url, model, api_key, fallback_models=fallbacks)
+
+
+def get_client(task: str | None = None) -> LLMClient:
+    """Return the process-wide client for ``task``'s model chain.
+
+    Tasks that resolve to the same chain share one client, so a fallback
+    learned by one of them applies to all.
+    """
+    route = resolve_model_route(task)
+    _provider, base_url, _api_key = _provider_credentials(os.environ)
+    key = (base_url, route.models)
+    if key not in _instances:
+        log.info("LLM provider: %s  task: %s  models: %s", base_url, route.task, ", ".join(route.models))
+        _instances[key] = create_client(task)
+    return _instances[key]

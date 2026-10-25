@@ -663,7 +663,7 @@ generic writing, or weak JD focus despite stronger supplied evidence."""
             ),
         },
     ]
-    client = get_client()
+    client = get_client(task="judge")
     response = client.chat(
         messages,
         max_tokens=int(os.environ.get("APPLYPILOT_QUALITY_JUDGE_MAX_TOKENS", "2048")),
@@ -771,7 +771,7 @@ def judge_tailored_resume(
         )},
     ]
 
-    client = get_client()
+    client = get_client(task="judge")
     max_tokens = int(os.environ.get("APPLYPILOT_JUDGE_MAX_TOKENS", "4096"))
     response = client.chat(
         messages,
@@ -1089,7 +1089,7 @@ the supplied resume data. Change only the explicitly allowed fields. Preserve ev
 byte-for-byte in meaning and structure. Resolve only the listed issues, obey the content plan,
 and use candidate evidence only. Do not add employers, projects, titles, dates, tools, metrics,
 ownership, or outcomes. This is one bounded repair pass, not a complete rewrite."""
-    client = get_client()
+    client = get_client(task="tailor")
     response = client.chat(
         [
             {"role": "system", "content": prompt},
@@ -1186,7 +1186,7 @@ def tailor_resume(
     if str(job.get("tailor_error") or "").strip():
         avoid_notes.append(str(job["tailor_error"]).strip())
     tailored = ""
-    client = get_client()
+    client = get_client(task="tailor")
     repair_limit = max(
         0, int(os.environ.get("APPLYPILOT_LOCAL_REPAIR_LIMIT", "1"))
     )

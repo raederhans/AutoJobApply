@@ -492,7 +492,7 @@ def extract_with_llm(page, url: str) -> dict:
     )
 
     try:
-        client = get_client()
+        client = get_client(task="extract")
         t0 = time.time()
         raw = client.ask(prompt, temperature=0.0, max_tokens=4096)
         elapsed = time.time() - t0
