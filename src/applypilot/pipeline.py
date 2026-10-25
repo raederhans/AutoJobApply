@@ -24,6 +24,7 @@ from rich.table import Table
 from applypilot.config import ensure_dirs, load_env, load_profile
 from applypilot.database import get_connection, get_stats, init_db
 from applypilot.eligibility import ELIGIBLE_SQL
+from applypilot.storage.detail_retry import DETAIL_PENDING_SQL
 
 log = logging.getLogger(__name__)
 console = Console()
@@ -257,7 +258,7 @@ class _StageTracker:
 
 # SQL to count pending work for each stage
 _PENDING_SQL: dict[str, str] = {
-    "enrich": f"SELECT COUNT(*) FROM jobs WHERE detail_scraped_at IS NULL AND {ELIGIBLE_SQL}",
+    "enrich": f"SELECT COUNT(*) FROM jobs WHERE {DETAIL_PENDING_SQL} AND {ELIGIBLE_SQL}",
     "score":  f"SELECT COUNT(*) FROM jobs WHERE full_description IS NOT NULL AND fit_score IS NULL AND {ELIGIBLE_SQL}",
     "tailor": (
         "SELECT COUNT(*) FROM jobs WHERE fit_score >= ? "
