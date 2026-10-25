@@ -88,6 +88,29 @@ def test_load_employers_reads_registry(monkeypatch, tmp_path) -> None:
     assert workday.load_employers()["acme"]["name"] == "Acme Corp"
 
 
+def test_workspace_employers_replace_shipped_registry(monkeypatch, tmp_path) -> None:
+    shipped = tmp_path / "shipped"
+    workspace = tmp_path / "workspace"
+    shipped.mkdir()
+    workspace.mkdir()
+    (shipped / "employers.yaml").write_text("employers:\n  td:\n    name: TD Bank\n", encoding="utf-8")
+    (workspace / "employers.yaml").write_text("employers:\n  acme:\n    name: Acme Corp\n", encoding="utf-8")
+    monkeypatch.setattr(workday, "CONFIG_DIR", shipped)
+    monkeypatch.setattr(workday.config, "APP_DIR", workspace)
+
+    assert workday.load_employers() == {"acme": {"name": "Acme Corp"}}
+
+
+def test_shipped_employers_used_without_workspace_registry(monkeypatch, tmp_path) -> None:
+    shipped = tmp_path / "shipped"
+    shipped.mkdir()
+    (shipped / "employers.yaml").write_text("employers:\n  td:\n    name: TD Bank\n", encoding="utf-8")
+    monkeypatch.setattr(workday, "CONFIG_DIR", shipped)
+    monkeypatch.setattr(workday.config, "APP_DIR", tmp_path / "empty-workspace")
+
+    assert workday.load_employers() == {"td": {"name": "TD Bank"}}
+
+
 @pytest.mark.parametrize("content", ["", "# only a comment\n", "employers:\n", "other: 1\n"])
 def test_load_employers_treats_empty_config_as_no_employers(monkeypatch, tmp_path, content) -> None:
     monkeypatch.setattr(workday, "CONFIG_DIR", tmp_path)

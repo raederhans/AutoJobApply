@@ -24,6 +24,7 @@ def run_doctor(runtime: ModuleType) -> None:
         get_chrome_path,
         load_env,
     )
+    from applypilot.llm import DEFAULT_DEEPSEEK_MODEL, DEFAULT_GEMINI_MODEL, DEFAULT_OPENAI_MODEL
 
     load_env()
 
@@ -89,13 +90,13 @@ def run_doctor(runtime: ModuleType) -> None:
     has_deepseek = bool(os.environ.get("DEEPSEEK_API_KEY"))
     has_local = bool(os.environ.get("LLM_URL"))
     if has_gemini:
-        model = os.environ.get("LLM_MODEL", "gemini-2.0-flash")
+        model = os.environ.get("LLM_MODEL", DEFAULT_GEMINI_MODEL)
         results.append(("LLM API key", ok_mark, f"Gemini ({model})"))
     elif has_openai:
-        model = os.environ.get("LLM_MODEL", "gpt-4o-mini")
+        model = os.environ.get("LLM_MODEL", DEFAULT_OPENAI_MODEL)
         results.append(("LLM API key", ok_mark, f"OpenAI ({model})"))
     elif has_deepseek:
-        model = os.environ.get("LLM_MODEL", "deepseek-v4-pro")
+        model = os.environ.get("LLM_MODEL", DEFAULT_DEEPSEEK_MODEL)
         results.append(("LLM API key", ok_mark, f"DeepSeek ({model})"))
     elif has_local:
         results.append(("LLM API key", ok_mark, f"Local: {os.environ.get('LLM_URL')}"))

@@ -75,6 +75,15 @@ def test_deepseek_provider_detection(monkeypatch) -> None:
     assert config.has_llm_provider() is True
 
 
+def test_gemini_default_model_is_not_retired(monkeypatch) -> None:
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-only")
+
+    _, model, _ = llm._detect_provider()
+    assert model == llm.DEFAULT_GEMINI_MODEL
+    assert model != "gemini-2.0-flash"
+
+
 def test_remote_custom_endpoint_requires_key(monkeypatch) -> None:
     _clear_llm_env(monkeypatch)
     monkeypatch.setenv("LLM_URL", "https://example.invalid/v1")

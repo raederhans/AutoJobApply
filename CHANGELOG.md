@@ -93,6 +93,11 @@ All notable changes to Job Apply Pilot will be documented in this file.
 
 ### Fixed
 
+- The Gemini default model is now `gemini-3.8-flash`; the previous default,
+  `gemini-2.0-flash`, was shut down by Google on 2026-06-01. `doctor` and `init`
+  share the same defaults. An explicit `LLM_MODEL` still wins.
+- Workday discovery reads `employers.yaml` from the active workspace when present,
+  replacing the shipped registry, so a custom employer list survives reinstalls.
 - `apply --agent-backend claude` runs again. Since 0.5 the subprocess launch check
   rejected the empty `--tools ""` argument the Claude CLI needs, so every Claude turn
   failed before the CLI started.
