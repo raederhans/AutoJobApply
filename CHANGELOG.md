@@ -98,7 +98,8 @@ All notable changes to Job Apply Pilot will be documented in this file.
   the AI step updates only its own keys in an existing `.env`, keeping unrelated lines
   and commenting out a competing provider key instead of discarding the file.
 - Development-only experiments and benchmarks (harness evaluation and measurement,
-  dry-run, session-aging, runtime-cell diagnostics and unwired fast paths) moved from
+  dry-run, session-aging, runtime-cell diagnostics, the P4 no-submit worker cohort and
+  unwired fast paths) moved from
   `applypilot.apply` to a separate `applypilot_lab` source package that is not part of
   the installed wheel. No user command changed.
 - Launcher failure classification, ATS application context and Agent turn journaling
