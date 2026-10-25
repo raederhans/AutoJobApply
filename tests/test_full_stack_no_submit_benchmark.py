@@ -8,20 +8,20 @@ import pytest
 from typer.testing import CliRunner
 
 from applypilot import cli
-from applypilot.apply import launcher
-from applypilot.apply.full_stack_no_submit_benchmark import (
-    CohortMetricCollector,
-    _evaluate_admission,
-    load_fixture,
-    run_full_stack_no_submit_benchmark,
-)
-from applypilot.apply.p4_no_submit_worker import ATTRIBUTION_SCHEMA_VERSION
 from applypilot.apply.performance_governor import (
     DEFAULT_THRESHOLDS,
     REPORT_SCHEMA_VERSION,
     AdmissionManifest,
     PerformanceGovernor,
 )
+from applypilot_lab import p4_no_submit_worker
+from applypilot_lab.full_stack_no_submit_benchmark import (
+    CohortMetricCollector,
+    _evaluate_admission,
+    load_fixture,
+    run_full_stack_no_submit_benchmark,
+)
+from applypilot_lab.p4_no_submit_worker import ATTRIBUTION_SCHEMA_VERSION
 
 FIXTURE = Path(__file__).parent / "fixtures" / "benchmarks" / "applypilot_full_stack_no_submit_v1.json"
 
@@ -77,7 +77,7 @@ def test_fixture_is_exact_matched_workday_smartrecruiters_cohort() -> None:
 
 
 @pytest.mark.browser
-def test_launcher_worker_crosses_p1_p2_p3_without_submit_authority(tmp_path: Path) -> None:
+def test_p4_worker_crosses_p1_p2_p3_without_submit_authority(tmp_path: Path) -> None:
     root = tmp_path / "isolated"
     root.mkdir()
     tasks = (
@@ -87,7 +87,7 @@ def test_launcher_worker_crosses_p1_p2_p3_without_submit_authority(tmp_path: Pat
         {"task_id": "crash", "provider": "smartrecruiters", "scenario": "crash_recovery"},
     )
 
-    results = launcher.run_p4_no_submit_worker(
+    results = p4_no_submit_worker.run_p4_no_submit_worker(
         worker_id=0,
         tasks=tasks,
         cohort_id="focused",

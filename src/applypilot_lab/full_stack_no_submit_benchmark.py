@@ -25,13 +25,13 @@ from pathlib import Path
 from typing import Any
 
 from applypilot.apply import agent_runtime
-from applypilot.apply.p4_no_submit_worker import ATTRIBUTION_SCHEMA_VERSION
 from applypilot.apply.performance_governor import (
     DEFAULT_THRESHOLDS,
     REPORT_SCHEMA_VERSION,
     AdmissionManifest,
     PerformanceGovernor,
 )
+from applypilot_lab.p4_no_submit_worker import ATTRIBUTION_SCHEMA_VERSION
 
 SUPPORTED_WORKERS = (1, 2, 4)
 FIXTURE_SCHEMA_VERSION = "applypilot-full-stack-fixture/v1"
@@ -345,7 +345,7 @@ def _cohort(
     cohort_id: str,
     root: Path,
 ) -> dict[str, object]:
-    from applypilot.apply import launcher
+    from applypilot_lab import p4_no_submit_worker
 
     data_root = root / "data"
     profile_root = root / "profiles"
@@ -358,7 +358,7 @@ def _cohort(
     )
     db_path = data_root / "cohort.sqlite3"
     collector = CohortMetricCollector()
-    launcher.initialize_p4_no_submit_database(db_path)
+    p4_no_submit_worker.initialize_p4_no_submit_database(db_path)
     submit_lane = threading.Semaphore(1)
     partitions = [list(tasks[index::workers]) for index in range(workers)]
     sampler = _RssSampler()
@@ -369,7 +369,7 @@ def _cohort(
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix=f"p4-cohort-{workers}") as pool:
             futures = [
                 pool.submit(
-                    launcher.run_p4_no_submit_worker,
+                    p4_no_submit_worker.run_p4_no_submit_worker,
                     worker_id=worker_id,
                     tasks=partition,
                     cohort_id=cohort_id,
