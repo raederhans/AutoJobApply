@@ -1635,7 +1635,9 @@ def browser_session(
 
 
 @app.command()
-def status() -> None:
+def status(
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
     """Show pipeline statistics from the database."""
     _bootstrap()
 
@@ -1649,6 +1651,9 @@ def status() -> None:
         dry_run=False,
         profile=app_config.load_profile(),
     )
+    if json_output:
+        _print_json(data={**stats, "admission_ready": admission_ready})
+        return
 
     console.print("\n[bold]Job Apply Pilot Pipeline Status[/bold]\n")
 
@@ -2173,9 +2178,11 @@ def attended_plan(
 
 
 @app.command()
-def doctor() -> None:
+def doctor(
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
     """Check your setup and diagnose missing requirements."""
-    return _command_module("doctor").run_doctor(sys.modules[__name__])
+    return _command_module("doctor").run_doctor(sys.modules[__name__], json_output=json_output)
 
 
 if __name__ == "__main__":

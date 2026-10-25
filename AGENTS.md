@@ -18,6 +18,24 @@
   incomplete email plan must fail closed and must never fall back to browser-form
   auditing or sending.
 
+## Subagent delegation
+
+- Project subagents live in `.codex/agents/` (Codex) with Claude Code mirrors in
+  `.claude/agents/`. Use them to put cheap, repeatable work on a lighter model:
+  `applypilot-job-scout` (lead collection from visible pages into a lead JSON file),
+  `applypilot-fit-reviewer` (second look at a borderline score) and
+  `applypilot-materials-reviewer` (evidence check of a candidate-facing draft).
+- The parent session keeps every authority: running `..un.ps1` / `..un-radar.ps1`,
+  imports with `-AttendedReview`, scoring decisions, browser form work, final clicks,
+  receipts, CAPTCHA handoffs and anything touching credentials or identity material.
+  Codex subagents inherit the parent's sandbox, so these limits are instructions, not
+  enforcement; do not delegate work that would need them.
+- Subagent output is a claim. Check the lead file, quotes and cited evidence against
+  the pages or CLI output before importing or acting on it.
+- Feed subagents CLI JSON rather than screenshots of terminal tables: `status --json`,
+  `doctor --json`, `score-job`, `tailor-job`, `writing` and `radar` commands all emit
+  JSON. `doctor --json` also lists the model chain each CLI task will use.
+
 ## Discovery and employer coverage
 
 - With a reviewed job description but an unusable application entry, consider

@@ -343,7 +343,7 @@ def judge_api_responses(api_responses: list[dict]) -> list[dict]:
     if not api_responses:
         return []
 
-    client = get_client()
+    client = get_client(task="extract")
     relevant: list[dict] = []
 
     for resp in api_responses:
@@ -626,7 +626,7 @@ PAGE HTML:
 
 def ask_llm(prompt: str) -> tuple[str, float, dict]:
     """Send prompt to LLM. Returns (response_text, seconds_taken, metadata)."""
-    client = get_client()
+    client = get_client(task="extract")
     t0 = time.time()
     text = client.ask(prompt, temperature=0.0, max_tokens=4096)
     elapsed = time.time() - t0

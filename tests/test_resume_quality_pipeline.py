@@ -225,7 +225,7 @@ def test_cross_review_combines_independent_fact_and_quality_verdicts(monkeypatch
             return json.dumps(self.responses.pop(0))
 
     client = FakeClient()
-    monkeypatch.setattr(tailor, "get_client", lambda: client)
+    monkeypatch.setattr(tailor, "get_client", lambda task=None: client)
     result = tailor.judge_tailored_resume(
         resume,
         resume,
@@ -541,7 +541,7 @@ Example University, Master of Computing, 2027
             return json.dumps(self.responses.pop(0))
 
     client = FakeClient()
-    monkeypatch.setattr(tailor, "get_client", lambda: client)
+    monkeypatch.setattr(tailor, "get_client", lambda task=None: client)
     monkeypatch.setattr(
         tailor,
         "judge_tailored_resume",

@@ -8,20 +8,20 @@ import pytest
 from typer.testing import CliRunner
 
 from applypilot import cli
-from applypilot.apply import launcher
-from applypilot.apply.full_stack_no_submit_benchmark import (
-    CohortMetricCollector,
-    _evaluate_admission,
-    load_fixture,
-    run_full_stack_no_submit_benchmark,
-)
-from applypilot.apply.p4_no_submit_worker import ATTRIBUTION_SCHEMA_VERSION
 from applypilot.apply.performance_governor import (
     DEFAULT_THRESHOLDS,
     REPORT_SCHEMA_VERSION,
     AdmissionManifest,
     PerformanceGovernor,
 )
+from applypilot_lab import p4_no_submit_worker
+from applypilot_lab.full_stack_no_submit_benchmark import (
+    CohortMetricCollector,
+    _evaluate_admission,
+    load_fixture,
+    run_full_stack_no_submit_benchmark,
+)
+from applypilot_lab.p4_no_submit_worker import ATTRIBUTION_SCHEMA_VERSION
 
 FIXTURE = Path(__file__).parent / "fixtures" / "benchmarks" / "applypilot_full_stack_no_submit_v1.json"
 
@@ -77,7 +77,7 @@ def test_fixture_is_exact_matched_workday_smartrecruiters_cohort() -> None:
 
 
 @pytest.mark.browser
-def test_launcher_worker_crosses_p1_p2_p3_without_submit_authority(tmp_path: Path) -> None:
+def test_p4_worker_crosses_p1_p2_p3_without_submit_authority(tmp_path: Path) -> None:
     root = tmp_path / "isolated"
     root.mkdir()
     tasks = (
@@ -87,7 +87,7 @@ def test_launcher_worker_crosses_p1_p2_p3_without_submit_authority(tmp_path: Pat
         {"task_id": "crash", "provider": "smartrecruiters", "scenario": "crash_recovery"},
     )
 
-    results = launcher.run_p4_no_submit_worker(
+    results = p4_no_submit_worker.run_p4_no_submit_worker(
         worker_id=0,
         tasks=tasks,
         cohort_id="focused",
@@ -253,3 +253,23 @@ def test_thresholds_match_the_promotion_contract() -> None:
         "submit_lane_wait_max_ms_max": 1000.0,
         "submit_lane_hold_p95_ms_max": 200.0,
     }
+
+
+def test_source_manifest_covers_the_relocated_lab_modules(tmp_path: Path) -> None:
+    from applypilot_lab import full_stack_no_submit_benchmark as benchmark
+
+    apply_dir = tmp_path / "src" / "applypilot" / "apply"
+    lab_dir = tmp_path / "src" / "applypilot_lab"
+    apply_dir.mkdir(parents=True)
+    lab_dir.mkdir(parents=True)
+    (apply_dir / "launcher.py").write_text("x = 1\n", encoding="utf-8")
+    for name in ("p4_no_submit_worker.py", "full_stack_no_submit_benchmark.py"):
+        (lab_dir / name).write_text("y = 1\n", encoding="utf-8")
+    before = benchmark._source_manifest_sha256(tmp_path)
+
+    (lab_dir / "p4_no_submit_worker.py").write_text("y = 2\n", encoding="utf-8")
+    after_worker = benchmark._source_manifest_sha256(tmp_path)
+    (lab_dir / "full_stack_no_submit_benchmark.py").write_text("y = 3\n", encoding="utf-8")
+
+    assert after_worker != before
+    assert benchmark._source_manifest_sha256(tmp_path) != after_worker
