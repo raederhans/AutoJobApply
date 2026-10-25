@@ -561,13 +561,15 @@ def render_pdf(
     """
     from playwright.sync_api import sync_playwright
 
+    from applypilot.browser_launch import launch_chromium
+
     def advise(message: str) -> None:
         if layout_warnings is not None:
             layout_warnings.append(message)
         log.warning("Resume layout review: %s", message)
 
     with sync_playwright() as p:
-        browser = p.chromium.launch()
+        browser = launch_chromium(p)
         page = browser.new_page(viewport={"width": 816, "height": 1056})
         page.emulate_media(media="print")
         page.set_content(html, wait_until="networkidle")

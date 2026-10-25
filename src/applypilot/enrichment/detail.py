@@ -24,6 +24,7 @@ from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
 from applypilot import config
+from applypilot.browser_launch import launch_chromium
 from applypilot.database import init_db
 from applypilot.llm import get_client
 from applypilot.storage.detail_retry import DETAIL_DUE_SQL, DETAIL_PENDING_SQL, RATE_LIMIT_ERROR, retry_after
@@ -145,7 +146,7 @@ def resolve_wttj_urls(conn: sqlite3.Connection) -> int:
                 log.debug("Ignoring malformed WTTJ Algolia response", exc_info=True)
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = launch_chromium(p, headless=True)
         page = browser.new_page(user_agent=UA)
         page.on("response", capture_algolia)
         page.goto(
@@ -758,7 +759,7 @@ def scrape_site_batch(
             launch_opts: dict = {"headless": True}
             if _PROXY_CONFIG:
                 launch_opts["proxy"] = _PROXY_CONFIG["playwright"]
-            browser = p.chromium.launch(**launch_opts)
+            browser = launch_chromium(p, **launch_opts)
             context = browser.new_context(user_agent=UA)
             page = context.new_page()
             browser_lost = False
