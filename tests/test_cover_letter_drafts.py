@@ -227,7 +227,7 @@ def test_wrong_model_object_schema_is_rejected_before_review():
 def test_no_eligible_evidence_returns_needs_fact_without_model_call(monkeypatch):
     import applypilot.llm
 
-    monkeypatch.setattr(applypilot.llm, "get_client", lambda: pytest.fail("No facts must not load a client"))
+    monkeypatch.setattr(applypilot.llm, "get_client", lambda task=None: pytest.fail("No facts must not load a client"))
     value = context()
     value["candidate_evidence"][0]["status"] = "unresolved"
     result = generate_cover_draft(value, editorial=False)
@@ -316,6 +316,6 @@ def test_default_client_is_loaded_only_when_needed(monkeypatch):
     import applypilot.llm
 
     fake = FakeClient(draft(), review())
-    monkeypatch.setattr(applypilot.llm, "get_client", lambda: fake)
+    monkeypatch.setattr(applypilot.llm, "get_client", lambda task=None: fake)
     assert generate_cover_draft(context(), editorial=False)["status"] == "reviewed_draft"
     assert len(fake.calls) == 2

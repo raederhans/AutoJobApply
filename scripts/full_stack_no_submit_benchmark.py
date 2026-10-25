@@ -6,7 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
-from applypilot.apply.full_stack_no_submit_benchmark import (
+from applypilot_lab.full_stack_no_submit_benchmark import (
     run_full_stack_no_submit_benchmark,
 )
 

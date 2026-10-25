@@ -2605,26 +2605,6 @@ def worker_loop(
     )
 
 
-def run_p4_no_submit_worker(**kwargs):
-    """Run the isolated P4 worker through the production launcher boundary.
-
-    The implementation is imported lazily so ordinary application runs do not
-    acquire benchmark or Playwright dependencies. The isolated worker has no
-    Submit, SubmissionGate, reservation, mailbox, or receipt imports.
-    """
-
-    from applypilot.apply.p4_no_submit_worker import run_p4_no_submit_worker as run
-
-    return run(**kwargs)
-
-
-def initialize_p4_no_submit_database(db_path: Path) -> None:
-    """Initialize one explicitly supplied P4 benchmark database."""
-
-    from applypilot.apply.p4_no_submit_worker import initialize_p4_no_submit_database
-
-    initialize_p4_no_submit_database(db_path)
-
 logger = logging.getLogger(__name__)
 
 # Blocked sites loaded from config/sites.yaml

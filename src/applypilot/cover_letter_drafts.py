@@ -238,7 +238,7 @@ def generate_cover_draft(
     if client is None:
         from applypilot.llm import get_client
 
-        client = get_client()
+        client = get_client(task="cover")
     calls, repairs, responses = 0, 0, []
     draft = call_json(client, system, payload)
     calls += 1

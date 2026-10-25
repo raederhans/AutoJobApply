@@ -246,7 +246,7 @@ def score_job(
         messages[1]["content"] += "\n\nPRIOR ASSESSMENT TO REVIEW:\n" + json.dumps(review_of, ensure_ascii=False)
 
     try:
-        client = get_client()
+        client = get_client(task="score")
         # Reasoning-capable models can consume a small token budget before
         # emitting the requested structured answer, leaving `content` empty.
         # Scoring is a short structured task. A large generation budget caused

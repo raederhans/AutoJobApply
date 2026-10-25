@@ -83,7 +83,7 @@ def test_scoring_prompt_uses_configurable_explainable_qualification_penalties(
     monkeypatch.setenv("APPLYPILOT_SCORE_SENIOR_TITLE_PENALTY", "2")
     monkeypatch.setenv("APPLYPILOT_SCORE_YEARS_GAP_PER_POINT", "3")
     monkeypatch.setenv("APPLYPILOT_SCORE_YEARS_GAP_MAX_PENALTY", "4")
-    monkeypatch.setattr(scorer, "get_client", lambda: FakeClient())
+    monkeypatch.setattr(scorer, "get_client", lambda task=None: FakeClient())
 
     result = scorer.score_job(
         "Built Python workflows.",
@@ -171,7 +171,7 @@ def test_conflicting_explicit_resume_source_is_reselected_or_fails_before_llm(
     monkeypatch.setattr(scorer, "load_profile", lambda: profile)
     monkeypatch.setattr(scorer, "select_resume_source", select_source)
     monkeypatch.setattr(scorer, "current_profile_resume_fact_errors", lambda text, _profile: ["stale GPA"] if "STALE" in text else [])
-    monkeypatch.setattr(scorer, "get_client", lambda: FakeClient())
+    monkeypatch.setattr(scorer, "get_client", lambda task=None: FakeClient())
 
     result = scorer.run_scoring(limit=2)
 
@@ -373,7 +373,7 @@ def test_score_job_projects_only_confirmed_qualification_facts_to_the_model(
             }
         ],
     }
-    monkeypatch.setattr(scorer, "get_client", lambda: FakeClient())
+    monkeypatch.setattr(scorer, "get_client", lambda task=None: FakeClient())
 
     result = scorer.score_job(
         "Synthetic University candidate evidence.",
@@ -461,7 +461,7 @@ def test_incomplete_review_does_not_replace_supported_initial_score(monkeypatch,
         def chat(self, messages, **kwargs):
             return next(responses)
 
-    monkeypatch.setattr(scorer, "get_client", lambda: FakeClient())
+    monkeypatch.setattr(scorer, "get_client", lambda task=None: FakeClient())
     result = scorer.score_job_with_review(
         "Python tools", {"title": "Tools Intern", "full_description": "Python or C++; Linux preferred."},
         profile={"submission_policy": {"minimum_fit_score": 6}},
