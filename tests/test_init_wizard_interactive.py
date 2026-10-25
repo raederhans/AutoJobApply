@@ -359,7 +359,7 @@ def test_generated_search_config_is_consumed_by_discovery(
 # ---------------------------------------------------------------------------
 
 _PROVIDER_ANSWERS = {
-    "gemini": ({"Gemini API key": "g-key"}, {"GEMINI_API_KEY": "g-key", "LLM_MODEL": "gemini-2.0-flash"}),
+    "gemini": ({"Gemini API key": "g-key"}, {"GEMINI_API_KEY": "g-key", "LLM_MODEL": "gemini-3.8-flash"}),
     "openai": ({"OpenAI API key": "o-key"}, {"OPENAI_API_KEY": "o-key", "LLM_MODEL": "gpt-4o-mini"}),
     "local": (
         {"Local LLM endpoint URL": "http://localhost:8080/v1/"},

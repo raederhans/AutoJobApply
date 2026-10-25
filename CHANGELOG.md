@@ -6,6 +6,13 @@ All notable changes to Job Apply Pilot will be documented in this file.
 
 ### Added
 
+- Project subagents for agent harnesses: `.codex/agents/` defines `applypilot-job-scout`
+  (lead collection on a light model), `applypilot-fit-reviewer` (second look at a
+  borderline score) and `applypilot-materials-reviewer` (evidence check of a draft), with
+  Claude Code mirrors in `.claude/agents/`. They hold no import, form, submission or
+  credential authority; AGENTS.md records the delegation boundary.
+- `status --json` and `doctor --json` for machine-readable pipeline counts and setup
+  checks; `doctor --json` includes the model chain each CLI task resolves to.
 - `followup` for local recruiting feedback: reviewed JSON event import, per-job
   timelines, pending-event resolution, actions with timezone-aware deadlines,
   statistics, legacy history import and `.ics` export. It consumes operator-supplied
@@ -59,6 +66,15 @@ All notable changes to Job Apply Pilot will be documented in this file.
 
 ### Changed
 
+- LLM calls are routed by task tier: extraction uses the `fast` tier, scoring, resume
+  judging and interview packs `standard`, and resume tailoring, cover letters, answers,
+  writing and career suggestions `quality`. `LLM_MODEL_<TASK>`, `LLM_MODEL_<TIER>` and
+  `LLM_MODEL` override in that order and accept comma-separated fallback chains. When
+  the provider reports a model unknown, retired or out of quota after retries, the
+  next model in the chain serves the rest of the process and is the model recorded on
+  generated artifacts. With no override, DeepSeek extraction now uses `deepseek-flash`
+  and Gemini extraction `gemini-3.5-flash-lite`; other tasks keep their previous model.
+  `applypilot doctor` lists the resolved chain for every task.
 - The database now applies eight ordered migrations instead of one (posting lifecycle,
   follow-up, career, career learning, workbench and workbench publication tables, and
   detail-fetch retry state).
@@ -114,6 +130,11 @@ All notable changes to Job Apply Pilot will be documented in this file.
 
 ### Fixed
 
+- The Gemini default model is now `gemini-3.8-flash`; the previous default,
+  `gemini-2.0-flash`, was shut down by Google on 2026-06-01. `doctor` and `init`
+  share the same defaults. An explicit `LLM_MODEL` still wins.
+- Workday discovery reads `employers.yaml` from the active workspace when present,
+  replacing the shipped registry, so a custom employer list survives reinstalls.
 - `apply --agent-backend claude` runs again. Since 0.5 the subprocess launch check
   rejected the empty `--tools ""` argument the Claude CLI needs, so every Claude turn
   failed before the CLI started.

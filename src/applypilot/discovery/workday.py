@@ -3,8 +3,9 @@
 Scrapes Workday-powered career sites (TD, RBC, NVIDIA, Salesforce, etc.)
 via the undocumented CXS JSON API. Zero LLM, zero browser -- pure HTTP.
 
-Employer registry is loaded from config/employers.yaml instead of being
-hardcoded. Supports sequential search + detail fetching with proxy.
+Employer registry is loaded from the workspace employers.yaml when present,
+otherwise from the shipped config/employers.yaml. Supports sequential search
++ detail fetching with proxy.
 """
 
 import json
@@ -29,8 +30,14 @@ log = logging.getLogger(__name__)
 # -- Employer registry from YAML --------------------------------------------
 
 def load_employers() -> dict:
-    """Load Workday employer registry from config/employers.yaml."""
-    path = CONFIG_DIR / "employers.yaml"
+    """Load the Workday employer registry.
+
+    ``employers.yaml`` in the active workspace replaces the shipped
+    config/employers.yaml entirely, so a custom list survives reinstalls.
+    """
+    path = config.APP_DIR / "employers.yaml"
+    if not path.exists():
+        path = CONFIG_DIR / "employers.yaml"
     if not path.exists():
         log.warning("employers.yaml not found at %s", path)
         return {}
@@ -475,7 +482,7 @@ def scrape_employers(
 def run_workday_discovery(employers: dict | None = None, workers: int = 1) -> dict:
     """Main entry point for Workday-based corporate job discovery.
 
-    Loads employer registry from config/employers.yaml (or uses the provided
+    Loads the employer registry via load_employers() (or uses the provided
     dict), then loads search queries from the user's search config to run
     a full crawl across all employers.
 
@@ -490,7 +497,7 @@ def run_workday_discovery(employers: dict | None = None, workers: int = 1) -> di
         employers = load_employers()
 
     if not employers:
-        log.warning("No employers configured. Create config/employers.yaml.")
+        log.warning("No employers configured. Create employers.yaml in the workspace.")
         return {"found": 0, "new": 0, "existing": 0, "queries": 0}
 
     search_cfg = config.load_search_config() or {}

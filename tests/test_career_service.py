@@ -115,7 +115,12 @@ def test_cli_model_path_constructs_configured_client(prepared, monkeypatch, mode
             {"message": {"content": '{"suggestions":[]}'}, "finish_reason": "stop"}],
             "usage": {"total_tokens": 10}})
     monkeypatch.setattr(httpx.Client, "send", send)
-    monkeypatch.setattr(llm, "_detect_provider", lambda: ("https://fixture.example/v1", model, "fictional-key"))
+    for name in ("GEMINI_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY", "LLM_MODEL_QUALITY", "LLM_MODEL_CAREER"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("LLM_URL", "https://fixture.example/v1")
+    monkeypatch.setenv("LLM_API_KEY", "fictional-key")
+    monkeypatch.setenv("LLM_MODEL", model)
+    assert llm.resolve_model_route("career").models == (model,)
     result = CliRunner().invoke(app, ["--workspace", str(db.parent), "career", "diagnose", "--target-id",
                                      target["target_id"], "--use-model"])
     assert result.exit_code == 0, result.output

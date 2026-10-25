@@ -404,7 +404,7 @@ def build_evidence_plan(job: dict, evidence_sources: list[dict]) -> dict:
     payload: dict | None = None
     last_error: Exception | None = None
     for attempt in range(plan_retries + 1):
-        response = get_client().chat(messages, max_tokens=plan_tokens, temperature=0.1)
+        response = get_client(task="cover").chat(messages, max_tokens=plan_tokens, temperature=0.1)
         try:
             payload = _parse_evidence_plan_response(response)
             break
@@ -494,7 +494,7 @@ def generate_cover_letter_document(
 
     avoid_notes: list[str] = []
     last_validation: dict = {}
-    client = get_client()
+    client = get_client(task="cover")
     cl_prompt_base = _build_cover_letter_prompt(profile, surface=surface)
     personal = profile.get("personal", {})
     expected_signoff = (

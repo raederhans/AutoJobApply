@@ -47,7 +47,9 @@ applypilot dashboard
 In **Decide**, search by role or company, set a minimum fit score, and inspect the
 description and matching reasons. **Discover** shows the sources behind the queue.
 The default radar is Singapore-oriented; customize `searches.yaml` / `radar.yaml`
-for your market. See [radar configuration](multisource-radar.md).
+for your market. See [radar configuration](multisource-radar.md). To change the Workday
+employer list, put an `employers.yaml` in the workspace; it replaces the shipped
+registry entirely.
 
 Prepare materials for eligible queued jobs:
 

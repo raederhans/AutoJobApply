@@ -27,6 +27,7 @@ from applypilot.config import (
     SEARCH_CONFIG_PATH,
     ensure_dirs,
 )
+from applypilot.llm import DEFAULT_GEMINI_MODEL, DEFAULT_OPENAI_MODEL
 
 console = Console()
 
@@ -455,11 +456,11 @@ def _setup_ai_features() -> None:
     if provider == "gemini":
         api_key = Prompt.ask("Gemini API key (from aistudio.google.com)")
         updates["GEMINI_API_KEY"] = api_key
-        updates["LLM_MODEL"] = Prompt.ask("Model", default="gemini-2.0-flash")
+        updates["LLM_MODEL"] = Prompt.ask("Model", default=DEFAULT_GEMINI_MODEL)
     elif provider == "openai":
         api_key = Prompt.ask("OpenAI API key")
         updates["OPENAI_API_KEY"] = api_key
-        updates["LLM_MODEL"] = Prompt.ask("Model", default="gpt-4o-mini")
+        updates["LLM_MODEL"] = Prompt.ask("Model", default=DEFAULT_OPENAI_MODEL)
     elif provider == "local":
         updates["LLM_URL"] = Prompt.ask("Local LLM endpoint URL", default="http://localhost:8080/v1")
         updates["LLM_MODEL"] = Prompt.ask("Model name", default="local-model")

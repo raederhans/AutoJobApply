@@ -75,6 +75,15 @@ def test_deepseek_provider_detection(monkeypatch) -> None:
     assert config.has_llm_provider() is True
 
 
+def test_gemini_default_model_is_not_retired(monkeypatch) -> None:
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-only")
+
+    _, model, _ = llm._detect_provider()
+    assert model == llm.DEFAULT_GEMINI_MODEL
+    assert model != "gemini-2.0-flash"
+
+
 def test_remote_custom_endpoint_requires_key(monkeypatch) -> None:
     _clear_llm_env(monkeypatch)
     monkeypatch.setenv("LLM_URL", "https://example.invalid/v1")
@@ -2061,7 +2070,7 @@ def test_evidence_plan_retries_one_empty_model_response(monkeypatch) -> None:
             return next(responses)
 
     monkeypatch.setenv("APPLYPILOT_PLAN_MAX_RETRIES", "1")
-    monkeypatch.setattr(cover_letter, "get_client", lambda: FakeClient())
+    monkeypatch.setattr(cover_letter, "get_client", lambda task=None: FakeClient())
     source_text = (
         "Built a Python workflow with verified API outputs and human review.\n"
         "Maintained Python and SQL pipelines across ten years of transportation data."
@@ -2627,7 +2636,7 @@ def test_score_job_disables_reasoning_for_short_structured_response(monkeypatch)
             captured["kwargs"] = kwargs
             return "SCORE: 8\nKEYWORDS: Python, RAG\nREASONING: Strong direct match."
 
-    monkeypatch.setattr(scorer, "get_client", lambda: FakeClient())
+    monkeypatch.setattr(scorer, "get_client", lambda task=None: FakeClient())
 
     result = scorer.score_job(
         "Built Python and RAG systems.",
@@ -4942,7 +4951,7 @@ def test_tailoring_judge_accepts_exact_user_confirmed_skill_evidence(monkeypatch
                 }],
             })
 
-    monkeypatch.setattr(tailor, "get_client", lambda: FakeJudgeClient())
+    monkeypatch.setattr(tailor, "get_client", lambda task=None: FakeJudgeClient())
 
     result = tailor.judge_tailored_resume(
         source,
@@ -5020,7 +5029,7 @@ def test_tailoring_judge_rejects_pass_without_exact_summary_evidence(monkeypatch
                 }],
             })
 
-    monkeypatch.setattr(tailor, "get_client", lambda: FakeJudgeClient())
+    monkeypatch.setattr(tailor, "get_client", lambda task=None: FakeJudgeClient())
 
     result = tailor.judge_tailored_resume(
         source,
@@ -5065,7 +5074,7 @@ def test_tailoring_judge_accepts_exact_clause_with_semicolon_boundary(monkeypatc
                 }],
             })
 
-    monkeypatch.setattr(tailor, "get_client", lambda: FakeJudgeClient())
+    monkeypatch.setattr(tailor, "get_client", lambda task=None: FakeJudgeClient())
 
     result = tailor.judge_tailored_resume(
         source,
@@ -5112,7 +5121,7 @@ def test_tailoring_judge_ignores_extra_non_exact_quote_when_exact_evidence_exist
                 }
             )
 
-    monkeypatch.setattr(tailor, "get_client", lambda: FakeJudgeClient())
+    monkeypatch.setattr(tailor, "get_client", lambda task=None: FakeJudgeClient())
 
     result = tailor.judge_tailored_resume(
         source,
@@ -5156,7 +5165,7 @@ def test_tailoring_judge_stops_summary_before_internship_education_section(
                 }
             )
 
-    monkeypatch.setattr(tailor, "get_client", lambda: FakeJudgeClient())
+    monkeypatch.setattr(tailor, "get_client", lambda task=None: FakeJudgeClient())
 
     result = tailor.judge_tailored_resume(
         source + "\n" + sentence,
@@ -5203,7 +5212,7 @@ def test_tailoring_judge_treats_urban_planning_as_one_sector_phrase(monkeypatch)
                 }
             )
 
-    monkeypatch.setattr(tailor, "get_client", lambda: FakeJudgeClient())
+    monkeypatch.setattr(tailor, "get_client", lambda task=None: FakeJudgeClient())
 
     result = tailor.judge_tailored_resume(
         source,
@@ -5241,7 +5250,7 @@ def test_tailoring_judge_still_rejects_changed_clause_wording(monkeypatch) -> No
                 }],
             })
 
-    monkeypatch.setattr(tailor, "get_client", lambda: FakeJudgeClient())
+    monkeypatch.setattr(tailor, "get_client", lambda task=None: FakeJudgeClient())
 
     result = tailor.judge_tailored_resume(
         source,
@@ -5279,7 +5288,7 @@ def test_tailoring_judge_rejects_cross_domain_fact_splicing(monkeypatch) -> None
                 }],
             })
 
-    monkeypatch.setattr(tailor, "get_client", lambda: FakeJudgeClient())
+    monkeypatch.setattr(tailor, "get_client", lambda task=None: FakeJudgeClient())
 
     result = tailor.judge_tailored_resume(
         source,
@@ -5320,7 +5329,7 @@ def test_tailoring_judge_rejects_metric_transfer_between_source_bullets(monkeypa
                 }],
             })
 
-    monkeypatch.setattr(tailor, "get_client", lambda: FakeJudgeClient())
+    monkeypatch.setattr(tailor, "get_client", lambda task=None: FakeJudgeClient())
 
     result = tailor.judge_tailored_resume(
         source,
@@ -5587,7 +5596,7 @@ def test_strict_tailoring_never_approves_failed_judge(monkeypatch) -> None:
             import json
             return json.dumps(data)
 
-    monkeypatch.setattr(tailor, "get_client", lambda: FakeClient())
+    monkeypatch.setattr(tailor, "get_client", lambda task=None: FakeClient())
     monkeypatch.setattr(
         tailor,
         "judge_tailored_resume",
@@ -5633,7 +5642,7 @@ def test_tailoring_retries_actual_layout_failure_before_judge(monkeypatch) -> No
 
     from applypilot.scoring import pdf as pdf_renderer
 
-    monkeypatch.setattr(tailor, "get_client", lambda: FakeClient())
+    monkeypatch.setattr(tailor, "get_client", lambda task=None: FakeClient())
     monkeypatch.setattr(pdf_renderer, "convert_to_pdf", fake_pdf)
     monkeypatch.setattr(
         tailor,
