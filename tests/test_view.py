@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import re
 import sqlite3
 from pathlib import Path
 
 from applypilot import view
 from applypilot.database import close_connection, init_db
 from applypilot.view import DATA_PLACEHOLDER, collect_dashboard_data, render_dashboard
+
+FRONTEND = Path(view.__file__).parent / "frontend"
+ASSETS = FRONTEND / "assets" / "job-apply-pilot"
 
 
 def test_dashboard_is_local_self_contained_and_script_safe() -> None:
@@ -61,6 +65,8 @@ def test_dashboard_uses_job_apply_pilot_brand_assets_and_accessible_tokens() -> 
     assert "ApplyPilot Local —" not in html
     assert "Happy Pilot" not in html
 
+    tokens = (ASSETS / "tokens.css").read_text(encoding="utf-8")
+    assert 'href="assets/job-apply-pilot/tokens.css"' in html
     for token in (
         "--canvas: #f3f6fa;",
         "--surface-raised: #ffffff;",
@@ -72,14 +78,23 @@ def test_dashboard_uses_job_apply_pilot_brand_assets_and_accessible_tokens() -> 
         "--link: #175cd3;",
         "--focus: #175cd3;",
     ):
-        assert token in html
-    assert "outline: 2px solid var(--focus);" in html
-    assert "min-height: 44px;" in html
-    assert "@media (max-width: 980px)" in html
-    assert "@media (max-width: 660px)" in html
-    assert "@media (max-width: 390px)" in html
-    assert "@media (prefers-reduced-motion: reduce)" in html
-    assert "width: min(360px, 25vw);" in html
+        assert token in tokens
+    # Styles live in published assets, not inline, so the page works under a strict CSP.
+    assert "<style" not in html
+    stylesheets = re.findall(r'<link rel="stylesheet" href="([^"]+)">', html)
+    assert stylesheets == [
+        "assets/job-apply-pilot/tokens.css",
+        "assets/job-apply-pilot/dashboard.css",
+        "assets/job-apply-pilot/progress.css",
+    ]
+    dashboard_css = (ASSETS / "dashboard.css").read_text(encoding="utf-8")
+    assert "outline: 2px solid var(--focus);" in dashboard_css
+    assert "min-height: 44px;" in dashboard_css
+    assert "@media (max-width: 980px)" in dashboard_css
+    assert "@media (max-width: 660px)" in dashboard_css
+    assert "@media (max-width: 390px)" in dashboard_css
+    assert "@media (prefers-reduced-motion: reduce)" in dashboard_css
+    assert "width: min(360px, 25vw);" in dashboard_css
     assert 'const LOCALE_KEY = "applypilot.locale";' in html
     assert "applypilot reconcile-receipts --file" in html
 
@@ -285,6 +300,35 @@ def test_generation_renders_recoverable_database_error(tmp_path, monkeypatch) ->
     assert "Unable to read the local workspace" in html
     assert "applypilot doctor" in html
     assert "DatabaseError: file is not a database" in html
+
+
+def _custom_properties(css: str) -> set[str]:
+    return set(re.findall(r"(--[a-z][a-z0-9-]*)\s*:", css))
+
+
+def _used_properties(css: str) -> set[str]:
+    return set(re.findall(r"var\((--[a-z][a-z0-9-]*)", css))
+
+
+def test_dashboard_and_career_share_one_token_file() -> None:
+    tokens = (ASSETS / "tokens.css").read_text(encoding="utf-8")
+    shared = _custom_properties(tokens)
+    assert {"--brand-primary", "--text-primary", "--border-subtle", "--border-default"} <= shared
+    # One naming scheme: the old per-page aliases must not come back.
+    assert not shared & {"--ink", "--panel", "--line", "--navy", "--orange", "--paper", "--mint", "--brick"}
+
+    dashboard = (FRONTEND / "dashboard.html").read_text(encoding="utf-8")
+    career_html = (FRONTEND / "career.html").read_text(encoding="utf-8")
+    career_css = (FRONTEND / "career.css").read_text(encoding="utf-8")
+    progress_css = (ASSETS / "progress.css").read_text(encoding="utf-8")
+
+    dashboard_css = (ASSETS / "dashboard.css").read_text(encoding="utf-8")
+    assert career_html.index('href="/tokens.css"') < career_html.index('href="/career.css"')
+
+    for name, source in (("dashboard.html", dashboard), ("dashboard.css", dashboard_css), ("career.css", career_css), ("progress.css", progress_css)):
+        undefined = _used_properties(source) - shared - _custom_properties(source) - {"--index", "--fill"}
+        assert not undefined, f"{name} uses undefined tokens: {sorted(undefined)}"
+        assert not _custom_properties(source) & shared, f"{name} redefines shared tokens"
 
 
 def test_generation_publishes_job_apply_pilot_assets_beside_output(

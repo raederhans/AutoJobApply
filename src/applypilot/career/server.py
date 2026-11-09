@@ -301,7 +301,8 @@ class CareerHandler(BaseHTTPRequestHandler):
         if not self.permitted():
             return
         try:
-            assets = {"/": "career.html", "/career.html": "career.html", "/career.css": "career.css", "/career.js": "career.js",
+            assets = {"/": "career.html", "/career.html": "career.html", "/tokens.css": "assets/job-apply-pilot/tokens.css",
+                      "/career.css": "career.css", "/career.js": "career.js",
                       "/career-interviews.js": "career-interviews.js"}
             if self.path in assets:
                 path = FRONTEND / assets[self.path]

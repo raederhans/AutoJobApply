@@ -85,6 +85,19 @@ def test_http_pdf_extraction_and_invalid_document(running):
     assert bad["error"]["code"] == "text_export_required"
 
 
+def test_http_serves_shared_tokens_stylesheet_before_career_stylesheet(running):
+    _instance, client, _state, _db, _jobs = running
+    entry = client.get("/")
+    assert "style-src 'self'" in entry.headers["content-security-policy"]
+    assert "unsafe-inline" not in entry.headers["content-security-policy"]
+    assert entry.text.index('href="/tokens.css"') < entry.text.index('href="/career.css"')
+    tokens = client.get("/tokens.css")
+    assert tokens.status_code == 200
+    assert tokens.headers["content-type"].startswith("text/css")
+    assert "--brand-primary" in tokens.text
+    assert client.get("/career.css").status_code == 200
+
+
 def test_dashboard_navigation_can_open_html_but_not_read_api(running):
     _instance, client, _state, _db, _jobs = running
     headers = {"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document"}

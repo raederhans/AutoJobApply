@@ -34,6 +34,8 @@ console = Console()
 DATA_PLACEHOLDER = "__APPLYPILOT_DASHBOARD_DATA__"
 DASHBOARD_ASSET_DIRECTORY = Path("assets") / "job-apply-pilot"
 DASHBOARD_ASSET_NAMES = (
+    "tokens.css",
+    "dashboard.css",
     "progress.js",
     "progress.css",
     "echarts-6.1.0.min.js",
