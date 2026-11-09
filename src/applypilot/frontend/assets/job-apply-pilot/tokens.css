@@ -1,0 +1,52 @@
+/*
+ * Job Apply Pilot design tokens.
+ *
+ * Single source of truth shared by the Dashboard (file://, assets/job-apply-pilot/)
+ * and the Career workbench (served at /tokens.css). Load this file before the
+ * page stylesheet. Values are the existing brand values; this file only gives
+ * them one set of names.
+ *
+ * Naming: semantic names (what the value is for), no per-page aliases.
+ * Two values that were historically different between the pages keep their own
+ * tokens so rendering stays identical: --border-default (Career borders) next to
+ * --border-subtle (Dashboard borders), --error-strong (Career) next to --error
+ * (Dashboard), and --font-sans-basic (Career) next to --font-sans (Dashboard).
+ */
+:root {
+  /* Brand */
+  --brand-primary: #d83a12;
+  --brand-secondary: #0b1f3a;
+  --brand-illustration-taupe: #175cd3;
+
+  /* Surfaces */
+  --canvas: #f3f6fa;
+  --surface-raised: #ffffff;
+  --surface-sand: #e8eef6;
+
+  /* Text */
+  --text-primary: #0b1f3a;
+  --text-muted: #526176;
+
+  /* Borders */
+  --border-subtle: #cbd5e1;
+  --border-default: #d5dee9;
+  --border-soft: #dbe3ed;
+
+  /* Status and interaction */
+  --success: #0d7a60;
+  --warning: #9a6700;
+  --error: #c33c36;
+  --error-strong: #b52d26;
+  --link: #175cd3;
+  --focus: #175cd3;
+  --success-surface: #e6f1ea;
+  --warning-surface: #f7ecd5;
+  --error-surface: #f7e3e0;
+  --info-surface: #e6eef7;
+
+  /* Shape and type */
+  --radius: 12px;
+  --font-mono: "JetBrains Mono", Consolas, "SFMono-Regular", monospace;
+  --font-sans: "Source Sans 3", "Noto Sans SC", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  --font-sans-basic: "Source Sans 3", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+}
